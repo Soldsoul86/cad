@@ -17,6 +17,7 @@
 mod encoding;
 mod entity;
 mod error;
+pub mod hatch;
 mod model;
 mod reader;
 mod table;

@@ -56,7 +56,8 @@ pub fn pieces(items: &[&Item]) -> Vec<Piece> {
                 }
             }
             Shape::Point(p) => out.push(Piece::Point(*p)),
-            Shape::Text(_) => {}
+            // Text and filled areas are not lines and arcs.
+            Shape::Text(_) | Shape::Region { .. } => {}
         }
     }
     out

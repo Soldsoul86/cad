@@ -9,13 +9,25 @@
 //!     cad-app save IN.dxf OUT.dxf              save back (unchanged = identical)
 //!     cad-app diff A.dxf B.dxf [--json OUT]    list changes from A to B
 //!     cad-app --diff A.dxf B.dxf [--side]      compare A and B in the viewer
+//!     cad-app --example [--side]               compare the built-in example revisions
+//!     cad-app --diff A B --report              save the PNG change report and quit
 //!     cad-app --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
 //!
-//! On the web it runs in the canvas with id `cad_canvas`; drop a file on it.
+//! On the web it runs in the canvas with id `cad_canvas` (see `web/` and
+//! `tools/build_web.sh`); drop one file to view it or two to compare them,
+//! or add `?example` to the address to open the built-in example.
 
 mod app;
 mod compare;
+mod feedback;
+mod files;
 mod gpu;
+
+/// The product name shown in the app and its reports (a working name until
+/// one is picked).
+pub const APP_NAME: &str = "cad (working name)";
+/// Where the project lives (feedback, report footers).
+pub const REPO_URL: &str = "https://github.com/Soldsoul86/cad";
 
 #[cfg(not(target_arch = "wasm32"))]
 mod cli {
@@ -80,6 +92,9 @@ mod cli {
                         diff.unchanged,
                         diff.equivalent
                     );
+                    for n in &diff.not_compared {
+                        println!("not compared yet: {n}");
+                    }
                     match rest {
                         [flag, out] if flag == "--json" => std::fs::write(out, diff.to_json(a, b))
                             .map_err(|e| format!("{out}: {e}")),
@@ -116,6 +131,7 @@ fn main() -> std::process::ExitCode {
         };
     }
     let mut side_by_side = false;
+    let mut report_and_quit = false;
     let (bench, paths) = match args.as_slice() {
         [flag, path, rest @ ..] if flag == "--bench" => {
             let frames = rest.first().and_then(|n| n.parse().ok()).unwrap_or(600);
@@ -125,7 +141,12 @@ fn main() -> std::process::ExitCode {
             Some(app::Bench::screenshot(out.clone())),
             vec![path.clone()],
         ),
-        [flag, a, b, rest @ ..] if flag == "--diff" => {
+        [flag, rest @ ..] if flag == "--example" || (flag == "--diff" && rest.len() >= 2) => {
+            let (paths, rest) = if flag == "--example" {
+                (Vec::new(), rest)
+            } else {
+                (vec![rest[0].clone(), rest[1].clone()], &rest[2..])
+            };
             let mut bench = None;
             let mut rest = rest.iter();
             while let Some(opt) = rest.next() {
@@ -134,14 +155,17 @@ fn main() -> std::process::ExitCode {
                     (opt == "--shot").then(|| rest.next()).flatten(),
                 ) {
                     ("--side", _) => side_by_side = true,
+                    ("--report", _) => report_and_quit = true,
                     ("--shot", Some(out)) => bench = Some(app::Bench::screenshot(out.clone())),
                     _ => {
-                        eprintln!("usage: cad-app --diff A.dxf B.dxf [--side] [--shot OUT.ppm]");
+                        eprintln!(
+                            "usage: cad-app --diff A.dxf B.dxf | --example [--side] [--report] [--shot OUT.ppm]"
+                        );
                         return std::process::ExitCode::FAILURE;
                     }
                 }
             }
-            (bench, vec![a.clone(), b.clone()])
+            (bench, paths)
         }
         [path] => (None, vec![path.clone()]),
         [] => (None, Vec::new()),
@@ -152,7 +176,11 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let mut files = Vec::new();
+    let mut files = if args.first().is_some_and(|a| a == "--example") {
+        app::example_files()
+    } else {
+        Vec::new()
+    };
     for path in paths {
         match std::fs::read(&path) {
             Ok(bytes) => files.push((path, bytes)),
@@ -176,7 +204,15 @@ fn main() -> std::process::ExitCode {
     let result = eframe::run_native(
         "cad",
         options,
-        Box::new(move |cc| Ok(Box::new(app::CadApp::new(cc, files, bench, side_by_side)))),
+        Box::new(move |cc| {
+            Ok(Box::new(app::CadApp::new(
+                cc,
+                files,
+                bench,
+                side_by_side,
+                report_and_quit,
+            )))
+        }),
     );
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -198,11 +234,25 @@ fn main() {
         else {
             return;
         };
+        // `?example` in the page address opens the built-in example, so it
+        // can be shared as a link.
+        let search = eframe::web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .unwrap_or_default();
+        let files = if search
+            .trim_start_matches('?')
+            .split('&')
+            .any(|p| p == "example" || p.starts_with("example="))
+        {
+            app::example_files()
+        } else {
+            Vec::new()
+        };
         let _ = eframe::WebRunner::new()
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, Vec::new(), None, false)))),
+                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, files, None, false, false)))),
             )
             .await;
     });

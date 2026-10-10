@@ -365,7 +365,8 @@ Also settled:
     not run them.
 13. **WebAssembly from the start.** `cad-app` builds for
     `wasm32-unknown-unknown` (CI job `wasm32`, with clippy); on the web it
-    runs in the `cad_canvas` canvas of `crates/cad-app/index.html` (for
+    runs in the `cad_canvas` canvas of `crates/cad-app/index.html` (since
+    preview preparation: `web/index.html`, built by `tools/build_web.sh`; for
     trunk) and opens dropped files. The toolchain file installs the target.
 14. **`cad-app` commands.** `cad-app [FILE]` now opens the viewer; the old
     summary is `cad-app info FILE` (the validator uses it).
@@ -496,6 +497,151 @@ Also settled:
     Limitations: a changed block definition is reported in the block, not
     on each reference to it; changes inside arrays and nested blocks are
     shown on the reference.
+
+## Preview preparation
+
+1. **Changed blocks show on their references.** A change inside a named
+   block definition lists the top-level entities that show the block —
+   references to it, also through other blocks at any depth
+   (`cad_diff::block_users`) — in `Change::used_by_old` / `used_by_new`
+   (`"used_by_before"` / `"used_by"` in the JSON). Those references are
+   drawn in the change colour in the overlay and side-by-side views, the
+   change list says "shown by N reference(s): INSERT …", and "Next change"
+   zooms to them. Test: the `block_edit` pair (one CHAIR-like block edited,
+   its reference unchanged) and a nested-block unit test.
+2. **"Not compared yet"** is part of every diff (`Diff::not_compared`,
+   `"not_compared"` in the JSON, a section under the change list, the
+   CLI, and the PNG report): text styles, dimension styles and linetype
+   definitions (each with a hint: the same in both files, they differ, or
+   the counts), the other tables by name, header settings other than
+   `$INSUNITS`/`$LTSCALE`, the OBJECTS section, anonymous blocks, and
+   other sections when present. The hint compares definitions without
+   handles, so a skipped difference is pointed out rather than hidden.
+3. **Hatches: boundary plus fill, no patterns yet.** `cad_dxf::hatch`
+   reads the boundary paths of a HATCH (polyline paths with bulges; line,
+   arc, ellipse and spline edges; elevation and extrusion) from the raw
+   pairs as a read-only view — hatches stay `Unknown`, so they still
+   round-trip unchanged. Clockwise arc and ellipse edges are stored with
+   mirrored angles. The renderer draws each loop as a line and the
+   even-odd region as a new `Shape::Region`, triangulated by
+   `cad_geom::fill::even_odd_triangles` (horizontal slabs; holes and
+   islands alternate). Solid hatches are filled in the entity colour;
+   pattern hatches are filled with a dim tint of it (30 %) until patterns
+   are drawn; gradient hatches are filled in the entity colour. Fills are
+   drawn before every line (GPU: two passes; SVG: regions first), so a
+   fill never hides a line. In the diff views fills get a dim tint of the
+   change colour. A hatch whose boundary cannot be read is counted as "not
+   drawn". Checked against ezdxf: `tools/gen_hatch_fixtures.py` writes 8
+   hatches covering every boundary kind plus ezdxf's own flattening of
+   them (`tests/hatch/`); `cad-render/tests/hatches.rs` requires every
+   point of each to lie within 0.02 of the other's boundary and the areas
+   to agree within 1 %. The diff now treats hatches as shown; a pattern
+   change adds "patterns are not drawn yet".
+4. **Built-in example** (`crates/cad-app/assets/example-rev-*.dxf`, about
+   60 KB each): two revisions of a small apartment plan made by
+   `tools/gen_example.py` with ezdxf (MIT) — no ODA or third-party files.
+   Revision B is revision A edited in place, so handles are kept like a
+   real revision, and it shows each kind of change: moved door, removed
+   wall, new kitchen island, renamed room, moved label, solid floor hatch
+   changed to a pattern, edited CHAIR block (4 references), FURNITURE
+   layer colour, new dimension. One click: "Try the example" in the
+   toolbar; also `cad-app --example` and `?example` in the web address.
+5. **PNG report.** "Export PNG report" shows a report layout for a few
+   frames (header with both file names and the legend, the overlay fitted
+   to the drawings, the change list with as many changes as fit and then
+   "… and N more (see the JSON report)", the "Not compared yet" list, and
+   a footer "Made with <app name> <version> · <repository>") and captures
+   it with egui's screenshot command, so the report looks exactly like the
+   app. Encoded with the `png` crate (=0.18.1, already in the lockfile
+   through eframe). `cad-app --diff A B --report` writes it and quits.
+6. **Where exports go.** Native: next to drawing B as
+   `<B>.changes.json` / `.changes.png`, or in `~/Downloads` when B is not
+   a file on disk (the example). Web: a download created in the page
+   from the bytes in memory (a `blob:` URL; the JSON export used to copy
+   to the clipboard).
+7. **Feedback link.** "Feedback" opens
+   `…/issues/new?labels=feedback&title=…&body=…` with a template and only
+   the app name, version and platform — no file names or drawing data.
+   Native opens it with the system's `open` / `xdg-open` /
+   `url.dll,FileProtocolHandler` (eframe's `links` feature is off, and this
+   avoids a dependency); the web opens a new tab. Nothing is sent by the
+   app. No tracking or analytics anywhere.
+8. **App name in one place:** `APP_NAME` and `REPO_URL` in
+   `cad-app/src/main.rs`, used by the footer and the feedback link. The
+   product name is still the working name.
+9. **Web build without trunk.** `tools/build_web.sh` builds the wasm,
+   runs `wasm-bindgen --target web` (wasm-bindgen-cli 0.2.129, matching
+   the lockfile) and copies `web/index.html` and `web/main.js` into
+   `target/web`. The page sets a Content Security Policy that only allows
+   its own origin (`default-src 'none'; script-src 'self'
+   'wasm-unsafe-eval'; connect-src 'self'; …`), so the page cannot send
+   data to any other server even by mistake.
+10. **Browser test results (2026-10-10, macOS, this machine).**
+
+    | | Chrome 154 | Firefox 156.0.1 | Safari 18.6 |
+    |---|---|---|---|
+    | Page loads, WebGL2 canvas, text | yes | yes | yes |
+    | Built-in example (`?example`, "Try the example") | yes | yes | yes |
+    | Drop two corpus files → compare (ezdxf vs ODA, ezdxf vs LibreDWG, hatches) | yes, 3 pairs | yes, 3 pairs | yes, 2 pairs |
+    | Next change / side by side | yes | yes | yes (Next change seen in the report) |
+    | Export JSON (download) | yes | yes | yes |
+    | Export PNG report (download) | yes | yes | yes |
+    | Feedback opens a new tab with the pre-filled issue | yes | not checked | not checked |
+    | 50 MB file (275k entities) | loads and draws, ≈34 s | loads and draws, ≈47 s | loads with no errors (not seen) |
+    | Requests after a file is dropped | 0 | 0 | 0 |
+
+    Results match the desktop app (same change lists). The 50 MB file is
+    slow to open in a browser (single-threaded wasm, no streaming read);
+    it is usable but not a preview-quality experience.
+11. **How "no file data leaves the page" was checked**, three independent
+    ways, all with real corpus files dropped into the page:
+    - *The browser's own network log.* `tools/web_browser_test.mjs`
+      drives Chrome over the Chrome DevTools Protocol (`Network.
+      requestWillBeSent`, the data behind the DevTools Network panel) and
+      Firefox over WebDriver BiDi (`network.beforeRequestSent`), each in a
+      fresh profile, and lists every request. Every run: only GET
+      requests for the page's own files (`index.html`, `main.js`,
+      `cad-app.js`, `cad-app_bg.wasm`; the harness also fetches the test
+      files before dropping them), no request to any other origin, no
+      request with a body, nothing after the drop — including exporting
+      (downloads are made in the page from memory).
+    - *The page itself.* `tests/web/harness.html` (development only)
+      records the Resource Timing entries and listens for Content Security
+      Policy violations; every run in all three browsers reported 0
+      requests after the drop and 0 violations. This is the check used for
+      Safari, whose remote automation is off on this machine (enabling it
+      is a Safari setting, left to the user); Safari's results were sent
+      to the test server's log by the harness after the measurement.
+    - *The server.* `tools/web_test_server.py` logs every request with its
+      method and body size and refuses POST/PUT; the logs show only GETs
+      of the page's files (and the browsers' own automatic icon requests,
+      now pointed at `data:` icons).
+    The Content Security Policy (`connect-src 'self'`, `default-src
+    'none'`) means even a future bug could not send data to another server.
+    To repeat: `tools/build_web.sh`, `python3 tools/web_test_server.py LOG`,
+    then `node tools/web_browser_test.mjs chrome|firefox URL OUTDIR
+    [--click X,Y]...` or open `tests/web/harness.html?a=…&b=…&post` in any
+    browser.
+12. **Found and fixed while testing:** success messages ("Downloaded …")
+    were shown in red (now green); browsers asked the server for
+    `favicon.ico`/`apple-touch-icon.png` (now `data:` icons). One
+    unexplained jump of the selected change (from 1 to 6) after clicking
+    Export JSON in Chrome did not happen again in three exact re-runs.
+13. **Blockers for a private preview:**
+    - The repository is private: the Feedback link (and any issue
+      template) gives a 404 to anyone who is not a collaborator, and
+      GitHub Pages for a private repository needs a paid plan. Either add
+      testers as collaborators, make the repository public, or host the
+      web build elsewhere.
+    - The product name is still the working name ("cad (working name)",
+      in `APP_NAME`, the window title and `web/index.html`).
+    - Not done yet from the spec's preview list: CI-built installers from
+      a tag, the GitHub Pages deployment, README screenshots, issue
+      templates. The CI wasm job still only compiles (it does not run
+      `wasm-bindgen` or a browser).
+    - Large files (tens of MB) take 30–50 s to open in a browser.
+    - Safari was tested without remote automation, so only through the
+      harness (no screenshots of the live page).
 
 ## Rules for M5 (decided before M5)
 

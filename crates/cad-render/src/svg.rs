@@ -103,7 +103,11 @@ pub fn to_svg(scene: &Scene, visible: Option<&[bool]>) -> String {
         num(stroke)
     );
     let mut current_layer: Option<u32> = None;
-    for item in scene.items.iter().filter(|i| shown(i)) {
+    // Filled regions first, so every line is drawn on top of them.
+    let is_region = |i: &&Item| matches!(i.shape, Shape::Region { .. });
+    let regions = scene.items.iter().filter(is_region);
+    let rest = scene.items.iter().filter(|i| !is_region(i));
+    for item in regions.chain(rest).filter(|i| shown(i)) {
         if current_layer != Some(item.layer) {
             if current_layer.is_some() {
                 out.push_str("</g>\n");
@@ -144,6 +148,26 @@ pub fn to_svg(scene: &Scene, visible: Option<&[bool]>) -> String {
                     out,
                     r#"<polygon points="{}" fill="{color}"/>"#,
                     pts.join(" ")
+                );
+            }
+            Shape::Region { loops } => {
+                let mut d = String::new();
+                for l in loops.iter().filter(|l| l.len() >= 3) {
+                    for (i, p) in l.iter().enumerate() {
+                        let _ = write!(
+                            d,
+                            "{}{},{} ",
+                            if i == 0 { "M" } else { "L" },
+                            num(p[0]),
+                            num(p[1])
+                        );
+                    }
+                    d.push_str("Z ");
+                }
+                let _ = writeln!(
+                    out,
+                    r#"<path d="{}" fill="{color}" fill-rule="evenodd"/>"#,
+                    d.trim_end()
                 );
             }
             Shape::Point(p) => {

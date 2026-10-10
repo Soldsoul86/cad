@@ -15,6 +15,7 @@ tools/freecad_resave.py, since FreeCAD is not available everywhere.
 """
 
 import json
+import os
 import math
 import random
 import sys
@@ -168,8 +169,8 @@ def hatches(doc, e):
     msp = doc.modelspace()
     new = hatch(msp, [(5, 5), (8, 5), (8, 8), (5, 8)], "SOLID")
     return [
-        {"kind": "changed", "type": "HATCH", "handle": h(e["fill"]), "details": ["not shown", "pattern changed from ANSI31 to ANSI32"]},
-        {"kind": "added", "type": "HATCH", "handle": h(new), "details": ["not shown"]},
+        {"kind": "changed", "type": "HATCH", "handle": h(e["fill"]), "details": ["pattern changed from ANSI31 to ANSI32", "patterns are not drawn yet"]},
+        {"kind": "added", "type": "HATCH", "handle": h(new), "details": []},
     ]
 
 
@@ -180,8 +181,18 @@ def hatch_boundary(doc, e):
     # Same handle is gone; a new hatch with a different boundary replaces it.
     new = hatch(msp, [(70, 40), (95, 40), (95, 55), (70, 55)], "ANSI31")
     return [
-        {"kind": "deleted", "type": "HATCH", "handle": old, "details": ["not shown"]},
-        {"kind": "added", "type": "HATCH", "handle": h(new), "details": ["not shown"]},
+        {"kind": "deleted", "type": "HATCH", "handle": old, "details": []},
+        {"kind": "added", "type": "HATCH", "handle": h(new), "details": []},
+    ]
+
+
+def block_edit(doc, e):
+    # The block definition changes; its reference does not.
+    circle = next(x for x in doc.blocks["BOLT"] if x.dxftype() == "CIRCLE")
+    circle.dxf.radius = 3
+    return [
+        {"kind": "changed", "type": "CIRCLE", "handle": h(circle), "details": ["radius changed from 2 to 3"],
+         "used_by": [h(e["bolt"])]},
     ]
 
 
@@ -199,6 +210,11 @@ def combined(doc, e):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    # ONLY=name regenerates one pair (handles in the others stay as they are).
+    only = os.environ.get("ONLY")
+    if only:
+        pair(only, globals()[only])
+        return
     pair("moved", moves)
     pair("deleted", deletes)
     pair("added", additions)
@@ -207,6 +223,7 @@ def main():
     pair("hatches", hatches)
     pair("hatch_boundary", hatch_boundary)
     pair("combined", combined)
+    pair("block_edit", block_edit)
 
     # Same content, rebuilt in another order: new handles, new order, new
     # $HANDSEED and timestamps.

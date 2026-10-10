@@ -12,6 +12,10 @@ Viewer: drag (middle or left button) to pan, scroll or pinch to zoom around the 
 
 Compare two revisions: `cargo run --release -p cad-app -- --diff old.dxf new.dxf` (add `--side` for side by side), or drop two files on the window. The overlay shows added entities in green, deleted in red and changed in yellow; "Next change" zooms to each one, and "Export JSON" saves a change report. Without a window: `cad-app diff old.dxf new.dxf [--json report.json]`.
 
+Try it without a drawing: `cargo run --release -p cad-app -- --example` (or "Try the example" in the toolbar) compares two revisions of a sample floor plan. "Export PNG report" saves the overlay and change list as one image.
+
+Browser version: `tools/build_web.sh` (needs `cargo install wasm-bindgen-cli --version 0.2.129 --locked`), then serve `target/web` (for example `python3 -m http.server -d target/web 8080`) and open it; drop one DXF to view it or two to compare them, or add `?example` to the address. Files are read in the page and never uploaded.
+
 Rendering snapshots live in `tests/snapshots/`; after an intended rendering change, accept new ones with `UPDATE_SNAPSHOTS=1 cargo test -p cad-render --test snapshots`.
 
 The corpus in `tests/corpus/` is generated: hand-written files by `tools/gen_corpus.py`, the rest by `tools/gen_sources.py` (ezdxf) and re-saved by other CAD tools with `tools/convert_corpus.sh` — see [SOURCES.md](tests/corpus/SOURCES.md) and [COVERAGE.md](tests/corpus/COVERAGE.md). Put DXF files you can't redistribute in `tests/corpus-private/` (git-ignored); the tests load them too.

@@ -5,4 +5,5 @@
 
 pub mod bulge;
 pub mod curve;
+pub mod fill;
 pub mod transform;

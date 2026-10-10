@@ -11,6 +11,8 @@ publish.workspace = true
 cad-diff.workspace = true
 cad-dxf.workspace = true
 cad-render.workspace = true
+# PNG encoding of exported reports. MIT OR Apache-2.0.
+png = "=0.18.1"
 # UI and canvas (glow = OpenGL / WebGL2). MIT OR Apache-2.0.
 eframe = { version = "=0.36.2", default-features = false, features = ["glow", "default_fonts"] }
 
@@ -19,4 +21,5 @@ eframe = { version = "=0.36.2", default-features = false, features = ["glow", "d
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "=0.4.79"
-web-sys = { version = "=0.3.106", features = ["Document", "Element", "HtmlCanvasElement", "Window"] }
+web-sys = { version = "=0.3.106", features = ["Blob", "BlobPropertyBag", "Document", "Element", "HtmlAnchorElement", "HtmlCanvasElement", "Url", "Window"] }
+js-sys = "=0.3.106"

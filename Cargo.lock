@@ -190,6 +190,8 @@ dependencies = [
  "cad-dxf",
  "cad-render",
  "eframe",
+ "js-sys",
+ "png",
  "wasm-bindgen-futures",
  "web-sys",
 ]
@@ -230,6 +232,7 @@ version = "0.0.1"
 dependencies = [
  "cad-dxf",
  "cad-geom",
+ "serde_json",
 ]
 
 [[package]]

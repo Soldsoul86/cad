@@ -45,6 +45,13 @@ fn side(r: &Option<EntityRef>) -> String {
     }
 }
 
+fn refs(list: &[EntityRef]) -> String {
+    list.iter()
+        .map(|r| side(&Some(r.clone())))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn change(c: &Change) -> String {
     let details: Vec<String> = c.details.iter().map(|d| string(d)).collect();
     let bounds = c.bounds.map_or("null".into(), |b| {
@@ -57,7 +64,7 @@ fn change(c: &Change) -> String {
         )
     });
     format!(
-        "    {{\"kind\": {}, \"place\": {}, \"type\": {}, \"layer\": {}, \"handle\": {}, \"details\": [{}], \"geometry\": {}, \"shown\": {}, \"certain\": {}, \"old\": {}, \"new\": {}, \"bounds\": {}}}",
+        "    {{\"kind\": {}, \"place\": {}, \"type\": {}, \"layer\": {}, \"handle\": {}, \"details\": [{}], \"geometry\": {}, \"shown\": {}, \"certain\": {}, \"old\": {}, \"new\": {}, \"bounds\": {}, \"used_by_before\": [{}], \"used_by\": [{}]}}",
         string(c.kind.as_str()),
         string(&c.place.to_string()),
         string(&c.entity_type),
@@ -69,7 +76,9 @@ fn change(c: &Change) -> String {
         c.certain,
         side(&c.old),
         side(&c.new),
-        bounds
+        bounds,
+        refs(&c.used_by_old),
+        refs(&c.used_by_new)
     )
 }
 
@@ -104,6 +113,8 @@ pub fn report(d: &Diff, a: &str, b: &str) -> String {
     };
     // Entities drawn identically by other entities in the other file:
     // not changes, but listed so nothing is left out.
+    let not: Vec<String> = d.not_compared.iter().map(|n| string(n)).collect();
+    let _ = writeln!(s, "  \"not_compared\": [{}],", not.join(", "));
     let _ = writeln!(s, "  \"redrawn\": {},", list(&d.redrawn));
     let _ = writeln!(s, "  \"changes\": {}", list(&d.changes));
     s.push_str("}\n");

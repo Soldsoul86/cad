@@ -4,17 +4,13 @@
       "kind": "deleted",
       "type": "HATCH",
       "handle": "45",
-      "details": [
-        "not shown"
-      ]
+      "details": []
     },
     {
       "kind": "added",
       "type": "HATCH",
       "handle": "4B",
-      "details": [
-        "not shown"
-      ]
+      "details": []
     }
   ],
   "zero_geometry_changes": false

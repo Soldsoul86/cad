@@ -228,6 +228,14 @@ pub fn tessellate(scene: &Scene, grid: usize) -> Geometry {
                     }
                 }
             }
+            Shape::Region { loops } => {
+                for t in cad_geom::fill::even_odd_triangles(loops) {
+                    for p in t {
+                        chunk.triangles.push(local(p));
+                        chunk.triangle_colors.push(color);
+                    }
+                }
+            }
             Shape::Point(p) => {
                 chunk.points.push(local(*p));
                 chunk.point_colors.push(color);

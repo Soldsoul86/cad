@@ -70,6 +70,11 @@ pub enum Shape {
     },
     Point(P2),
     Text(TextShape),
+    /// A filled region: the even-odd combination of closed loops (hatch
+    /// fills). Drawn under all lines.
+    Region {
+        loops: Vec<Vec<P2>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +173,12 @@ impl Shape {
                 Some(b)
             }
             Shape::Point(p) => Some(Bounds::point(*p)),
+            Shape::Region { loops } => {
+                let mut points = loops.iter().flatten();
+                let mut b = Bounds::point(*points.next()?);
+                points.for_each(|p| b.add(*p));
+                Some(b)
+            }
             Shape::Text(t) => {
                 let width = t.height * 0.6 * t.width_factor * t.text.chars().count() as f64;
                 let (s, c) = t.rotation.sin_cos();

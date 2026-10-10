@@ -1,5 +1,16 @@
 # Changelog
 
+## Preview preparation (unreleased)
+
+- Visual diff: a change inside a block definition lists and highlights every reference that shows it (also through nested blocks), and "Next change" zooms to them.
+- "Not compared yet" note in the app, the JSON report (`not_compared`), the CLI and the PNG report: text styles, dimension styles and linetype definitions (with whether they differ), other tables, other header settings, objects, anonymous blocks.
+- Hatches are drawn: boundary lines plus fill (solid in the entity colour, pattern hatches as a dim tint until patterns are drawn). New `cad_dxf::hatch` boundary reader and `cad_geom::fill::even_odd_triangles`; checked against ezdxf's own flattening (`tests/hatch/`).
+- Built-in example: two revisions of a floor plan made with ezdxf ("Try the example", `cad-app --example`, `?example` on the web).
+- "Export PNG report": the overlay, change list and "not compared" note as one image with a footer naming the app; `cad-app --diff A B --report`.
+- "Feedback" button: opens a pre-filled GitHub issue in the browser (version and platform only; nothing is sent by the app). No tracking.
+- Web build: `tools/build_web.sh` (wasm-bindgen 0.2.129) and `web/index.html` with a strict Content Security Policy. Tested in Chrome 154, Firefox 156 and Safari 18.6 with corpus files; no request leaves the page after a file is opened (see DECISIONS.md).
+- Exports download in the browser; on the desktop they are saved next to drawing B (or in Downloads).
+
 ## M4b — Visual diff (unreleased)
 
 - New UI-free crate `cad-diff`: compares two drawings on their data (entities in model and paper space, named blocks, layers, units and linetype scale), matching by handle when handles are trustworthy and otherwise by type, layer and geometry within a tolerance.

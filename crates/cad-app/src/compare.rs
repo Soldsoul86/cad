@@ -35,6 +35,47 @@ pub struct Compare {
     extent: Option<Bounds>,
     /// Gap between the side-by-side panes, in points.
     gap: f32,
+    report: Report,
+}
+
+/// The PNG report: shown for a few frames, then captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Report {
+    Off,
+    Preparing(u32),
+    Capturing,
+}
+
+/// For a change inside a block: which references show it.
+fn block_refs(c: &Change) -> Option<String> {
+    if !matches!(c.place, Place::Block(_)) {
+        return None;
+    }
+    let refs: Vec<String> = c
+        .used_by_new
+        .iter()
+        .map(|r| format!("INSERT {}", r.handle.as_deref().unwrap_or("?")))
+        .collect();
+    Some(if refs.is_empty() {
+        "not used in the drawing".to_owned()
+    } else {
+        format!("shown by {} reference(s): {}", refs.len(), refs.join(", "))
+    })
+}
+
+/// A change's one-line title.
+fn title(c: &Change) -> String {
+    let mut t = format!("{} {}", c.kind.as_str(), c.entity_type);
+    if let Some(h) = c.handle() {
+        t.push_str(&format!(" {h}"));
+    }
+    if !c.layer().is_empty() && c.place != Place::Layers {
+        t.push_str(&format!(" · {}", c.layer()));
+    }
+    if c.place != Place::Model {
+        t.push_str(&format!(" · {}", c.place));
+    }
+    t
 }
 
 fn rgb(c: cad_render::Rgb) -> Color32 {
@@ -47,6 +88,12 @@ fn kind_color(c: &Change) -> Color32 {
         ChangeKind::Deleted => rgb(dview::DELETED),
         ChangeKind::Changed => rgb(dview::CHANGED),
     }
+}
+
+/// Changes with a place in model space: model entities, and changes inside
+/// blocks (zoomed to the block's references).
+fn zoomable(c: &Change) -> bool {
+    matches!(c.place, Place::Model | Place::Block(_))
 }
 
 fn short_name(path: &str) -> &str {
@@ -82,6 +129,7 @@ impl Compare {
             current: None,
             extent,
             gap: 4.0,
+            report: Report::Off,
         })
     }
 
@@ -97,7 +145,7 @@ impl Compare {
 
     /// The panes to draw in: one, or two side by side.
     pub fn panes(&self, rect: Rect) -> Vec<Rect> {
-        if !self.side_by_side {
+        if !self.side_by_side || self.reporting() {
             return vec![rect];
         }
         let half = (rect.width() - self.gap) / 2.0;
@@ -112,7 +160,7 @@ impl Compare {
     /// Where to zoom for change `i`, if it has a place in model space.
     fn zoom_for(&self, i: usize) -> Option<Bounds> {
         let c = self.diff.changes.get(i)?;
-        if c.place != Place::Model {
+        if !zoomable(c) {
             return None;
         }
         Some(dview::zoom_box(c.bounds?, self.extent, 0.05))
@@ -167,36 +215,159 @@ impl Compare {
             }
             ui.separator();
             if ui.button("Export JSON").clicked() {
-                action.message = Some(self.export(ui.ctx()));
+                action.message = Some(self.export());
+            }
+            if ui
+                .button("Export PNG report")
+                .on_hover_text("The overlay and the change list as one image")
+                .clicked()
+            {
+                self.start_report();
+                action.fit = true;
             }
             if ui.button("Close compare").clicked() {
                 action.close = true;
+            }
+            ui.separator();
+            if ui
+                .button("Feedback")
+                .on_hover_text("Opens a pre-filled issue on GitHub in your browser; nothing is sent until you submit it there")
+                .clicked()
+            {
+                action.message = crate::feedback::open(ui.ctx());
             }
         });
         action
     }
 
-    /// Writes the JSON change report next to drawing B (on the web: copies
-    /// it to the clipboard).
-    fn export(&self, ctx: &egui::Context) -> String {
+    /// Saves the JSON change report (next to drawing B, or downloaded on
+    /// the web).
+    fn export(&self) -> String {
         let json = self
             .diff
             .to_json(short_name(&self.a_name), short_name(&self.b_name));
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let _ = ctx;
-            let b = std::path::Path::new(&self.b_name);
-            let stem = b.file_stem().and_then(|s| s.to_str()).unwrap_or("drawing");
-            let out = b.with_file_name(format!("{stem}.changes.json"));
-            match std::fs::write(&out, json) {
-                Ok(()) => format!("Change report saved to {}", out.display()),
-                Err(e) => format!("{}: {e}", out.display()),
+        let name = crate::files::export_name(&self.b_name, "json");
+        crate::files::save(&self.b_name, &name, json.as_bytes(), "application/json")
+    }
+
+    /// Starts the PNG report: the next frames show the report layout,
+    /// then the window is captured.
+    pub fn start_report(&mut self) {
+        self.report = Report::Preparing(0);
+    }
+
+    pub fn reporting(&self) -> bool {
+        self.report != Report::Off
+    }
+
+    /// Called once per report frame; true when it is time to capture.
+    pub fn report_frame(&mut self) -> bool {
+        match self.report {
+            Report::Preparing(n) if n >= 3 => {
+                self.report = Report::Capturing;
+                true
+            }
+            Report::Preparing(n) => {
+                self.report = Report::Preparing(n + 1);
+                false
+            }
+            _ => false,
+        }
+    }
+
+    pub fn waiting_for_capture(&self) -> bool {
+        self.report == Report::Capturing
+    }
+
+    /// Saves the captured report and leaves the report layout.
+    pub fn finish_report(&mut self, image: &egui::ColorImage) -> String {
+        self.report = Report::Off;
+        let rgba: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
+        match crate::files::png(image.size[0], image.size[1], &rgba) {
+            Ok(png) => {
+                let name = crate::files::export_name(&self.b_name, "png");
+                crate::files::save(&self.b_name, &name, &png, "image/png")
+            }
+            Err(e) => format!("PNG report: {e}"),
+        }
+    }
+
+    /// The report's title bar.
+    pub fn report_header(&self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.heading(format!(
+                "Changes from {} to {}",
+                short_name(&self.a_name),
+                short_name(&self.b_name)
+            ));
+        });
+        ui.horizontal(|ui| {
+            ui.colored_label(rgb(dview::ADDED), "■ added");
+            ui.colored_label(rgb(dview::DELETED), "■ deleted");
+            ui.colored_label(rgb(dview::CHANGED), "■ changed");
+            ui.colored_label(rgb(dview::UNCHANGED), "■ unchanged");
+            ui.separator();
+            ui.label(self.status());
+        });
+        ui.add_space(4.0);
+    }
+
+    /// The change list for the report: no scrolling, as many changes as
+    /// fit, then a count of the rest.
+    pub fn report_list(&self, ui: &mut egui::Ui) {
+        let d = &self.diff;
+        ui.heading("Changes");
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(
+                rgb(dview::ADDED),
+                format!("{} added", d.count(ChangeKind::Added)),
+            );
+            ui.colored_label(
+                rgb(dview::DELETED),
+                format!("{} deleted", d.count(ChangeKind::Deleted)),
+            );
+            ui.colored_label(
+                rgb(dview::CHANGED),
+                format!("{} changed", d.count(ChangeKind::Changed)),
+            );
+        });
+        ui.separator();
+        // Room for the "not compared" note at the bottom.
+        let reserve = 30.0 + 16.0 * d.not_compared.len() as f32;
+        for (i, c) in d.changes.iter().enumerate() {
+            if ui.available_height() < reserve + 40.0 {
+                ui.label(format!(
+                    "… and {} more (see the JSON report)",
+                    d.changes.len() - i
+                ));
+                break;
+            }
+            ui.horizontal(|ui| {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, 2.0, kind_color(c));
+                ui.label(egui::RichText::new(title(c)).strong());
+            });
+            let details: Vec<&str> = c
+                .details
+                .iter()
+                .map(String::as_str)
+                .filter(|d| *d != "not shown")
+                .collect();
+            if !details.is_empty() {
+                ui.indent(i, |ui| ui.small(details.join("; ")));
+            }
+            if let Some(text) = block_refs(c) {
+                ui.indent((i, "refs"), |ui| {
+                    ui.small(egui::RichText::new(text).color(rgb(dview::CHANGED)))
+                });
             }
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            ctx.copy_text(json);
-            "Change report (JSON) copied to the clipboard".into()
+        ui.separator();
+        ui.small(egui::RichText::new("Not compared yet:").strong());
+        for n in &d.not_compared {
+            ui.small(format!("• {n}"));
         }
     }
 
@@ -265,16 +436,7 @@ impl Compare {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, c) in d.changes.iter().enumerate() {
                 let selected = self.current == Some(i);
-                let mut title = format!("{} {}", c.kind.as_str(), c.entity_type);
-                if let Some(h) = c.handle() {
-                    title.push_str(&format!(" {h}"));
-                }
-                if !c.layer().is_empty() && c.place != Place::Layers {
-                    title.push_str(&format!(" · {}", c.layer()));
-                }
-                if c.place != Place::Model {
-                    title.push_str(&format!(" · {}", c.place));
-                }
+                let title = title(c);
                 let response = ui
                     .horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
@@ -303,10 +465,24 @@ impl Compare {
                     if !notes.is_empty() {
                         ui.small(egui::RichText::new(notes.join(", ")).italics().color(Color32::GRAY));
                     }
+                    if let Some(text) = block_refs(c) {
+                        ui.small(egui::RichText::new(text).color(rgb(dview::CHANGED)));
+                    }
                 });
                 if selected && response.clicked() {
                     response.scroll_to_me(None);
                 }
+            }
+            if !d.not_compared.is_empty() {
+                ui.separator();
+                egui::CollapsingHeader::new(egui::RichText::new("Not compared yet").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.small("These parts of the files are not compared, so differences there are not listed above:");
+                        for n in &d.not_compared {
+                            ui.small(format!("• {n}"));
+                        }
+                    });
             }
             if !d.redrawn.is_empty() {
                 ui.separator();
@@ -347,7 +523,7 @@ impl Compare {
     }
 
     pub fn paint(&self, ui: &egui::Ui, panes: &[Rect], view: &View) {
-        let docs: Vec<(&Doc, &str)> = if self.side_by_side {
+        let docs: Vec<(&Doc, &str)> = if self.side_by_side && !self.reporting() {
             vec![(&self.left, "A (before)"), (&self.right, "B (after)")]
         } else {
             vec![(&self.overlay, "")]
@@ -355,7 +531,7 @@ impl Compare {
         let highlight = self
             .current
             .and_then(|i| self.diff.changes.get(i))
-            .filter(|c| c.place == Place::Model)
+            .filter(|c| zoomable(c))
             .and_then(|c| c.bounds);
         for (&rect, (doc, label)) in panes.iter().zip(docs) {
             doc.paint(ui, rect, view);
@@ -385,7 +561,7 @@ impl Compare {
                 );
             }
         }
-        if self.side_by_side && panes.len() == 2 {
+        if panes.len() == 2 {
             let gap = Rect::from_min_max(
                 egui::pos2(panes[0].max.x, panes[0].min.y),
                 egui::pos2(panes[1].min.x, panes[1].max.y),

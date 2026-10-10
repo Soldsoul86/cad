@@ -129,8 +129,15 @@ pub struct Change {
     pub old: Option<EntityRef>,
     /// In drawing B (added, changed).
     pub new: Option<EntityRef>,
-    /// Where to zoom to, in world coordinates (model and paper space).
+    /// Where to zoom to, in world coordinates (model and paper space; for
+    /// a change inside a block, the block's references in model space).
     pub bounds: Option<Bounds>,
+    /// For a change inside a block definition: the top-level entities of
+    /// A that show the block (references to it, also through other
+    /// blocks).
+    pub used_by_old: Vec<EntityRef>,
+    /// The same in B.
+    pub used_by_new: Vec<EntityRef>,
 }
 
 impl Change {
@@ -167,6 +174,19 @@ impl fmt::Display for Change {
         if !self.details.is_empty() {
             write!(f, ": {}", self.details.join("; "))?;
         }
+        if !self.used_by_new.is_empty() {
+            let handles: Vec<&str> = self
+                .used_by_new
+                .iter()
+                .filter_map(|r| r.handle.as_deref())
+                .collect();
+            write!(
+                f,
+                " [shown by {} reference(s): {}]",
+                self.used_by_new.len(),
+                handles.join(", ")
+            )?;
+        }
         Ok(())
     }
 }
@@ -187,6 +207,9 @@ pub struct Diff {
     pub handles_trusted: bool,
     /// The length tolerance used, in drawing units.
     pub tolerance: f64,
+    /// What this diff does not compare yet, in plain words, with a hint
+    /// when the two files differ there.
+    pub not_compared: Vec<String>,
 }
 
 impl Diff {
@@ -720,6 +743,9 @@ impl<'a> PlaceDiff<'a> {
             }
             if !is_shown {
                 details.insert(0, "not shown".into());
+            } else if y.type_name == "HATCH" && details.iter().any(|d| d.starts_with("pattern")) {
+                // The fill is drawn, the pattern itself is not.
+                details.push("patterns are not drawn yet".into());
             }
             out.changes.push(Change {
                 kind: ChangeKind::Changed,
@@ -732,6 +758,8 @@ impl<'a> PlaceDiff<'a> {
                 old: Some(r(x)),
                 new: Some(r(y)),
                 bounds: union(bounds_of(&da, x), bounds_of(&db, y)),
+                used_by_old: Vec::new(),
+                used_by_new: Vec::new(),
             });
         }
         let single =
@@ -763,6 +791,8 @@ impl<'a> PlaceDiff<'a> {
                     old,
                     new,
                     bounds: bounds_of(m, e),
+                    used_by_old: Vec::new(),
+                    used_by_new: Vec::new(),
                 }
             };
         for (i, e) in self.a.iter().enumerate() {
@@ -897,6 +927,8 @@ pub fn diff(a: &Drawing, b: &Drawing, options: &DiffOptions) -> Diff {
                     old: None,
                     new: None,
                     bounds: None,
+                    used_by_old: Vec::new(),
+                    used_by_new: Vec::new(),
                 });
             }
         }
@@ -927,6 +959,8 @@ pub fn diff(a: &Drawing, b: &Drawing, options: &DiffOptions) -> Diff {
         };
         p.changes(&tol, scenes, &mut out);
     }
+    link_block_uses(a, b, &scene_a, &scene_b, &mut out.changes);
+    out.not_compared = not_compared(a, b);
 
     // Layers.
     for la in a.tables.layers.iter() {
@@ -978,10 +1012,182 @@ pub fn diff(a: &Drawing, b: &Drawing, options: &DiffOptions) -> Diff {
                 old: None,
                 new: None,
                 bounds: None,
+                used_by_old: Vec::new(),
+                used_by_new: Vec::new(),
             });
         }
     }
     out
+}
+
+/// What is not compared yet. Each entry says whether the files differ
+/// there (definitions compared without handles), so a skipped difference
+/// is pointed out rather than hidden.
+fn not_compared(a: &Drawing, b: &Drawing) -> Vec<String> {
+    fn hint<T: Clone + PartialEq>(x: &[T], y: &[T], strip: impl Fn(&mut T)) -> String {
+        let clean = |v: &[T]| -> Vec<T> {
+            v.iter()
+                .cloned()
+                .map(|mut t| {
+                    strip(&mut t);
+                    t
+                })
+                .collect()
+        };
+        if x.len() != y.len() {
+            format!("A has {}, B has {}", x.len(), y.len())
+        } else if clean(x) == clean(y) {
+            "the same in both files".into()
+        } else {
+            "they differ between the files".into()
+        }
+    }
+    let (ta, tb) = (&a.tables, &b.tables);
+    fn collect<T: cad_dxf::Named + Clone>(t: &cad_dxf::Table<T>) -> Vec<T> {
+        t.iter().cloned().collect()
+    }
+    let mut out = vec![
+        format!(
+            "text styles ({})",
+            hint(
+                &collect(&ta.text_styles),
+                &collect(&tb.text_styles),
+                |s: &mut cad_dxf::TextStyle| {
+                    s.handle = None;
+                    s.owner = None;
+                    s.extra.clear();
+                }
+            )
+        ),
+        format!(
+            "dimension styles ({})",
+            hint(
+                &collect(&ta.dim_styles),
+                &collect(&tb.dim_styles),
+                |s: &mut cad_dxf::DimStyle| {
+                    s.handle = None;
+                    s.owner = None;
+                    s.extra.clear();
+                    s.variables
+                        .retain(|p| !matches!(p.code, 5 | 105 | 330 | 340..=349));
+                }
+            )
+        ),
+        format!(
+            "linetype definitions ({}); the linetype names entities use are compared",
+            hint(
+                &collect(&ta.linetypes),
+                &collect(&tb.linetypes),
+                |s: &mut cad_dxf::Linetype| {
+                    s.handle = None;
+                    s.owner = None;
+                    s.extra.clear();
+                    s.elements.iter_mut().for_each(|e| e.style = None);
+                }
+            )
+        ),
+    ];
+    let others: Vec<&str> = ta
+        .other
+        .iter()
+        .chain(&tb.other)
+        .map(|t| t.name.as_str())
+        .collect();
+    let mut others: Vec<String> = others.iter().map(|n| n.trim().to_uppercase()).collect();
+    others.sort();
+    others.dedup();
+    if !others.is_empty() {
+        out.push(format!("other tables: {}", others.join(", ")));
+    }
+    out.push("drawing settings other than units ($INSUNITS) and linetype scale ($LTSCALE)".into());
+    out.push("objects (layouts and page setups, dictionaries, groups, ...)".into());
+    out.push(
+        "anonymous blocks (dimension pictures, ...); the dimensions themselves are compared".into(),
+    );
+    if !a.other_sections.is_empty() || !b.other_sections.is_empty() {
+        out.push("other sections (thumbnail image, ...)".into());
+    }
+    out
+}
+
+/// The top-level entities that show block `name`: references to it, and
+/// references to blocks that contain it (at any depth).
+pub fn block_users(d: &Drawing, name: &str) -> Vec<usize> {
+    let refers_to = |e: &Entity, set: &HashSet<String>| match &e.kind {
+        EntityKind::Insert(i) => set.contains(&i.block.to_uppercase()),
+        _ => false,
+    };
+    let mut set: HashSet<String> = HashSet::from([name.to_uppercase()]);
+    loop {
+        let before = set.len();
+        for bl in d.blocks.iter() {
+            if !set.contains(&bl.name.to_uppercase())
+                && bl.entities.iter().any(|e| refers_to(e, &set))
+            {
+                set.insert(bl.name.to_uppercase());
+            }
+        }
+        if set.len() == before {
+            break;
+        }
+    }
+    (0..d.entities.len())
+        .filter(|&i| refers_to(&d.entities[i], &set))
+        .collect()
+}
+
+/// Fills `used_by_old`/`used_by_new` of changes inside blocks, and makes
+/// them zoomable to the block's references in model space.
+fn link_block_uses(
+    a: &Drawing,
+    b: &Drawing,
+    scene_a: &Scene,
+    scene_b: &Scene,
+    changes: &mut [Change],
+) {
+    /// References in A, in B, and their extent.
+    type Uses = (Vec<EntityRef>, Vec<EntityRef>, Option<Bounds>);
+    let mut cache: HashMap<String, Uses> = HashMap::new();
+    for c in changes.iter_mut() {
+        let Place::Block(name) = &c.place else {
+            continue;
+        };
+        let entry = cache.entry(name.to_uppercase()).or_insert_with(|| {
+            let mut bounds: Option<Bounds> = None;
+            let mut refs = |d: &Drawing, scene: &Scene| -> Vec<EntityRef> {
+                let users = block_users(d, name);
+                let set: HashSet<usize> = users.iter().copied().collect();
+                for item in &scene.items {
+                    let i = item.entity as usize;
+                    if set.contains(&i)
+                        && !d.entities[i].paper_space
+                        && let Some(ib) = item.shape.bounds()
+                    {
+                        match &mut bounds {
+                            Some(b) => b.union(&ib),
+                            None => bounds = Some(ib),
+                        }
+                    }
+                }
+                users
+                    .into_iter()
+                    .map(|i| EntityRef {
+                        handle: d.entities[i].handle.map(|h| h.to_string()),
+                        index: i,
+                        layer: d.entities[i].layer.clone(),
+                    })
+                    .collect()
+            };
+            let old = refs(a, scene_a);
+            let new = refs(b, scene_b);
+            (old, new, bounds)
+        });
+        c.used_by_old = entry.0.clone();
+        c.used_by_new = entry.1.clone();
+        if c.bounds.is_none() {
+            c.bounds = entry.2;
+        }
+    }
 }
 
 fn table_change(kind: ChangeKind, name: &str, mut details: Vec<String>) -> Change {
@@ -1004,6 +1210,8 @@ fn table_change(kind: ChangeKind, name: &str, mut details: Vec<String>) -> Chang
         old: (kind != ChangeKind::Added).then(|| r.clone()),
         new: (kind != ChangeKind::Deleted).then_some(r),
         bounds: None,
+        used_by_old: Vec::new(),
+        used_by_new: Vec::new(),
     }
 }
 
@@ -1138,6 +1346,41 @@ mod tests {
         assert!(!c.shown && !c.certain);
         assert!(c.details.iter().any(|x| x == "not shown"));
         assert!(c.bounds.is_some(), "zoomable from its raw points");
+    }
+
+    #[test]
+    fn block_users_follow_nested_blocks() {
+        let insert = |block: &str| {
+            Entity::new(EntityKind::Insert(cad_dxf::Insert {
+                block: block.into(),
+                insert: Point3::new(0.0, 0.0, 0.0),
+                scale: Point3::new(1.0, 1.0, 1.0),
+                rotation: 0.0,
+                columns: 1,
+                rows: 1,
+                column_spacing: 0.0,
+                row_spacing: 0.0,
+                extrusion: cad_dxf::Z_AXIS,
+                attributes: Vec::new(),
+                seqend: None,
+            }))
+        };
+        let mut d = drawing(vec![
+            insert("PANEL"),
+            line(2, "0", (0.0, 0.0), (1.0, 0.0)),
+            insert("bolt"),
+            insert("OTHER"),
+        ]);
+        let mut bolt = cad_dxf::Block::new("BOLT");
+        bolt.entities.push(line(10, "0", (0.0, 0.0), (1.0, 1.0)));
+        let mut panel = cad_dxf::Block::new("PANEL");
+        panel.entities.push(insert("BOLT"));
+        d.blocks.insert(bolt);
+        d.blocks.insert(panel);
+        d.blocks.insert(cad_dxf::Block::new("OTHER"));
+        // Direct (case-insensitive) and through PANEL.
+        assert_eq!(block_users(&d, "BOLT"), vec![0, 2]);
+        assert_eq!(block_users(&d, "PANEL"), vec![0]);
     }
 
     #[test]

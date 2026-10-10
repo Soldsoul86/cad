@@ -56,7 +56,18 @@ fn matches(c: &Change, e: &Value) -> bool {
         .map(|w| w.as_str().unwrap())
         .collect();
     let text = c.details.join("; ");
-    c.kind == kind(e["kind"].as_str().unwrap())
+    // For changes inside blocks: the references that show the block.
+    let used_by_ok = e["used_by"].as_array().is_none_or(|want| {
+        let want: Vec<&str> = want.iter().map(|w| w.as_str().unwrap()).collect();
+        let got: Vec<&str> = c
+            .used_by_new
+            .iter()
+            .filter_map(|r| r.handle.as_deref())
+            .collect();
+        want == got && c.bounds.is_some()
+    });
+    used_by_ok
+        && c.kind == kind(e["kind"].as_str().unwrap())
         && c.entity_type == e["type"].as_str().unwrap()
         && handle_of(c).as_deref() == e["handle"].as_str()
         && words.iter().all(|w| text.contains(w))
@@ -169,6 +180,12 @@ fn json_report_is_valid_and_complete() {
         diff.changes.len()
     );
     assert_eq!(json["summary"]["added"], 1);
+    let not_compared = json["not_compared"].as_array().unwrap();
+    assert!(
+        not_compared
+            .iter()
+            .any(|n| n.as_str().unwrap().starts_with("text styles"))
+    );
     let first = &json["changes"][0];
     for key in [
         "kind", "place", "type", "layer", "details", "geometry", "shown", "certain",

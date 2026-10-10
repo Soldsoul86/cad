@@ -47,6 +47,20 @@ fn colors(diff: &Diff, side: Side) -> HashMap<usize, Rgb> {
             out.insert(r.index, color);
         }
     }
+    // References to changed blocks show the change too.
+    for c in diff
+        .changes
+        .iter()
+        .filter(|c| matches!(c.place, Place::Block(_)))
+    {
+        let (refs, color) = match side {
+            Side::A => (&c.used_by_old, CHANGED_BEFORE),
+            Side::B => (&c.used_by_new, CHANGED),
+        };
+        for r in refs {
+            out.entry(r.index).or_insert(color);
+        }
+    }
     out
 }
 
@@ -113,16 +127,30 @@ fn size(scenes: &[&Scene]) -> f64 {
     out.map_or(1.0, |b| b.size()[0].max(b.size()[1]))
 }
 
+/// Fills (hatches, solids) take a dim tint of the colour, so lines and
+/// text over them stay readable; everything else takes the colour itself.
+fn paint(item: &mut Item, color: Rgb) {
+    item.color = match item.shape {
+        Shape::Region { .. } | Shape::Fill { .. } => {
+            let bg = cad_render::svg::BACKGROUND;
+            let mix = |c: u8, b: u8| (f64::from(c) * 0.3 + f64::from(b) * 0.7).round() as u8;
+            Rgb(mix(color.0, bg.0), mix(color.1, bg.1), mix(color.2, bg.2))
+        }
+        _ => color,
+    };
+}
+
 /// `scene` (model space of one drawing, built with
 /// [`cad_render::build`]) recoloured for `side`.
 pub fn side(scene: &Scene, diff: &Diff, side: Side) -> Scene {
     let colors = colors(diff, side);
     let mut out = scene.clone();
     for item in &mut out.items {
-        item.color = colors
+        let color = colors
             .get(&(item.entity as usize))
             .copied()
             .unwrap_or(UNCHANGED);
+        paint(item, color);
     }
     let (layer, dash) = marker_layer(&mut out, size(&[scene]));
     out.items.extend(markers(
@@ -166,7 +194,7 @@ pub fn overlay(a: &Scene, b: &Scene, diff: &Diff) -> Scene {
     for item in &a.items {
         if let Some(&color) = colors_a.get(&(item.entity as usize)) {
             let mut item = item.clone();
-            item.color = color;
+            paint(&mut item, color);
             item.layer = layer_map.get(item.layer as usize).copied().unwrap_or(0);
             item.dash = item.dash.map(|d| d + dash_base);
             out.items.push(item);
@@ -174,10 +202,11 @@ pub fn overlay(a: &Scene, b: &Scene, diff: &Diff) -> Scene {
     }
     for item in &b.items {
         let mut item = item.clone();
-        item.color = colors_b
+        let color = colors_b
             .get(&(item.entity as usize))
             .copied()
             .unwrap_or(UNCHANGED);
+        paint(&mut item, color);
         out.items.push(item);
     }
     let (layer, dash) = marker_layer(&mut out, size(&[a, b]));
@@ -290,6 +319,8 @@ mod tests {
                 min: [0.0, 0.0],
                 max: [2.0, 1.0],
             }),
+            used_by_old: Vec::new(),
+            used_by_new: Vec::new(),
         });
         let o = side(&s, &d, Side::B);
         assert_eq!(o.items.len(), 1);

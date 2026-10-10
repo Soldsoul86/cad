@@ -753,9 +753,181 @@ impl Builder<'_> {
                     self.path(style, t, &pts, &[], false);
                 }
             }
+            "HATCH" => self.hatch(u, style, t),
             other => self.skip(other),
         }
     }
+
+    /// A hatch: its boundary loops as lines, and the region they enclose
+    /// filled (in full colour when solid; dimmed when it has a pattern,
+    /// since patterns are not drawn yet).
+    fn hatch(&mut self, u: &Unknown, style: (u32, Rgb, Option<u32>), t: &Affine3) {
+        let Some(h) = u.hatch() else {
+            return self.skip("HATCH");
+        };
+        let loops: Vec<Vec<[f64; 2]>> = h
+            .paths
+            .iter()
+            .map(boundary_points)
+            .filter(|l| l.len() >= 3)
+            .collect();
+        if loops.is_empty() {
+            return self.skip("HATCH (boundary not read)");
+        }
+        let e = h.extrusion;
+        let ocs = t.then_after(&Affine3::from_ocs([e.x, e.y, e.z]));
+        let world: Vec<Vec<P2>> = loops
+            .iter()
+            .map(|l| {
+                l.iter()
+                    .map(|p| xy(ocs.apply([p[0], p[1], h.elevation])))
+                    .collect()
+            })
+            .collect();
+        let (layer, color, dash) = style;
+        let fill = if h.solid {
+            color
+        } else {
+            let mix = |c: u8, bg: u8| ((f64::from(c) * 0.3 + f64::from(bg) * 0.7).round()) as u8;
+            let bg = crate::svg::BACKGROUND;
+            Rgb(mix(color.0, bg.0), mix(color.1, bg.1), mix(color.2, bg.2))
+        };
+        self.push(
+            (layer, fill, None),
+            Shape::Region {
+                loops: world.clone(),
+            },
+        );
+        for points in world {
+            self.push(
+                (layer, color, dash),
+                Shape::Path {
+                    points,
+                    bulges: Vec::new(),
+                    closed: true,
+                },
+            );
+        }
+    }
+}
+
+/// Joins `next` to the end of `out`, reversing it when it was written in
+/// the other direction, and dropping the shared point.
+fn join(out: &mut Vec<[f64; 2]>, mut next: Vec<[f64; 2]>) {
+    if next.is_empty() {
+        return;
+    }
+    if let Some(&last) = out.last() {
+        let d = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+        let (first, end) = (next[0], next[next.len() - 1]);
+        if d(last, end) < d(last, first) {
+            next.reverse();
+        }
+        if d(last, next[0]) <= 1e-9 * (1.0 + last[0].abs().max(last[1].abs())) {
+            next.remove(0);
+        }
+    }
+    out.extend(next);
+}
+
+/// A hatch boundary path as one flattened loop (OCS coordinates).
+fn boundary_points(path: &cad_dxf::hatch::BoundaryPath) -> Vec<[f64; 2]> {
+    use cad_dxf::hatch::{BoundaryPath, Edge};
+    const STEP: f64 = 5.0 * std::f64::consts::PI / 180.0;
+    let mut out: Vec<[f64; 2]> = Vec::new();
+    match path {
+        BoundaryPath::Polyline {
+            points,
+            bulges,
+            closed: _,
+        } => {
+            // Hatch boundaries are always closed loops.
+            out = crate::tess::flatten(points, bulges, true);
+            out.pop();
+        }
+        BoundaryPath::Edges(edges) => {
+            for edge in edges {
+                let piece: Vec<[f64; 2]> = match edge {
+                    Edge::Line { start, end } => vec![*start, *end],
+                    Edge::Arc {
+                        center,
+                        radius,
+                        start_angle,
+                        end_angle,
+                        ccw,
+                    } => {
+                        // Clockwise arcs are stored with mirrored angles.
+                        let (s, e) = if *ccw {
+                            (start_angle.to_radians(), end_angle.to_radians())
+                        } else {
+                            (-start_angle.to_radians(), -end_angle.to_radians())
+                        };
+                        let tau = std::f64::consts::TAU;
+                        let mut sweep = if *ccw {
+                            (e - s).rem_euclid(tau)
+                        } else {
+                            -(s - e).rem_euclid(tau)
+                        };
+                        if sweep == 0.0 {
+                            sweep = if *ccw { tau } else { -tau };
+                        }
+                        let steps = ((sweep.abs() / STEP).ceil() as usize).clamp(2, 10_000);
+                        (0..=steps)
+                            .map(|k| {
+                                let a = s + sweep * k as f64 / steps as f64;
+                                [center[0] + radius * a.cos(), center[1] + radius * a.sin()]
+                            })
+                            .collect()
+                    }
+                    Edge::Ellipse {
+                        center,
+                        major,
+                        ratio,
+                        start_angle,
+                        end_angle,
+                        ccw,
+                    } => {
+                        let c = [center[0], center[1], 0.0];
+                        let m = [major[0], major[1], 0.0];
+                        let (s, e) = (start_angle.to_radians(), end_angle.to_radians());
+                        let pts = if *ccw {
+                            ellipse_points(c, m, [0.0, 0.0, 1.0], *ratio, s, e, STEP)
+                        } else {
+                            // Clockwise from -s to -e = counter-clockwise
+                            // from -e to -s, reversed.
+                            let mut p = ellipse_points(c, m, [0.0, 0.0, 1.0], *ratio, -e, -s, STEP);
+                            p.reverse();
+                            p
+                        };
+                        pts.into_iter().map(|p| [p[0], p[1]]).collect()
+                    }
+                    Edge::Spline {
+                        degree,
+                        knots,
+                        control,
+                        weights,
+                        fit,
+                    } => {
+                        let control3: Vec<[f64; 3]> =
+                            control.iter().map(|p| [p[0], p[1], 0.0]).collect();
+                        match nurbs_points(*degree, knots, &control3, weights, 32) {
+                            Some(p) => p.into_iter().map(|p| [p[0], p[1]]).collect(),
+                            None => fit.clone(),
+                        }
+                    }
+                };
+                join(&mut out, piece);
+            }
+            // The loop closes on its first point.
+            if out.len() > 1 {
+                let (a, b) = (out[0], out[out.len() - 1]);
+                if (a[0] - b[0]).hypot(a[1] - b[1]) <= 1e-9 * (1.0 + a[0].abs().max(a[1].abs())) {
+                    out.pop();
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Text as displayed: overline/underline toggles removed.
@@ -1278,7 +1450,8 @@ mod tests {
             ),
             other => panic!("{other:?}"),
         }
-        assert_eq!(s.skipped.get("HATCH"), Some(&1));
+        // A hatch without a readable boundary is counted as not drawn.
+        assert_eq!(s.skipped.get("HATCH (boundary not read)"), Some(&1));
     }
 
     #[test]

@@ -208,33 +208,43 @@ impl GpuScene {
             let sy = (2.0 * view.scale / view.size[1]) as f32;
             gl.uniform_2_f32(self.u_scale.as_ref(), sx, sy);
             gl.uniform_1_f32(self.u_point_size.as_ref(), 3.0 * pixels_per_point);
-            for c in &self.chunks {
-                if !visible.get(c.layer as usize).copied().unwrap_or(true) {
-                    continue;
-                }
-                if let Some(b) = &c.bounds
-                    && !b.intersects(&shown)
-                {
-                    continue;
-                }
-                // f64 here, so the f32 offset is small near the view.
-                let ox = (c.origin[0] - view.center[0]) as f32;
-                let oy = (c.origin[1] - view.center[1]) as f32;
-                gl.uniform_2_f32(self.u_offset.as_ref(), ox, oy);
-                stats.chunks += 1;
-                // Arcs small on screen: the coarse version looks the same.
-                let coarse = c.coarse_lines.is_some()
-                    && c.max_radius * view.scale < cad_render::tess::COARSE_BELOW_PX;
-                let lines = if coarse { &c.coarse_lines } else { &c.lines };
-                for (batch, mode) in [
-                    (&c.triangles, glow::TRIANGLES),
-                    (lines, glow::LINES),
-                    (&c.points, glow::POINTS),
-                ] {
-                    if let Some(b) = batch {
-                        gl.bind_vertex_array(Some(b.vao));
-                        gl.draw_arrays(mode, 0, b.count);
-                        stats.vertices += b.count as usize;
+            // Two passes: every fill first (hatches, solids), then lines
+            // and points, so no fill hides a line of another chunk.
+            for fills in [true, false] {
+                for c in &self.chunks {
+                    if !visible.get(c.layer as usize).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    if let Some(b) = &c.bounds
+                        && !b.intersects(&shown)
+                    {
+                        continue;
+                    }
+                    if fills && c.triangles.is_none() {
+                        continue;
+                    }
+                    // f64 here, so the f32 offset is small near the view.
+                    let ox = (c.origin[0] - view.center[0]) as f32;
+                    let oy = (c.origin[1] - view.center[1]) as f32;
+                    gl.uniform_2_f32(self.u_offset.as_ref(), ox, oy);
+                    if !fills {
+                        stats.chunks += 1;
+                    }
+                    // Arcs small on screen: the coarse version looks the same.
+                    let coarse = c.coarse_lines.is_some()
+                        && c.max_radius * view.scale < cad_render::tess::COARSE_BELOW_PX;
+                    let lines = if coarse { &c.coarse_lines } else { &c.lines };
+                    let batches = if fills {
+                        vec![(&c.triangles, glow::TRIANGLES)]
+                    } else {
+                        vec![(lines, glow::LINES), (&c.points, glow::POINTS)]
+                    };
+                    for (batch, mode) in batches {
+                        if let Some(b) = batch {
+                            gl.bind_vertex_array(Some(b.vao));
+                            gl.draw_arrays(mode, 0, b.count);
+                            stats.vertices += b.count as usize;
+                        }
                     }
                 }
             }

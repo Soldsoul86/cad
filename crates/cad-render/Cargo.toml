@@ -10,3 +10,7 @@ publish.workspace = true
 [dependencies]
 cad-dxf.workspace = true
 cad-geom.workspace = true
+
+[dev-dependencies]
+# Reading test references. MIT OR Apache-2.0.
+serde_json = "=1.0.151"
