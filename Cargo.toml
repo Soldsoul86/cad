@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+cad-dxf = { path = "crates/cad-dxf" }
+cad-geom = { path = "crates/cad-geom" }
+cad-core = { path = "crates/cad-core" }
+cad-render = { path = "crates/cad-render" }

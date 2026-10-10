@@ -1,0 +1,10 @@
+[package]
+name = "cad-dxf"
+description = "Read (and later write) ASCII DXF drawings without losing unknown data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

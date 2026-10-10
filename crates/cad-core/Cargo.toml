@@ -1,0 +1,12 @@
+[package]
+name = "cad-core"
+description = "Document model, commands and undo for the drafting app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cad-dxf.workspace = true
+cad-geom.workspace = true
