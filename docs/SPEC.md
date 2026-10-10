@@ -1,5 +1,7 @@
 # 2D CAD Build Spec: DXF Core + Drafting App
 
+> **Core principle:** take a professional task that currently needs expertise, multiple operations and manual checking, and make the outcome achievable through one clear request, while keeping transparency, control and independent validation.
+
 ## Overview
 
 Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to without relearning: same command-line workflow, same core commands, and it reads and writes DXF. Step 1 is a standalone DXF library; Step 2 is the drafting app built on top of it.
@@ -170,6 +172,24 @@ UNDO (U) and REDO run outside this list: every command is one undo step, includi
 
 `egui` + `wgpu` (UI and canvas), `lyon` (path tessellation), `kurbo` (curve geometry), `rstar` (R-tree), `cosmic-text` or `rustybuzz` (text shaping), `printpdf` or `krilla` (PDF), `svg` (SVG export). Pin exact versions and check each licence is MIT/Apache-compatible.
 
+## AI-assisted tasks
+
+Planned after v0.1, built on the command engine (M5–M7) and visual diff (M4b). Every AI-assisted task follows the core principle and the same flow:
+
+1. **Request.** The user describes the outcome in one clear request (e.g. "bring this drawing up to our layer standard").
+2. **Plan shown as real commands.** The AI proposes a plan as a list of the app's own commands (the same commands a user could type), with the objects each one affects. Nothing has changed yet.
+3. **Preview in visual diff.** The planned result is shown against the current drawing using the M4b visual diff: added, deleted and changed entities highlighted, with the change list.
+4. **User accepts all, some or none.** The user can apply the whole plan, pick individual changes, or reject it. Nothing is applied without this step.
+5. **Independent rule-based check.** After applying, a deterministic validator (geometry, standards and consistency rules written as ordinary tested code) checks the result and reports any problems. The AI never checks its own work.
+6. **Saved log, undoable as one step.** The request, plan, accepted changes and check results are saved in a log alongside the drawing, and the whole task is one undo step.
+
+**First target tasks**
+
+- **Standards check and fix.** Compare a drawing against a standard (layer names, colours, linetypes, text styles, dimension styles) and propose fixes for every deviation.
+- **Revision comparison with notes.** Compare two revisions and write plain-language notes for each change, each note linked to the entities it describes.
+- **Quantity takeoff.** Count and measure (lengths, areas, block counts), with every number in the result traceable to the objects it came from.
+- **Batch title-block update and plotting.** Update title-block attributes (revision, date, sheet numbers) across many drawings, then plot them, previewing every change first.
+
 ## Milestones
 
 Nine milestones, each small enough for one focused Claude Code task. Don't start the next until the current one passes its acceptance criteria. M1–M4b lead to a public preview release; M5–M7 lead to v0.1, released the same way.
@@ -206,6 +226,8 @@ Put this spec in the repo as `docs/SPEC.md` and the rules below in `CLAUDE.md`, 
 
 **Rules for `CLAUDE.md`**
 
+- Core principle (as at the top of this spec): one clear request for a professional task, with transparency, control and independent validation.
+- Every automated or AI feature must show its plan, preview changes before applying, let the user approve or reject, be checked by an independent rule-based validator, and keep a log.
 - Read `docs/SPEC.md` before any task. Work on one milestone at a time.
 - Clean-room only: use public DXF documentation and test files. Never paste or imitate Autodesk source code, icons or branding.
 - Never panic on user input; return errors or warnings.
