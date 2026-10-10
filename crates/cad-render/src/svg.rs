@@ -269,6 +269,7 @@ mod tests {
                 layer: 0,
                 color: Rgb(255, 255, 255),
                 dash: None,
+                entity: 0,
                 shape: Shape::Text(TextShape {
                     at: [1.0, 2.0],
                     height: 2.5,

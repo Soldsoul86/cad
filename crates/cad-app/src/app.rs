@@ -9,6 +9,7 @@ use eframe::{egui_glow, glow};
 
 use cad_render::{HAlign, Scene, Shape, VAlign, View, tess};
 
+use crate::compare::Compare;
 use crate::gpu::{DrawStats, GpuScene};
 
 /// Grid size for GPU chunks (per layer): finer means better culling and
@@ -20,16 +21,85 @@ const MIN_TEXT_PX: f64 = 4.0;
 const MAX_TEXTS: usize = 5000;
 pub const BACKGROUND: Color32 = Color32::from_rgb(0x21, 0x21, 0x21);
 
-struct Doc {
-    name: String,
-    scene: Arc<Scene>,
+pub(crate) struct Doc {
+    pub(crate) name: String,
+    pub(crate) scene: Arc<Scene>,
     /// Per chunk: layer, bounds and the text items in it.
     texts: Vec<(u32, Option<cad_render::Bounds>, Vec<u32>)>,
     gpu: Option<Arc<Mutex<GpuScene>>>,
-    visible: Vec<bool>,
+    pub(crate) visible: Vec<bool>,
     warnings: usize,
     stats: Arc<Mutex<DrawStats>>,
     vertices: usize,
+    /// The drawing, for comparing it with another one.
+    pub(crate) drawing: Option<Arc<cad_dxf::Drawing>>,
+}
+
+impl Doc {
+    /// Tessellates `scene` and uploads it (when there is a GL context).
+    pub(crate) fn new(
+        gl: Option<&Arc<glow::Context>>,
+        name: String,
+        scene: Scene,
+        warnings: usize,
+    ) -> Result<Self, String> {
+        let geometry = tess::tessellate(&scene, GRID);
+        let gpu = match gl.map(|gl| GpuScene::new(gl, &geometry)) {
+            Some(Ok(g)) => Some(Arc::new(Mutex::new(g))),
+            Some(Err(e)) => return Err(format!("graphics error: {e}")),
+            None => None,
+        };
+        let texts = geometry
+            .chunks
+            .iter()
+            .filter(|c| !c.texts.is_empty())
+            .map(|c| (c.layer, c.bounds, c.texts.clone()))
+            .collect();
+        Ok(Doc {
+            name,
+            visible: scene.default_visibility(),
+            vertices: geometry.vertex_count(),
+            scene: Arc::new(scene),
+            texts,
+            gpu,
+            warnings,
+            stats: Arc::default(),
+            drawing: None,
+        })
+    }
+
+    /// Frees the GPU copy.
+    pub(crate) fn destroy(&self, gl: Option<&Arc<glow::Context>>) {
+        if let (Some(gl), Some(gpu)) = (gl, &self.gpu) {
+            gpu.lock().map(|g| g.destroy(gl)).ok();
+        }
+    }
+
+    /// Draws the drawing in `rect` (screen points) with `view`.
+    pub(crate) fn paint(&self, ui: &egui::Ui, rect: Rect, view: &View) {
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, BACKGROUND);
+        if let Some(gpu) = &self.gpu {
+            let gpu = gpu.clone();
+            let view = *view;
+            let visible = self.visible.clone();
+            let stats = self.stats.clone();
+            let ppp = ui.ctx().pixels_per_point();
+            let callback = egui_glow::CallbackFn::new(move |_info, painter| {
+                if let Ok(gpu) = gpu.lock() {
+                    let s = gpu.draw(painter.gl(), &view, &visible, ppp);
+                    if let Ok(mut out) = stats.lock() {
+                        *out = s;
+                    }
+                }
+            });
+            painter.add(egui::PaintCallback {
+                rect,
+                callback: Arc::new(callback),
+            });
+        }
+        draw_texts(&painter, rect, view, self);
+    }
 }
 
 /// Animated pan/zoom for `--bench`, reporting frame times at the end.
@@ -66,7 +136,7 @@ impl Bench {
 }
 
 /// A file read in the background: name and bytes.
-type FileSlot = Arc<Mutex<Option<(String, Vec<u8>)>>>;
+type FileSlot = Arc<Mutex<Vec<(usize, String, Vec<u8>)>>>;
 
 pub struct CadApp {
     doc: Option<Doc>,
@@ -75,16 +145,25 @@ pub struct CadApp {
     message: Option<String>,
     frame_times: Vec<f64>,
     bench: Option<Bench>,
-    pending: Option<(String, Vec<u8>)>,
-    /// Files read in the background (the web reads dropped files asynchronously).
+    pending: Vec<(String, Vec<u8>)>,
+    /// Files read in the background (the web reads dropped files
+    /// asynchronously): the drop's position and the file.
     incoming: FileSlot,
+    /// How many dropped files are still being read.
+    awaiting: usize,
+    compare: Option<Compare>,
+    /// The next file received is compared with the open drawing.
+    compare_next: bool,
+    /// Start compare views side by side (`--side`).
+    side_by_side: bool,
 }
 
 impl CadApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        file: Option<(String, Vec<u8>)>,
+        files: Vec<(String, Vec<u8>)>,
         bench: Option<Bench>,
+        side_by_side: bool,
     ) -> Self {
         cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
         Self {
@@ -94,8 +173,12 @@ impl CadApp {
             message: None,
             frame_times: Vec::new(),
             bench,
-            pending: file,
+            pending: files,
             incoming: Arc::default(),
+            awaiting: 0,
+            compare: None,
+            compare_next: false,
+            side_by_side,
         }
     }
 
@@ -108,47 +191,87 @@ impl CadApp {
             }
         };
         let scene = cad_render::build(&drawing);
-        let geometry = tess::tessellate(&scene, GRID);
-        if let (Some(gl), Some(old)) = (gl, self.doc.take()) {
-            if let Some(gpu) = old.gpu {
-                gpu.lock().map(|g| g.destroy(gl)).ok();
-            }
+        if let Some(old) = self.doc.take() {
+            old.destroy(gl);
         }
-        let gpu = match gl.map(|gl| GpuScene::new(gl, &geometry)) {
-            Some(Ok(g)) => Some(Arc::new(Mutex::new(g))),
-            Some(Err(e)) => {
-                self.message = Some(format!("graphics error: {e}"));
-                None
+        if let Some(old) = self.compare.take() {
+            old.destroy(gl);
+        }
+        match Doc::new(gl, name, scene, warnings.len()) {
+            Ok(mut doc) => {
+                doc.drawing = Some(Arc::new(drawing));
+                self.doc = Some(doc);
+                self.message = None;
             }
-            None => None,
-        };
-        let texts = geometry
-            .chunks
-            .iter()
-            .filter(|c| !c.texts.is_empty())
-            .map(|c| (c.layer, c.bounds, c.texts.clone()))
-            .collect();
-        self.doc = Some(Doc {
-            name,
-            visible: scene.default_visibility(),
-            vertices: geometry.vertex_count(),
-            scene: Arc::new(scene),
-            texts,
-            gpu,
-            warnings: warnings.len(),
-            stats: Arc::default(),
-        });
+            Err(e) => self.message = Some(e),
+        }
         self.fit_pending = true;
-        if self
-            .message
-            .as_deref()
-            .is_some_and(|m| !m.starts_with("graphics"))
-        {
-            self.message = None;
+    }
+
+    /// Opens the compare view: `a` (before) against `b` (after).
+    fn start_compare(
+        &mut self,
+        gl: Option<&Arc<glow::Context>>,
+        a: (String, Arc<cad_dxf::Drawing>),
+        b: (String, Arc<cad_dxf::Drawing>),
+    ) {
+        if let Some(old) = self.compare.take() {
+            old.destroy(gl);
+        }
+        match Compare::new(gl, a, b) {
+            Ok(c) => {
+                self.compare = Some(c);
+                self.message = None;
+                self.fit_pending = true;
+            }
+            Err(e) => self.message = Some(e),
         }
     }
 
+    /// Files that arrived (dropped, or from the command line). Two files
+    /// are compared; one is opened, or compared with the open drawing
+    /// after "Compare with…".
+    fn receive(&mut self, gl: Option<&Arc<glow::Context>>, mut files: Vec<(String, Vec<u8>)>) {
+        let read = |(name, bytes): (String, Vec<u8>)| match cad_dxf::read_bytes(&bytes) {
+            Ok((d, _)) => Ok((name, Arc::new(d))),
+            Err(e) => Err(format!("{name}: {e}")),
+        };
+        if files.len() >= 2 {
+            files.truncate(2);
+            let b = files.pop().map(read);
+            let a = files.pop().map(read);
+            match (a, b) {
+                (Some(Ok(a)), Some(Ok(b))) => self.start_compare(gl, a, b),
+                (Some(Err(e)), _) | (_, Some(Err(e))) => self.message = Some(e),
+                _ => {}
+            }
+            return;
+        }
+        let Some(file) = files.pop() else { return };
+        let current = self
+            .doc
+            .as_ref()
+            .and_then(|d| Some((d.name.clone(), d.drawing.clone()?)));
+        if self.compare_next
+            && let Some(a) = current
+        {
+            self.compare_next = false;
+            match read(file) {
+                Ok(b) => self.start_compare(gl, a, b),
+                Err(e) => self.message = Some(e),
+            }
+            return;
+        }
+        self.load(gl, file.0, &file.1);
+    }
+
     fn fit(&mut self) {
+        if let Some(c) = &self.compare {
+            if let Some(b) = c.bounds() {
+                self.view.fit(&b, 0.03);
+            }
+            return;
+        }
         if let Some(doc) = &self.doc
             && let Some(b) = doc.scene.bounds(Some(&doc.visible))
         {
@@ -156,8 +279,45 @@ impl CadApp {
         }
     }
 
-    fn toolbar(&mut self, ui: &mut egui::Ui) {
+    fn toolbar(&mut self, ui: &mut egui::Ui, gl: Option<&Arc<glow::Context>>) {
+        if self.compare.is_some() {
+            let mut close = false;
+            let mut fit = false;
+            if let Some(c) = &mut self.compare {
+                let action = c.toolbar(ui);
+                close = action.close;
+                fit = action.fit;
+                if let Some(b) = action.zoom {
+                    self.view.fit(&b, 0.15);
+                }
+                if let Some(m) = action.message {
+                    self.message = Some(m);
+                }
+            }
+            if close && let Some(c) = self.compare.take() {
+                c.destroy(gl);
+            }
+            if fit {
+                self.fit();
+            }
+            return;
+        }
         ui.horizontal(|ui| {
+            if self.doc.as_ref().is_some_and(|d| d.drawing.is_some()) {
+                let label = if self.compare_next {
+                    "Drop the newer drawing…"
+                } else {
+                    "Compare with…"
+                };
+                if ui
+                    .selectable_label(self.compare_next, label)
+                    .on_hover_text("Then drop the drawing to compare this one with. Dropping two files at once also compares them.")
+                    .clicked()
+                {
+                    self.compare_next = !self.compare_next;
+                }
+                ui.separator();
+            }
             match &self.doc {
                 Some(doc) => ui.strong(&doc.name),
                 None => ui.label("Drop a DXF file here (or pass one on the command line)"),
@@ -190,6 +350,10 @@ impl CadApp {
     }
 
     fn layer_panel(&mut self, ui: &mut egui::Ui) {
+        if let Some(c) = &mut self.compare {
+            c.layer_panel(ui);
+            return;
+        }
         let Some(doc) = &mut self.doc else {
             ui.label("No drawing");
             return;
@@ -218,12 +382,23 @@ impl CadApp {
 
     fn canvas(&mut self, ui: &mut egui::Ui) {
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-        self.view.size = [f64::from(rect.width()), f64::from(rect.height())];
-        if self.fit_pending && self.doc.is_some() && rect.width() > 0.0 {
+        // Side by side: two panes share one view.
+        let panes = match &self.compare {
+            Some(c) => c.panes(rect),
+            None => vec![rect],
+        };
+        let pane = panes[0];
+        self.view.size = [f64::from(pane.width()), f64::from(pane.height())];
+        let has_content = self.doc.is_some() || self.compare.is_some();
+        if self.fit_pending && has_content && rect.width() > 0.0 {
             self.fit();
             self.fit_pending = false;
         }
-        let local = |p: Pos2| [f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y)];
+        // Pointer position within the pane it is over.
+        let local = |p: Pos2| {
+            let r = panes.iter().find(|r| r.contains(p)).unwrap_or(&pane);
+            [f64::from(p.x - r.min.x), f64::from(p.y - r.min.y)]
+        };
         if response.dragged_by(PointerButton::Middle) || response.dragged_by(PointerButton::Primary)
         {
             let d = response.drag_delta();
@@ -239,30 +414,15 @@ impl CadApp {
                 self.view.zoom_at(local(pos), factor);
             }
         }
-
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, BACKGROUND);
-        let Some(doc) = &self.doc else { return };
-        if let Some(gpu) = &doc.gpu {
-            let gpu = gpu.clone();
-            let view = self.view;
-            let visible = doc.visible.clone();
-            let stats = doc.stats.clone();
-            let ppp = ui.ctx().pixels_per_point();
-            let callback = egui_glow::CallbackFn::new(move |_info, painter| {
-                if let Ok(gpu) = gpu.lock() {
-                    let s = gpu.draw(painter.gl(), &view, &visible, ppp);
-                    if let Ok(mut out) = stats.lock() {
-                        *out = s;
-                    }
-                }
-            });
-            painter.add(egui::PaintCallback {
-                rect,
-                callback: Arc::new(callback),
-            });
+        if let Some(c) = &self.compare {
+            c.paint(ui, &panes, &self.view);
+            return;
         }
-        draw_texts(&painter, rect, &self.view, doc);
+        let Some(doc) = &self.doc else {
+            ui.painter_at(rect).rect_filled(rect, 0.0, BACKGROUND);
+            return;
+        };
+        doc.paint(ui, rect, &self.view);
     }
 }
 
@@ -281,7 +441,7 @@ fn anchor(t: &cad_render::TextShape) -> Align2 {
 }
 
 /// Draws the texts that are on screen and large enough to read.
-fn draw_texts(painter: &egui::Painter, rect: Rect, view: &View, doc: &Doc) {
+pub(crate) fn draw_texts(painter: &egui::Painter, rect: Rect, view: &View, doc: &Doc) {
     let shown = view.world_bounds();
     let mut count = 0;
     for (layer, bounds, items) in &doc.texts {
@@ -327,45 +487,81 @@ impl eframe::App for CadApp {
         if self.frame_times.len() > 60 {
             self.frame_times.remove(0);
         }
-        if let Some((name, bytes)) = self.pending.take() {
-            self.load(frame.gl(), name, &bytes);
+        if !self.pending.is_empty() {
+            let files = std::mem::take(&mut self.pending);
+            self.receive(frame.gl(), files);
+            if self.side_by_side
+                && let Some(c) = &mut self.compare
+            {
+                c.side_by_side = true;
+            }
         }
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
-        for file in dropped {
-            let name = file.path().display().to_string();
-            #[cfg(not(target_arch = "wasm32"))]
-            match file.bytes() {
-                Ok(bytes) => self.load(frame.gl(), name, &bytes),
-                Err(e) => self.message = Some(format!("{name}: {e}")),
+        #[cfg(not(target_arch = "wasm32"))]
+        if !dropped.is_empty() {
+            let mut files = Vec::new();
+            for file in dropped {
+                let name = file.path().display().to_string();
+                match file.bytes() {
+                    Ok(bytes) => files.push((name, bytes)),
+                    Err(e) => self.message = Some(format!("{name}: {e}")),
+                }
             }
-            #[cfg(target_arch = "wasm32")]
-            {
-                // Browsers read files asynchronously; the bytes arrive in a
-                // later frame through `incoming`.
+            self.receive(frame.gl(), files);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Browsers read files asynchronously; the bytes arrive in a
+            // later frame through `incoming`.
+            if !dropped.is_empty() {
+                self.awaiting = dropped.len();
+                if let Ok(mut slot) = self.incoming.lock() {
+                    slot.clear();
+                }
+            }
+            for (order, file) in dropped.into_iter().enumerate() {
+                let name = file.path().display().to_string();
                 let incoming = self.incoming.clone();
                 let ctx = ui.ctx().clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(bytes) = file.bytes_async().await
-                        && let Ok(mut slot) = incoming.lock()
-                    {
-                        *slot = Some((name, bytes));
+                    let bytes = file.bytes_async().await.unwrap_or_default();
+                    if let Ok(mut slot) = incoming.lock() {
+                        slot.push((order, name, bytes));
                         ctx.request_repaint();
                     }
                 });
             }
         }
-        let arrived = self.incoming.lock().ok().and_then(|mut slot| slot.take());
-        if let Some((name, bytes)) = arrived {
-            self.load(frame.gl(), name, &bytes);
+        let arrived = self.incoming.lock().ok().and_then(|mut slot| {
+            (self.awaiting > 0 && slot.len() >= self.awaiting).then(|| std::mem::take(&mut *slot))
+        });
+        if let Some(mut files) = arrived {
+            self.awaiting = 0;
+            files.sort_by_key(|f| f.0);
+            let files = files.into_iter().map(|(_, n, b)| (n, b)).collect();
+            self.receive(frame.gl(), files);
         }
 
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        let gl = frame.gl().cloned();
+        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui, gl.as_ref()));
+        if let Some(c) = &mut self.compare {
+            let mut zoom = None;
+            egui::Panel::right("changes")
+                .resizable(true)
+                .default_size(340.0)
+                .show(ui, |ui| zoom = c.change_list(ui));
+            if let Some(b) = zoom {
+                self.view.fit(&b, 0.15);
+            }
+        }
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(m) = &self.message {
                     ui.colored_label(Color32::LIGHT_RED, m);
                 }
-                if let Some(doc) = &self.doc
+                if let Some(c) = &self.compare {
+                    ui.label(c.status());
+                } else if let Some(doc) = &self.doc
                     && !doc.scene.skipped.is_empty()
                 {
                     let skipped: Vec<String> = doc
@@ -424,7 +620,7 @@ impl eframe::App for CadApp {
         }
         if let Some(bench) = &mut self.bench {
             ui.ctx().request_repaint();
-            if self.doc.is_some() {
+            if self.doc.is_some() || self.compare.is_some() {
                 bench.done += 1;
                 // Skip the first frames (loading, first upload).
                 if bench.done > 10 {

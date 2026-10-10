@@ -20,31 +20,68 @@ const WHITE: Rgb = Rgb(255, 255, 255);
 
 /// Builds the scene for a drawing's model space.
 pub fn build(d: &Drawing) -> Scene {
-    let mut b = Builder {
-        d,
-        scene: Scene::default(),
-        layer_index: HashMap::new(),
-        layer_linetype: Vec::new(),
-        dash_index: HashMap::new(),
-        ltscale: header_float(d, "$LTSCALE", 40).unwrap_or(1.0),
-        stack: Vec::new(),
-    };
-    for layer in d.tables.layers.iter() {
-        b.layer(&layer.name);
-    }
-    let top = Ctx {
-        transform: Affine3::IDENTITY,
-        layer: None,
-        color: WHITE,
-        linetype: None,
-        scale: 1.0,
-    };
-    for e in &d.entities {
-        if !e.paper_space {
+    build_with(d, false)
+}
+
+/// Builds the scene for model space and, with `paper_space`, also for the
+/// paper-space entities of the ENTITIES section. [`Item::entity`] is the
+/// index in `d.entities`.
+pub fn build_with(d: &Drawing, paper_space: bool) -> Scene {
+    let mut b = Builder::new(d);
+    let top = Ctx::top();
+    for (i, e) in d.entities.iter().enumerate() {
+        if paper_space || !e.paper_space {
+            b.current = i as u32;
             b.entity(e, &top);
         }
     }
     b.scene
+}
+
+/// Builds the content of block `name` on its own (in block coordinates),
+/// or `None` if there is no such block. [`Item::entity`] is the index in
+/// the block's entity list.
+pub fn build_block(d: &Drawing, name: &str) -> Option<Scene> {
+    let block = d.blocks.get(name)?;
+    let mut b = Builder::new(d);
+    b.stack.push(block.name.clone());
+    let top = Ctx::top();
+    for (i, e) in block.entities.iter().enumerate() {
+        b.current = i as u32;
+        b.entity(e, &top);
+    }
+    Some(b.scene)
+}
+
+impl Ctx {
+    fn top() -> Self {
+        Ctx {
+            transform: Affine3::IDENTITY,
+            layer: None,
+            color: WHITE,
+            linetype: None,
+            scale: 1.0,
+        }
+    }
+}
+
+impl<'d> Builder<'d> {
+    fn new(d: &'d Drawing) -> Self {
+        let mut b = Builder {
+            d,
+            scene: Scene::default(),
+            layer_index: HashMap::new(),
+            layer_linetype: Vec::new(),
+            dash_index: HashMap::new(),
+            ltscale: header_float(d, "$LTSCALE", 40).unwrap_or(1.0),
+            stack: Vec::new(),
+            current: 0,
+        };
+        for layer in d.tables.layers.iter() {
+            b.layer(&layer.name);
+        }
+        b
+    }
 }
 
 fn header_float(d: &Drawing, name: &str, code: i16) -> Option<f64> {
@@ -83,6 +120,8 @@ struct Builder<'d> {
     ltscale: f64,
     /// Names of the blocks being expanded, to stop cycles.
     stack: Vec<String>,
+    /// Index of the top-level entity being drawn.
+    current: u32,
 }
 
 fn aci(index: u8) -> Rgb {
@@ -218,6 +257,7 @@ impl Builder<'_> {
             color,
             dash,
             shape,
+            entity: self.current,
         });
     }
 

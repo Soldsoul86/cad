@@ -7,10 +7,14 @@
 //!     cad-app convert IN.dxf OUT.dxf r12|r2018 write as R12 or R2018
 //!     cad-app generate IN.dxf OUT.dxf r12|r2018 always regenerate (never reuse bytes)
 //!     cad-app save IN.dxf OUT.dxf              save back (unchanged = identical)
+//!     cad-app diff A.dxf B.dxf [--json OUT]    list changes from A to B
+//!     cad-app --diff A.dxf B.dxf [--side]      compare A and B in the viewer
+//!     cad-app --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
 //!
 //! On the web it runs in the canvas with id `cad_canvas`; drop a file on it.
 
 mod app;
+mod compare;
 mod gpu;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,6 +65,29 @@ mod cli {
                 print_warnings(output, &warnings);
                 Ok(())
             })(),
+            [cmd, a, b, rest @ ..] if cmd == "diff" && matches!(rest, [] | [_, _]) => {
+                (|| {
+                    let (da, db) = (load(a)?, load(b)?);
+                    let diff = cad_diff::diff(&da, &db, &cad_diff::DiffOptions::default());
+                    for c in &diff.changes {
+                        println!("{c}");
+                    }
+                    println!(
+                        "{} added, {} deleted, {} changed, {} unchanged, {} equivalent",
+                        diff.count(cad_diff::ChangeKind::Added),
+                        diff.count(cad_diff::ChangeKind::Deleted),
+                        diff.count(cad_diff::ChangeKind::Changed),
+                        diff.unchanged,
+                        diff.equivalent
+                    );
+                    match rest {
+                        [flag, out] if flag == "--json" => std::fs::write(out, diff.to_json(a, b))
+                            .map_err(|e| format!("{out}: {e}")),
+                        [flag, _] => Err(format!("unknown option {flag}")),
+                        _ => Ok(()),
+                    }
+                })()
+            }
             [cmd, path] if cmd == "info" => (|| {
                 let drawing = load(path)?;
                 println!(
@@ -88,34 +115,53 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
-    let (bench, path) = match args.as_slice() {
+    let mut side_by_side = false;
+    let (bench, paths) = match args.as_slice() {
         [flag, path, rest @ ..] if flag == "--bench" => {
             let frames = rest.first().and_then(|n| n.parse().ok()).unwrap_or(600);
-            (Some(app::Bench::new(frames)), Some(path.clone()))
+            (Some(app::Bench::new(frames)), vec![path.clone()])
         }
         [flag, path, out] if flag == "--shot" => (
             Some(app::Bench::screenshot(out.clone())),
-            Some(path.clone()),
+            vec![path.clone()],
         ),
-        [path] => (None, Some(path.clone())),
-        [] => (None, None),
+        [flag, a, b, rest @ ..] if flag == "--diff" => {
+            let mut bench = None;
+            let mut rest = rest.iter();
+            while let Some(opt) = rest.next() {
+                match (
+                    opt.as_str(),
+                    (opt == "--shot").then(|| rest.next()).flatten(),
+                ) {
+                    ("--side", _) => side_by_side = true,
+                    ("--shot", Some(out)) => bench = Some(app::Bench::screenshot(out.clone())),
+                    _ => {
+                        eprintln!("usage: cad-app --diff A.dxf B.dxf [--side] [--shot OUT.ppm]");
+                        return std::process::ExitCode::FAILURE;
+                    }
+                }
+            }
+            (bench, vec![a.clone(), b.clone()])
+        }
+        [path] => (None, vec![path.clone()]),
+        [] => (None, Vec::new()),
         _ => {
             eprintln!(
-                "usage: cad-app [FILE.dxf] | --bench FILE.dxf [FRAMES] | info|convert|generate|save ..."
+                "usage: cad-app [FILE.dxf] | --diff A.dxf B.dxf | --bench FILE.dxf [FRAMES] | info|convert|generate|save|diff ..."
             );
             return std::process::ExitCode::FAILURE;
         }
     };
-    let file = match path {
-        Some(path) => match std::fs::read(&path) {
-            Ok(bytes) => Some((path, bytes)),
+    let mut files = Vec::new();
+    for path in paths {
+        match std::fs::read(&path) {
+            Ok(bytes) => files.push((path, bytes)),
             Err(e) => {
                 eprintln!("{path}: {e}");
                 return std::process::ExitCode::FAILURE;
             }
-        },
-        None => None,
-    };
+        }
+    }
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -130,7 +176,7 @@ fn main() -> std::process::ExitCode {
     let result = eframe::run_native(
         "cad",
         options,
-        Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, file, bench)))),
+        Box::new(move |cc| Ok(Box::new(app::CadApp::new(cc, files, bench, side_by_side)))),
     );
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -156,7 +202,7 @@ fn main() {
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, None, None)))),
+                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, Vec::new(), None, false)))),
             )
             .await;
     });

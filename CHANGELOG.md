@@ -1,5 +1,14 @@
 # Changelog
 
+## M4b — Visual diff (unreleased)
+
+- New UI-free crate `cad-diff`: compares two drawings on their data (entities in model and paper space, named blocks, layers, units and linetype scale), matching by handle when handles are trustworthy and otherwise by type, layer and geometry within a tolerance.
+- Changes are classified as added, deleted or changed, with details in plain words ("moved by (10, 5)", "layer changed from WALLS to DOORS", `text changed from "LIVING" to "LOUNGE"`, "radius changed from 4 to 6"). Types the viewer cannot draw are marked "not shown"; anything not interpreted is marked "uncertain". Handles, `$HANDSEED`, timestamps and entity order are ignored; entities drawn identically by other entities (a polyline split into lines) are listed as "redrawn", not as changes.
+- Machine-readable JSON report (`cad-diff/1`).
+- App compare mode: overlay (green added, red deleted, yellow changed), side by side with shared pan/zoom, change list, "Next change" zooming to each change, JSON export. `cad-app --diff A B [--side]`, drop two files, or "Compare with…"; `cad-app diff A B [--json OUT]` on the command line.
+- Test pairs made with ezdxf and FreeCAD (`tests/diff/`, `tools/gen_diff_pairs.py`): 28/28 expected changes found, 0 extra (precision and recall 1.000); renumbered, other-version and FreeCAD re-saves report no geometry changes.
+- `cad-render`: `Item::entity`, `build_with`, `build_block`.
+
 ## M4 — Viewer (unreleased)
 
 - `cad-render` (no UI dependencies): drawing → scene of styled primitives (layers, colours, linetypes, nested blocks and arrays, OCS), SVG output, chunked GPU geometry with a coarse level of detail, and pan/zoom maths.

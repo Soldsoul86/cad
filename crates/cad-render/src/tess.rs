@@ -255,6 +255,7 @@ mod tests {
             color: Rgb(255, 0, 0),
             dash: None,
             shape,
+            entity: 0,
         }
     }
 

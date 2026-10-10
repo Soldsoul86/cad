@@ -12,6 +12,6 @@ pub mod svg;
 pub mod tess;
 mod view;
 
-pub use build::build;
+pub use build::{build, build_block, build_with};
 pub use scene::*;
 pub use view::View;

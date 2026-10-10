@@ -80,6 +80,9 @@ pub struct Item {
     /// Index into [`Scene::dashes`], or `None` for a continuous line.
     pub dash: Option<u32>,
     pub shape: Shape,
+    /// The entity it was drawn from: an index into the entity list the
+    /// scene was built from (block contents count as their reference's).
+    pub entity: u32,
 }
 
 /// An axis-aligned box.

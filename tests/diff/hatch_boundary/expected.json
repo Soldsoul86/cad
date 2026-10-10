@@ -1,0 +1,21 @@
+{
+  "changes": [
+    {
+      "kind": "deleted",
+      "type": "HATCH",
+      "handle": "45",
+      "details": [
+        "not shown"
+      ]
+    },
+    {
+      "kind": "added",
+      "type": "HATCH",
+      "handle": "4B",
+      "details": [
+        "not shown"
+      ]
+    }
+  ],
+  "zero_geometry_changes": false
+}
