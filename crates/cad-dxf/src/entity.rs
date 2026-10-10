@@ -90,10 +90,12 @@ pub struct Point {
     pub extrusion: Point3,
 }
 
-/// Single-line text (`TEXT`); also the text part of an [`Attrib`].
+/// Single-line text (`TEXT`); also the text part of [`Attrib`] and
+/// [`AttDef`].
 ///
-/// `value` is the string as stored; control codes such as `%%d` and
-/// `\U+XXXX` escapes are not decoded yet.
+/// `value` is the decoded text (`\U+XXXX`, `\M+nXXXX` and `%%` codes
+/// resolved, see [`crate::decode_text`]); `raw_value` keeps the string as
+/// written when it differs, so the file can be saved back unchanged.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     /// First alignment point (group 10).
@@ -103,6 +105,8 @@ pub struct Text {
     pub align_point: Option<Point3>,
     pub height: f64,
     pub value: String,
+    /// The value as written, if decoding changed it.
+    pub raw_value: Option<String>,
     /// Degrees.
     pub rotation: f64,
     pub width_factor: f64,
@@ -130,10 +134,26 @@ pub struct Attrib {
     pub field_length: i16,
 }
 
+/// An attribute definition inside a block (`ATTDEF`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttDef {
+    /// The default value and its placement.
+    pub text: Text,
+    pub tag: String,
+    /// Group 3: the prompt shown when inserting, as written.
+    pub prompt: String,
+    /// Group 70: 1 = invisible, 2 = constant, 4 = verify, 8 = preset.
+    pub flags: i16,
+    /// Group 73.
+    pub field_length: i16,
+}
+
 /// Multi-line text (`MTEXT`).
 ///
-/// `text` is the full string with inline formatting codes (`\P`, `\f...;`,
-/// ...) left as stored; the `3` chunks and final `1` pair are joined.
+/// `text` is the full string (the `3` chunks and final `1` pair joined) with
+/// character escapes decoded (see [`crate::decode_mtext`]) but inline
+/// formatting codes (`\P`, `\f...;`, ...) kept. `raw_text` keeps the string
+/// as written when it differs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MText {
     pub insert: Point3,
@@ -145,6 +165,8 @@ pub struct MText {
     /// Group 72: 1 left to right, 3 top to bottom, 5 by style.
     pub drawing_direction: i16,
     pub text: String,
+    /// The text as written, if decoding changed it.
+    pub raw_text: Option<String>,
     pub style: String,
     /// Group 11: X-axis direction; takes precedence over `rotation`.
     pub x_direction: Option<Point3>,
@@ -249,8 +271,10 @@ pub struct Dimension {
     pub definition_point: Point3,
     /// Group 11.
     pub text_midpoint: Point3,
-    /// Group 1: text override; empty means the measured value.
+    /// Group 1: text override, decoded; empty means the measured value.
     pub text_override: String,
+    /// The override as written, if decoding changed it.
+    pub raw_text_override: Option<String>,
     /// The flag bits of group 70 above the type (32, 64, 128).
     pub flags: i16,
     /// Group 71, if present.
@@ -367,6 +391,8 @@ pub enum EntityKind {
     Polyline(Polyline),
     /// Only inside [`Insert::attributes`].
     Attrib(Attrib),
+    /// Normally inside a block definition.
+    AttDef(AttDef),
     /// Only inside [`Polyline::vertices`].
     Vertex(Vertex),
     Unknown(Unknown),
@@ -389,6 +415,7 @@ impl EntityKind {
             Self::Spline(_) => "SPLINE",
             Self::Polyline(_) => "POLYLINE",
             Self::Attrib(_) => "ATTRIB",
+            Self::AttDef(_) => "ATTDEF",
             Self::Vertex(_) => "VERTEX",
             Self::Unknown(u) => &u.type_name,
         }

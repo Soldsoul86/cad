@@ -175,9 +175,20 @@ impl<'s, 'r, 'a> Fields<'s, 'r, 'a> {
 
     /// Pairs not consumed: codes not declared, and repeats of declared codes.
     pub(super) fn leftovers(&self, extra: &mut Vec<&'r Token<'a>>) {
+        // Index of the first pair of each declared code: those are consumed.
+        // (Linear in the number of pairs, so huge records stay cheap.)
+        let mut consumed: Vec<usize> = self
+            .codes
+            .iter()
+            .filter_map(|&code| self.pairs.iter().position(|t| t.code == code))
+            .collect();
+        consumed.sort_unstable();
+        consumed.dedup();
+        let mut next = consumed.iter().peekable();
         for (i, &t) in self.pairs.iter().enumerate() {
-            let repeat = self.pairs[..i].iter().any(|p| p.code == t.code);
-            if repeat || !self.codes.contains(&t.code) {
+            if next.peek() == Some(&&i) {
+                next.next();
+            } else {
                 extra.push(t);
             }
         }

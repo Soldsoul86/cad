@@ -406,7 +406,7 @@ fn truncated_file_keeps_what_was_read() {
 }
 
 #[test]
-fn stray_pairs_outside_sections_are_skipped() {
+fn stray_pairs_outside_sections_are_kept() {
     let text = dxf(&[
         (999, "comments are fine"),
         (5, "stray"),
@@ -416,8 +416,21 @@ fn stray_pairs_outside_sections_are_skipped() {
         (0, "EOF"),
         (0, "JUNK"),
     ]);
-    let (_, warnings) = read_ok(&text);
+    let (d, warnings) = read_ok(&text);
     assert_eq!(warnings.len(), 2, "{warnings:?}");
+    let stray: Vec<(&str, usize, Vec<Pair>)> = d
+        .stray
+        .iter()
+        .map(|r| (r.section.as_str(), r.index, r.pairs.clone()))
+        .collect();
+    assert_eq!(
+        stray,
+        [
+            ("", 0, vec![Pair::new(999, "comments are fine")]),
+            ("", 0, vec![Pair::new(5, "stray")]),
+            ("EOF", 0, vec![Pair::new(0, "JUNK")]),
+        ]
+    );
 }
 
 #[test]
@@ -448,7 +461,16 @@ fn latin1_input_loads_with_warning() {
     bytes.splice(at..at + 2, [0xE4]);
     let (d, warnings) = read_bytes(&bytes).unwrap();
     assert_eq!(d.entities[0].layer, "Wände");
-    assert!(warnings.iter().any(|w| w.message.contains("Latin-1")));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("no $DWGCODEPAGE") && w.message.contains("ANSI_1252")),
+        "{warnings:?}"
+    );
+    assert_eq!(
+        d.encoding,
+        crate::FileEncoding::CodePage(crate::CodePage(1252))
+    );
 }
 
 #[test]
@@ -1459,4 +1481,291 @@ fn repeated_children_after_seqend_are_named_as_duplicates() {
         w.iter().all(|w| w.message.contains("repeats handle 8C")),
         "{w:?}"
     );
+}
+
+// ---- M2 part B: nothing is dropped -------------------------------------------
+
+#[test]
+fn stray_records_in_sections_are_kept_with_their_position() {
+    let text = dxf(&[
+        (0, "SECTION"),
+        (2, "HEADER"),
+        (70, "1"),
+        (9, "$ACADVER"),
+        (1, "AC1015"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "TABLES"),
+        (0, "TABLE"),
+        (2, "VPORT"),
+        (0, "ENDTAB"),
+        (0, "JUNK"),
+        (5, "1"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "BLOCKS"),
+        (0, "BLOCK"),
+        (2, "A"),
+        (0, "ENDBLK"),
+        (5, "1D"),
+        (0, "ENDBLK"),
+        (5, "76"),
+        (0, "BLOCK"),
+        (2, "B"),
+        (0, "ENDBLK"),
+        (0, "ENDSEC"),
+        (0, "SECTION"),
+        (2, "ENTITIES"),
+        (8, "early"),
+        (0, "POINT"),
+        (10, "0"),
+        (20, "0"),
+        (0, "ENDSEC"),
+        (0, "EOF"),
+    ]);
+    let (d, w) = read_ok(&text);
+    assert_eq!(w.len(), 4, "{w:?}");
+    assert!(
+        w.iter()
+            .any(|w| w.message == "ENDBLK outside a block definition; kept as a stray record")
+    );
+    let kept: Vec<(&str, usize, usize)> = d
+        .stray
+        .iter()
+        .map(|r| (r.section.as_str(), r.index, r.pairs.len()))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            ("HEADER", 0, 1),
+            ("TABLES", 1, 2),
+            ("BLOCKS", 1, 2),
+            ("ENTITIES", 0, 1)
+        ]
+    );
+    assert_eq!(
+        d.stray[2].pairs,
+        vec![Pair::new(0, "ENDBLK"), Pair::new(5, "76")]
+    );
+    assert_eq!(d.blocks.len(), 2);
+    assert_eq!(d.entities.len(), 1);
+}
+
+#[test]
+fn truncated_file_keeps_the_unparsed_tail() {
+    let text = "0\nSECTION\n2\nENTITIES\n0\nPOINT\n10\n0\n20\n0\nnot a code\n1.0\n0\nENDSEC\n";
+    let (d, w) = read_ok(text);
+    assert_eq!(d.entities.len(), 1);
+    assert_eq!(
+        d.unparsed_tail.as_deref(),
+        Some("not a code\n1.0\n0\nENDSEC\n")
+    );
+    assert!(
+        w.iter()
+            .any(|w| w.message.contains("kept as unparsed text"))
+    );
+}
+
+#[test]
+fn attdef_in_a_block() {
+    let text = blocks_doc(&[&[
+        (0, "BLOCK"),
+        (2, "TAGGED"),
+        (70, "2"),
+        (0, "ATTDEF"),
+        (100, "AcDbText"),
+        (10, "2"),
+        (20, "22"),
+        (40, "2"),
+        (1, "%%c25"),
+        (100, "AcDbAttributeDefinition"),
+        (3, "Part number?"),
+        (2, "PARTNO"),
+        (70, "8"),
+        (74, "1"),
+        (0, "ENDBLK"),
+    ]]);
+    let (d, w) = read_ok(&text);
+    assert!(w.is_empty(), "{w:?}");
+    let block = d.blocks.get("tagged").unwrap();
+    let EntityKind::AttDef(a) = &block.entities[0].kind else {
+        panic!("{:?}", block.entities[0].kind)
+    };
+    assert_eq!(
+        (a.tag.as_str(), a.prompt.as_str(), a.flags),
+        ("PARTNO", "Part number?", 8)
+    );
+    assert_eq!(a.text.value, "⌀25");
+    assert_eq!(a.text.raw_value.as_deref(), Some("%%c25"));
+    assert_eq!(a.text.vertical_align, 1);
+    // Missing tag: unknown with a warning.
+    let (kind, w) = kind_of(&entities_doc(&[
+        (0, "ATTDEF"),
+        (10, "0"),
+        (20, "0"),
+        (40, "1"),
+        (1, ""),
+    ]));
+    assert!(matches!(kind, EntityKind::Unknown(_)));
+    assert_eq!(w.len(), 1);
+}
+
+// ---- M2 part B: encodings ----------------------------------------------------
+
+/// A minimal file with a header and one TEXT, as bytes in some encoding.
+fn text_file(acadver: &str, codepage: Option<&str>, text: &[u8]) -> Vec<u8> {
+    let mut out = format!("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\n{acadver}\n").into_bytes();
+    if let Some(cp) = codepage {
+        out.extend_from_slice(format!("9\n$DWGCODEPAGE\n3\n{cp}\n").as_bytes());
+    }
+    out.extend_from_slice(
+        b"0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n",
+    );
+    out.extend_from_slice(text);
+    out.extend_from_slice(b"\n0\nENDSEC\n0\nEOF\n");
+    out
+}
+
+fn text_value(bytes: &[u8]) -> (String, Option<String>, crate::FileEncoding, Vec<Warning>) {
+    let (d, w) = read_bytes(bytes).expect("loads");
+    let EntityKind::Text(t) = &d.entities[0].kind else {
+        panic!("{:?}", d.entities[0].kind)
+    };
+    (t.value.clone(), t.raw_value.clone(), d.encoding, w)
+}
+
+#[test]
+fn pre_2007_code_pages() {
+    use crate::{CodePage, FileEncoding};
+    let cases: [(&str, &[u8], &str); 7] = [
+        ("ANSI_1250", b"Zak\xb3ad \xb9\xe6", "Zakład ąć"),
+        ("ANSI_1251", b"\xcf\xf0\xe8\xe2\xe5\xf2", "Привет"),
+        ("ANSI_1252", b"W\xe4nde 90\xb0", "Wände 90°"),
+        ("ansi_1253", b"\xc1\xe2\xe3", "Αβγ"),
+        ("ANSI_932", b"\x94\x7a\x8a\xc7", "配管"),
+        ("ANSI_936", b"\xc5\xe4\xb9\xdc", "配管"),
+        ("ANSI_949", b"\xb9\xe8\xb0\xfc", "배관"),
+    ];
+    for (cp, bytes, expected) in cases {
+        let (value, raw, encoding, w) = text_value(&text_file("AC1015", Some(cp), bytes));
+        assert_eq!(value, expected, "{cp}");
+        assert_eq!(raw, None, "byte decoding is not an escape: {cp}");
+        assert!(w.is_empty(), "{cp}: {w:?}");
+        let page = CodePage::from_dwgcodepage(cp).unwrap();
+        assert_eq!(encoding, FileEncoding::CodePage(page));
+    }
+}
+
+#[test]
+fn r2007_and_later_are_utf8_whatever_the_code_page_says() {
+    let (value, _, encoding, w) =
+        text_value(&text_file("AC1032", Some("ANSI_1252"), "配管 Ø".as_bytes()));
+    assert_eq!(value, "配管 Ø");
+    assert_eq!(encoding, crate::FileEncoding::Utf8);
+    assert!(w.is_empty());
+    // Not valid UTF-8 in a UTF-8 version: decoded with the code page, warned.
+    let (value, _, _, w) = text_value(&text_file("AC1032", Some("ANSI_1252"), b"W\xe4nde"));
+    assert_eq!(value, "Wände");
+    assert!(w[0].message.contains("AC1032 files are UTF-8"), "{w:?}");
+}
+
+#[test]
+fn pre_2007_file_that_is_valid_utf8_reads_as_utf8() {
+    let (value, _, encoding, w) =
+        text_value(&text_file("AC1015", Some("ANSI_1252"), "Wände".as_bytes()));
+    assert_eq!(value, "Wände");
+    assert_eq!(encoding, crate::FileEncoding::Utf8);
+    assert!(w.is_empty());
+    // ASCII-only files report their declared code page.
+    let (_, _, encoding, _) = text_value(&text_file("AC1009", Some("ANSI_1251"), b"plain"));
+    assert_eq!(
+        encoding,
+        crate::FileEncoding::CodePage(crate::CodePage(1251))
+    );
+}
+
+#[test]
+fn unsupported_or_missing_code_page_falls_back_with_a_warning() {
+    let (value, _, _, w) = text_value(&text_file("AC1015", Some("ANSI_1361"), b"x\xe4"));
+    assert_eq!(value, "xä");
+    assert!(
+        w[0].message.contains("\"ANSI_1361\" is not supported"),
+        "{w:?}"
+    );
+    let (value, _, _, w) = text_value(&text_file("AC1009", None, b"x\xe4"));
+    assert_eq!(value, "xä");
+    assert!(w[0].message.contains("no $DWGCODEPAGE"), "{w:?}");
+    // Bytes the code page cannot decode are replaced, with a warning.
+    let (value, _, _, w) = text_value(&text_file("AC1015", Some("ANSI_932"), b"\x94"));
+    assert_eq!(value, "\u{FFFD}");
+    assert!(
+        w.iter().any(|w| w.message.contains("not valid ANSI_932")),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn escapes_are_decoded_and_the_original_kept() {
+    let (value, raw, _, _) = text_value(&text_file(
+        "AC1015",
+        Some("ANSI_1252"),
+        b"\\U+914D\\U+7BA1 %%d",
+    ));
+    assert_eq!(value, "配管 °");
+    assert_eq!(raw.as_deref(), Some("\\U+914D\\U+7BA1 %%d"));
+    // %%nnn uses the drawing's code page.
+    let (value, _, _, _) = text_value(&text_file("AC1015", Some("ANSI_1250"), b"%%185"));
+    assert_eq!(value, "ą");
+    // read_str also honours $DWGCODEPAGE for %%nnn.
+    let text = String::from_utf8(text_file("AC1015", Some("ANSI_1250"), b"%%185")).unwrap();
+    let (d, _) = read_str(&text).unwrap();
+    assert!(matches!(&d.entities[0].kind, EntityKind::Text(t) if t.value == "ą"));
+}
+
+#[test]
+fn mtext_and_dimension_text_are_decoded() {
+    let (d, w) = read_ok(&entities_doc(&[
+        (0, "MTEXT"),
+        (10, "0"),
+        (20, "0"),
+        (40, "1"),
+        (3, "\\U+00D8%%c "),
+        (1, "\\P\\\\U+0041"),
+        (0, "DIMENSION"),
+        (10, "0"),
+        (20, "0"),
+        (11, "0"),
+        (21, "0"),
+        (70, "3"),
+        (15, "1"),
+        (25, "0"),
+        (1, "%%c<>"),
+    ]));
+    assert!(w.is_empty(), "{w:?}");
+    let EntityKind::MText(m) = &d.entities[0].kind else {
+        panic!()
+    };
+    assert_eq!(m.text, "Ø⌀ \\P\\\\U+0041");
+    assert_eq!(m.raw_text.as_deref(), Some("\\U+00D8%%c \\P\\\\U+0041"));
+    let EntityKind::Dimension(dim) = &d.entities[1].kind else {
+        panic!()
+    };
+    assert_eq!(dim.text_override, "⌀<>");
+    assert_eq!(dim.raw_text_override.as_deref(), Some("%%c<>"));
+}
+
+#[test]
+fn plain_text_has_no_raw_copy() {
+    let (value, raw, _, _) = text_value(&text_file("AC1032", None, b"Room 101"));
+    assert_eq!((value.as_str(), raw), ("Room 101", None));
+}
+
+#[test]
+fn header_value_sniffing() {
+    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$ACADVERX\n1\nNO\n9\n$ACADVER\r\n  1\r\nAC1018 \r\n";
+    assert_eq!(super::header_value(bytes, "$ACADVER", "1"), Some("AC1018"));
+    assert_eq!(super::header_value(bytes, "$DWGCODEPAGE", "3"), None);
+    assert_eq!(super::header_value(b"9\n$ACADVER", "$ACADVER", "1"), None);
+    assert_eq!(super::line_offset("a\nb\nc", 3), 4);
+    assert_eq!(super::line_offset("a\nb", 9), 3);
 }

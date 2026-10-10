@@ -29,14 +29,15 @@ replaces one. When you make a new call the spec doesn't cover, add it here.
    `DxfError::NotDxf` or a syntax error. Missing `ENDSEC`, `ENDTAB` and `EOF`
    are warnings.
 7. **Arc angles** are stored in degrees, as in the file.
-8. **`999` comments outside sections** are dropped silently (the format
-   allows them anywhere; they carry no drawing data).
+8. **`999` comments outside sections** are kept as stray records, without a
+   warning (the format allows them anywhere). *(Changed in M2 part B; they
+   were dropped before.)*
 9. **Licence:** `MIT OR Apache-2.0`, with `LICENSE-MIT` and `LICENSE-APACHE`.
 10. **Versions:** `Version` covers R12, R13, R14 and 2000–2018 (R13/R14
     added in M2). Other `$ACADVER` values still load, with a warning;
     `Header::acadver()` returns the raw string.
-11. **Encoding (interim):** input that isn't valid UTF-8 is decoded as Latin-1
-    with a warning, until `$DWGCODEPAGE` handling lands in M2.
+11. **Encoding:** replaced by M2 part B decisions 4–9 (the Latin-1 fallback
+    is gone).
 
 Also settled:
 
@@ -125,3 +126,73 @@ Also settled:
 17. **No true aligned dimension in the corpus:** ezdxf writes
     `add_aligned_dim` as a rotated linear dimension (type 0). Type 1 is
     covered by unit tests only.
+
+## M2 part B
+
+1. **Nothing parsed is dropped.** Misplaced records (pairs outside any
+   section, junk between tables, an `ENDBLK` outside a block, pairs before the
+   first entity, pairs before the first header variable, data after `EOF`)
+   are kept in `Drawing::stray` as `StrayRecord { section, index, pairs }`,
+   with a warning. `index` counts the items before it in that place
+   (sections, header variables, tables, blocks or entities) so a writer can
+   put it back where it was. Orphaned `VERTEX`/`ATTRIB`/`SEQEND` records stay
+   in the entity list as before.
+2. **Unreadable tails are kept as text.** When the tokenizer hits a line it
+   cannot read (a bad group code, or a code with no value), everything from
+   that line on is stored in `Drawing::unparsed_tail` with a warning. The
+   pairs can't be recovered past that point, but the text is not lost.
+3. **`ATTDEF` is parsed** (`EntityKind::AttDef`): the `ATTRIB` fields plus the
+   prompt (group 3, stored as written).
+4. **Which bytes are which encoding.** The reader sniffs `$ACADVER` and
+   `$DWGCODEPAGE` from the raw bytes (first 1 MB) before decoding:
+   - R2007+ (`AC1021` and later): UTF-8. If the bytes are not valid UTF-8,
+     they are decoded with the code page, with a warning.
+   - Older files: bytes that are valid UTF-8 are read as UTF-8, silently
+     (some writers, e.g. LibreDWG and FreeCAD, write UTF-8 into R14/R2000
+     files that declare ANSI_1252); otherwise the declared code page is used.
+   - Missing or unsupported `$DWGCODEPAGE` with non-UTF-8 bytes: ANSI_1252,
+     with a warning. Bytes invalid in the code page become U+FFFD, with a
+     warning (the only lossy case).
+   - `Drawing::encoding` records the result: `Utf8`, or `CodePage(n)` (also
+     for ASCII-only pre-2007 files, so a writer knows what to use).
+5. **Supported code pages:** ANSI_874, 932, 936, 949, 950 and 1250–1258, via
+   `encoding_rs` 0.8.35 (pinned; MIT OR Apache-2.0, data BSD-3-Clause).
+   ANSI_1361 (Johab) and DOS code pages are not supported.
+6. **Text values are decoded, originals kept.** `Text::value` (TEXT, ATTRIB,
+   ATTDEF), `MText::text` and `Dimension::text_override` hold the decoded
+   string; `raw_value` / `raw_text` / `raw_text_override` hold the string as
+   written, only when decoding changed it (`None` otherwise, so plain text
+   costs nothing extra). A writer writes the raw form when it still decodes
+   to the current value, and encodes the value otherwise.
+7. **Escapes decoded:** `\U+XXXX` (exactly four hex digits; surrogates stay
+   literal), `\M+nXXXX` (n = 1 Shift-JIS, 2 Big5, 3 Korean, 5 GBK; 4 Johab
+   stays literal), `%%d` → `°`, `%%p` → `±`, `%%c` → `⌀` (U+2300 DIAMETER
+   SIGN), `%%%` → `%`, `%%nnn` → character `nnn` in the drawing's code page
+   (single-byte pages only). Codes are case-insensitive. `%%o`/`%%u`
+   (overline/underline toggles) and malformed escapes are left as written.
+8. **MTEXT decoding keeps formatting.** In MTEXT only the character escapes
+   are decoded (`\U+`, `\M+`, `%%d/p/c/%`); formatting codes (`\P`,
+   `\f...;`, ...) stay, and `\\` (an escaped backslash) is left alone so
+   `\\U+0041` is not mistaken for an escape. `%%nnn` is a TEXT-only feature.
+9. **Names are not decoded.** Layer, style, block and linetype names are
+   stored as written (after byte decoding), including any `\U+` escapes, so
+   references between them keep matching. The prompt of an ATTDEF is also
+   stored as written.
+10. **Fuzzing.** `crates/cad-dxf/fuzz` (cargo-fuzz 0.13.2, libfuzzer-sys
+    0.4.13 pinned) has three targets: `tokenizer`, `reader` (`read_bytes`)
+    and `text` (`decode_text`/`decode_mtext` on every code page). It is its
+    own workspace and needs nightly; it is dev tooling only, so libFuzzer's
+    NCSA licence (BSD-style) does not reach anything shipped. CI does not
+    run it. `tools/fuzz.sh SECONDS` seeds every target from `tests/corpus`
+    and the regression inputs and runs them in parallel, without a sanitizer
+    (no `unsafe` code; overflow and bounds checks stay on; about 20× faster)
+    and with inputs up to 16 KB. Crashing inputs go in
+    `tests/fuzz-regressions/`, which a normal test replays.
+    **First 1-hour run (2026-10-10, Intel Mac, three targets in parallel):**
+    no crashes, no timeouts. reader 6.7 M runs (~1,860/s, 2,905 coverage
+    edges), tokenizer 209 M (~58,000/s, 103 edges, flat), text 7.0 M
+    (~1,950/s, 468 edges). Peak memory 67 MB. `tests/fuzz-regressions/` is
+    therefore empty apart from its README.
+11. **Linear-time leftovers.** `Fields::leftovers` and the orphan-parent
+    lookup no longer rescan earlier pairs/entities, so huge records can't
+    make the reader quadratic.

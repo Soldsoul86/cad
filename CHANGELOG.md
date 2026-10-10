@@ -1,5 +1,14 @@
 # Changelog
 
+## M2 part B — nothing dropped, encodings, fuzzing (unreleased)
+
+- Stray and duplicate records (e.g. an extra `ENDBLK`) are kept in `Drawing::stray` with their position; an unreadable tail is kept in `Drawing::unparsed_tail`. Warnings unchanged.
+- `ATTDEF` parsed.
+- `$DWGCODEPAGE` decoding for pre-2007 files (ANSI_874, 932, 936, 949, 950, 1250–1258) via `encoding_rs`; `Drawing::encoding` records the result.
+- `\U+XXXX`, `\M+nXXXX` and `%%` codes decoded in TEXT, ATTRIB, ATTDEF, MTEXT and dimension text; the original string is kept when it differs. Public `decode_text` / `decode_mtext`.
+- cargo-fuzz targets (`tokenizer`, `reader`, `text`) seeded from the corpus, `tools/fuzz.sh`, and replayed regression inputs. A 1-hour run of all three found no crashes (223 M executions in total).
+- All corpus files load with zero warnings, except the 18 known LibreDWG files (duplicate records) and the two deliberately damaged fixtures.
+
 ## M2 part A — performance, entities, blocks, tables (unreleased)
 
 - Streaming reader with borrowed tokens: the 50 MB benchmark file loads in about 0.8–1.05 s (was 3.1 s). New benchmark: `cargo bench -p cad-dxf --bench load`.

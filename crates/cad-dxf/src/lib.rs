@@ -14,6 +14,7 @@
 //! # Ok::<(), cad_dxf::DxfError>(())
 //! ```
 
+mod encoding;
 mod entity;
 mod error;
 mod model;
@@ -22,14 +23,15 @@ mod table;
 pub mod tokenizer;
 pub mod value;
 
+pub use encoding::{CodePage, FileEncoding, decode_mtext, decode_text};
 pub use entity::{
-    Arc, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert, Line,
-    LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
+    Arc, AttDef, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert,
+    Line, LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
 };
 pub use error::{DxfError, Warning};
 pub use model::{
-    Block, Color, Drawing, Handle, Header, HeaderVariable, LineWeight, Point3, RawSection, Version,
-    Z_AXIS,
+    Block, Color, Drawing, Handle, Header, HeaderVariable, LineWeight, Point3, RawSection,
+    StrayRecord, Version, Z_AXIS,
 };
 pub use reader::{read_bytes, read_file, read_str};
 pub use table::{

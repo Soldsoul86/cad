@@ -1,8 +1,11 @@
 //! Parsing one entity record into an [`Entity`].
 
+use std::borrow::Cow;
+
+use crate::encoding::{CodePage, decode_mtext, decode_text};
 use crate::entity::{
-    Arc, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert, Line,
-    LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
+    Arc, AttDef, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert,
+    Line, LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
 };
 use crate::error::Warning;
 use crate::model::{Color, Point3, Z_AXIS};
@@ -25,6 +28,7 @@ type Extra<'r, 'a> = Vec<&'r Token<'a>>;
 pub(super) fn parse_entity(
     head: &Token<'_>,
     body: &[Token<'_>],
+    code_page: CodePage,
     warnings: &mut Vec<Warning>,
 ) -> Entity {
     let type_name = head.raw.trim();
@@ -39,7 +43,7 @@ pub(super) fn parse_entity(
 
     let parsed = match common_error {
         Some(message) => Some(Err(message)),
-        None => parse_kind(type_name, &rest, &mut extra),
+        None => parse_kind(type_name, &rest, &mut extra, code_page),
     };
     match parsed {
         Some(Ok(kind)) => {
@@ -98,6 +102,7 @@ fn parse_kind<'r, 'a>(
     type_name: &str,
     rest: &Rest<'r, 'a>,
     extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
 ) -> Option<Result<EntityKind, String>> {
     Some(match type_name {
         "LINE" => line(rest, extra),
@@ -106,11 +111,12 @@ fn parse_kind<'r, 'a>(
         "LWPOLYLINE" => lwpolyline(rest, extra),
         "ELLIPSE" => ellipse(rest, extra),
         "POINT" => point(rest, extra),
-        "TEXT" => text(rest, extra).map(EntityKind::Text),
-        "ATTRIB" => attrib(rest, extra),
-        "MTEXT" => mtext(rest, extra),
+        "TEXT" => text(rest, extra, cp).map(EntityKind::Text),
+        "ATTRIB" => attrib(rest, extra, cp),
+        "ATTDEF" => attdef(rest, extra, cp),
+        "MTEXT" => mtext(rest, extra, cp),
         "INSERT" => insert(rest, extra),
-        "DIMENSION" => dimension(rest, extra),
+        "DIMENSION" => dimension(rest, extra, cp),
         "SPLINE" => spline(rest, extra),
         "POLYLINE" => polyline(rest, extra),
         "VERTEX" => vertex(rest, extra),
@@ -262,17 +268,25 @@ fn point<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Entit
     Ok(EntityKind::Point(point))
 }
 
-/// The fields `TEXT` and `ATTRIB` share. `valign_code` is 73 for text and
-/// 74 for attributes.
-fn text_fields(f: &Fields<'_, '_, '_>, valign_code: i16) -> Result<Text, String> {
+/// A decoded string and, if decoding changed it, the original.
+fn decoded(raw: &str, decoded: Cow<'_, str>) -> (String, Option<String>) {
+    match decoded {
+        Cow::Borrowed(text) => (text.to_owned(), None),
+        Cow::Owned(text) => (text, Some(raw.to_owned())),
+    }
+}
+
+/// The fields `TEXT`, `ATTRIB` and `ATTDEF` share. `valign_code` is 73 for
+/// text and 74 for attributes.
+fn text_fields(f: &Fields<'_, '_, '_>, valign_code: i16, cp: CodePage) -> Result<Text, String> {
+    let raw = f.raw(1).ok_or("missing text value (group code 1)")?;
+    let (value, raw_value) = decoded(raw, decode_text(raw, cp));
     Ok(Text {
         insert: f.point(10, "insertion point")?,
         align_point: f.optional_point(11, "alignment point")?,
         height: f.require(40, "height")?,
-        value: f
-            .raw(1)
-            .ok_or("missing text value (group code 1)")?
-            .to_owned(),
+        value,
+        raw_value,
         rotation: f.float_or(50, 0.0)?,
         width_factor: f.float_or(41, 1.0)?,
         oblique: f.float_or(51, 0.0)?,
@@ -289,14 +303,22 @@ const TEXT_CODES: [i16; 19] = [
     10, 20, 30, 11, 21, 31, 40, 1, 50, 41, 51, 7, 71, 72, 73, 39, 210, 220, 230,
 ];
 
-fn text<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Text, String> {
+fn text<'r, 'a>(
+    rest: &Rest<'r, 'a>,
+    extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
+) -> Result<Text, String> {
     let f = Fields::new(rest, &TEXT_CODES);
-    let text = text_fields(&f, 73)?;
+    let text = text_fields(&f, 73, cp)?;
     f.leftovers(extra);
     Ok(text)
 }
 
-fn attrib<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<EntityKind, String> {
+fn attrib<'r, 'a>(
+    rest: &Rest<'r, 'a>,
+    extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
+) -> Result<EntityKind, String> {
     let f = Fields::new(
         rest,
         &[
@@ -304,7 +326,7 @@ fn attrib<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Enti
         ],
     );
     let attrib = Attrib {
-        text: text_fields(&f, 74)?,
+        text: text_fields(&f, 74, cp)?,
         tag: f
             .token(2)
             .map(name_of)
@@ -316,8 +338,39 @@ fn attrib<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Enti
     Ok(EntityKind::Attrib(attrib))
 }
 
+/// `ATTDEF`: like `ATTRIB`, plus the prompt (group 3).
+fn attdef<'r, 'a>(
+    rest: &Rest<'r, 'a>,
+    extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
+) -> Result<EntityKind, String> {
+    let f = Fields::new(
+        rest,
+        &[
+            10, 20, 30, 11, 21, 31, 40, 1, 50, 41, 51, 7, 71, 72, 74, 2, 3, 70, 73, 39, 210, 220,
+            230,
+        ],
+    );
+    let attdef = AttDef {
+        text: text_fields(&f, 74, cp)?,
+        tag: f
+            .token(2)
+            .map(name_of)
+            .ok_or("missing attribute tag (group code 2)")?,
+        prompt: f.raw(3).unwrap_or_default().to_owned(),
+        flags: f.int16_or(70, 0)?,
+        field_length: f.int16_or(73, 0)?,
+    };
+    f.leftovers(extra);
+    Ok(EntityKind::AttDef(attdef))
+}
+
 /// `MTEXT`: the text is every `3` chunk in order followed by the `1` pair.
-fn mtext<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<EntityKind, String> {
+fn mtext<'r, 'a>(
+    rest: &Rest<'r, 'a>,
+    extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
+) -> Result<EntityKind, String> {
     let mut text = String::new();
     let mut seen_final = false;
     let mut others: Vec<&'r Token<'a>> = Vec::with_capacity(rest.len());
@@ -337,6 +390,7 @@ fn mtext<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Entit
             10, 20, 30, 40, 41, 71, 72, 7, 11, 21, 31, 50, 73, 44, 210, 220, 230,
         ],
     );
+    let (text, raw_text) = decoded(&text, decode_mtext(&text, cp));
     let mtext = MText {
         insert: f.point(10, "insertion point")?,
         height: f.require(40, "height")?,
@@ -344,6 +398,7 @@ fn mtext<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Entit
         attachment: f.int16_or(71, 1)?,
         drawing_direction: f.int16_or(72, 1)?,
         text,
+        raw_text,
         style: f.name_or(7, "STANDARD"),
         x_direction: f.optional_point(11, "x direction")?,
         rotation: f.float_or(50, 0.0)?,
@@ -388,7 +443,11 @@ fn insert<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<Enti
     Ok(EntityKind::Insert(insert))
 }
 
-fn dimension<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<EntityKind, String> {
+fn dimension<'r, 'a>(
+    rest: &Rest<'r, 'a>,
+    extra: &mut Extra<'r, 'a>,
+    cp: CodePage,
+) -> Result<EntityKind, String> {
     const BASE: [i16; 17] = [
         2, 3, 10, 20, 30, 11, 21, 31, 1, 70, 71, 42, 51, 53, 210, 220, 230,
     ];
@@ -445,12 +504,15 @@ fn dimension<'r, 'a>(rest: &Rest<'r, 'a>, extra: &mut Extra<'r, 'a>) -> Result<E
             x_type: type_flags & 64 != 0,
         },
     };
+    let raw_override = f.raw(1).unwrap_or_default();
+    let (text_override, raw_text_override) = decoded(raw_override, decode_text(raw_override, cp));
     let dimension = Dimension {
         block: f.name_or(2, ""),
         style: f.name_or(3, "STANDARD"),
         definition_point: f.point(10, "definition point")?,
         text_midpoint: f.point(11, "text midpoint")?,
-        text_override: f.raw(1).unwrap_or_default().to_owned(),
+        text_override,
+        raw_text_override,
         flags: type_flags & !0x0F,
         attachment: f.int16(71)?,
         measurement: f.float(42)?,

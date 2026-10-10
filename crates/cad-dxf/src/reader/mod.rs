@@ -12,9 +12,10 @@ mod tests;
 use std::borrow::Cow;
 use std::path::Path;
 
+use crate::encoding::{CodePage, FileEncoding};
 use crate::entity::{Entity, EntityKind};
 use crate::error::{DxfError, Warning};
-use crate::model::{Block, Drawing, HeaderVariable, RawSection};
+use crate::model::{Block, Drawing, HeaderVariable, RawSection, StrayRecord, Version};
 use crate::table::{Named, RawTable, Table};
 use crate::tokenizer::{BINARY_SENTINEL, Pair, Token, Tokenizer};
 
@@ -27,37 +28,91 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<(Drawing, Vec<Warning>), DxfE
 
 /// Reads a DXF document from bytes.
 ///
-/// UTF-8 is assumed; input that is not valid UTF-8 is decoded as Latin-1
-/// with a warning (code page support arrives later in M2).
+/// R2007 and later files are UTF-8. Older files use the code page named by
+/// `$DWGCODEPAGE` (ANSI_1252 if missing or unsupported, with a warning when
+/// that matters), except that bytes which are valid UTF-8 are read as UTF-8.
+/// [`Drawing::encoding`] records the choice.
 pub fn read_bytes(bytes: &[u8]) -> Result<(Drawing, Vec<Warning>), DxfError> {
     if bytes.starts_with(BINARY_SENTINEL) {
         return Err(DxfError::BinaryNotSupported);
     }
-    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let (bom, bytes) = match bytes.strip_prefix(b"\xEF\xBB\xBF") {
+        Some(rest) => (true, rest),
+        None => (false, bytes),
+    };
     let mut warnings = Vec::new();
-    let text = match std::str::from_utf8(bytes) {
-        Ok(text) => Cow::Borrowed(text),
+    let acadver = header_value(bytes, "$ACADVER", "1");
+    let declared = header_value(bytes, "$DWGCODEPAGE", "3");
+    let code_page = declared
+        .and_then(CodePage::from_dwgcodepage)
+        .unwrap_or(CodePage::ANSI_1252);
+    let unicode_version = acadver
+        .and_then(Version::from_acadver)
+        .is_some_and(|v| v >= Version::R2007);
+    let (text, encoding) = match std::str::from_utf8(bytes) {
+        Ok(text) => {
+            let encoding = if bom || unicode_version || !text.is_ascii() {
+                FileEncoding::Utf8
+            } else {
+                FileEncoding::CodePage(code_page)
+            };
+            (Cow::Borrowed(text), encoding)
+        }
         Err(_) => {
-            warnings.push(Warning::new(
-                None,
-                "file is not valid UTF-8; decoded as Latin-1",
-            ));
-            Cow::Owned(bytes.iter().map(|&b| char::from(b)).collect())
+            let page = code_page.dwgcodepage();
+            let reason = match (acadver, declared) {
+                (Some(ver), _) if unicode_version => {
+                    Some(format!("{ver} files are UTF-8, but this one is not"))
+                }
+                (_, Some(name)) if CodePage::from_dwgcodepage(name).is_none() => {
+                    Some(format!("$DWGCODEPAGE {name:?} is not supported"))
+                }
+                (_, None) => Some("the file has no $DWGCODEPAGE".to_owned()),
+                _ => None,
+            };
+            if let Some(reason) = reason {
+                warnings.push(Warning::new(
+                    None,
+                    format!("{reason}; text decoded as {page}"),
+                ));
+            }
+            let (text, had_errors) = code_page.decode_lossy(bytes);
+            if had_errors {
+                warnings.push(Warning::new(
+                    None,
+                    format!("some bytes are not valid {page} and were replaced"),
+                ));
+            }
+            (Cow::Owned(text), FileEncoding::CodePage(code_page))
         }
     };
-    let (drawing, more) = read_str(&text)?;
+    let (mut drawing, more) = read_text(&text, code_page)?;
+    drawing.encoding = encoding;
     warnings.extend(more);
     Ok((drawing, warnings))
 }
 
-/// Reads a DXF document from text.
+/// Reads a DXF document from text that is already decoded.
+///
+/// `$DWGCODEPAGE` still selects the code page for `%%nnn` codes.
 pub fn read_str(text: &str) -> Result<(Drawing, Vec<Warning>), DxfError> {
+    let code_page = header_value(text.as_bytes(), "$DWGCODEPAGE", "3")
+        .and_then(CodePage::from_dwgcodepage)
+        .unwrap_or(CodePage::ANSI_1252);
+    read_text(text, code_page)
+}
+
+fn read_text(text: &str, code_page: CodePage) -> Result<(Drawing, Vec<Warning>), DxfError> {
     let mut reader = Reader {
+        text,
         tokens: Tokenizer::new(text),
         peeked: None,
         seen_section: false,
         fatal: None,
         last_line: 1,
+        code_page,
+        sections_read: 0,
+        tables_read: 0,
         body: Vec::new(),
         drawing: Drawing::default(),
         warnings: Vec::new(),
@@ -66,16 +121,58 @@ pub fn read_str(text: &str) -> Result<(Drawing, Vec<Warning>), DxfError> {
     Ok((reader.drawing, reader.warnings))
 }
 
+/// Finds a header variable's value in raw bytes before decoding: `name` on
+/// its own line, then group `code`, then the value. Only the first 1 MB is
+/// searched; the header comes first in a DXF file.
+fn header_value<'b>(bytes: &'b [u8], name: &str, code: &str) -> Option<&'b str> {
+    let window = &bytes[..bytes.len().min(1 << 20)];
+    let needle = name.as_bytes();
+    let mut from = 0;
+    while let Some(pos) = window[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+    {
+        let at = from + pos;
+        let mut lines = window[at + needle.len()..].split(|&b| b == b'\n');
+        let rest_of_name_line = lines.next().unwrap_or_default();
+        if rest_of_name_line.trim_ascii().is_empty()
+            && lines.next().map(<[u8]>::trim_ascii) == Some(code.as_bytes())
+        {
+            return lines
+                .next()
+                .and_then(|v| std::str::from_utf8(v.trim_ascii()).ok());
+        }
+        from = at + 1;
+    }
+    None
+}
+
+/// Byte offset of the start of 1-based `line` in `text`.
+fn line_offset(text: &str, line: usize) -> usize {
+    if line <= 1 {
+        return 0;
+    }
+    text.match_indices('\n')
+        .nth(line - 2)
+        .map_or(text.len(), |(i, _)| i + 1)
+}
+
 /// Markers that end a section's content.
 const SECTION_END: [&str; 3] = ["ENDSEC", "SECTION", "EOF"];
 
 struct Reader<'a> {
+    text: &'a str,
     tokens: Tokenizer<'a>,
     peeked: Option<Token<'a>>,
     seen_section: bool,
     /// A tokenizer error before the file looked like a DXF.
     fatal: Option<DxfError>,
     last_line: usize,
+    /// For `%%nnn` and the `$DWGCODEPAGE` of the drawing.
+    code_page: CodePage,
+    /// Positions for stray records.
+    sections_read: usize,
+    tables_read: usize,
     /// Reused buffer for one record's pairs.
     body: Vec<Token<'a>>,
     drawing: Drawing,
@@ -95,10 +192,16 @@ impl<'a> Reader<'a> {
                     self.last_line = token.line;
                     self.peeked = Some(token);
                 }
-                // Once the file has started like a DXF, keep what was read.
+                // Once the file has started like a DXF, keep what was read,
+                // and the rest as unparsed text.
                 Some(Err(err)) if self.seen_section => {
                     let line = err.line().unwrap_or(self.last_line);
-                    self.warn(line, format!("{err}; the rest of the file was ignored"));
+                    let tail = &self.text[line_offset(self.text, line)..];
+                    self.drawing.unparsed_tail = Some(tail.to_owned());
+                    self.warn(
+                        line,
+                        format!("{err}; the rest of the file was kept as unparsed text"),
+                    );
                 }
                 Some(Err(err)) => self.fatal = Some(err),
                 None => {}
@@ -138,10 +241,20 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn skip_body(&mut self) {
+    /// Keeps `first` and the pairs after it, up to the next `0` pair, as a
+    /// stray record.
+    fn keep_stray(&mut self, first: &Token<'a>, section: &str, index: usize) {
+        let mut pairs = vec![first.to_pair()];
         while self.peek().is_some_and(|t| t.code != 0) {
-            self.next();
+            if let Some(t) = self.next() {
+                pairs.push(t.to_pair());
+            }
         }
+        self.drawing.stray.push(StrayRecord {
+            section: section.to_owned(),
+            index,
+            pairs,
+        });
     }
 
     /// Reads pairs until a section end, as owned pairs.
@@ -160,20 +273,27 @@ impl<'a> Reader<'a> {
         while let Some(token) = self.next() {
             if token.is_marker("SECTION") {
                 self.read_section(token.line);
+                self.sections_read += 1;
             } else if token.is_marker("EOF") {
                 saw_eof = true;
                 break;
             } else if token.code == 999 {
-                // Comments are allowed anywhere; they carry no drawing data.
+                // Comments are allowed anywhere: kept on their own, no warning.
+                self.drawing.stray.push(StrayRecord {
+                    section: String::new(),
+                    index: self.sections_read,
+                    pairs: vec![token.to_pair()],
+                });
             } else {
                 self.warn(
                     token.line,
                     format!(
-                        "unexpected group {} {:?} outside a section; skipped",
+                        "unexpected group {} {:?} outside a section; kept as a stray record",
                         token.code, token.raw
                     ),
                 );
-                self.skip_body();
+                let index = self.sections_read;
+                self.keep_stray(&token, "", index);
             }
         }
         if let Some(err) = self.fatal.take() {
@@ -187,7 +307,16 @@ impl<'a> Reader<'a> {
             self.warn(line, "missing EOF marker");
         } else if let Some(extra) = self.peek() {
             let line = extra.line;
-            self.warn(line, "data after EOF ignored");
+            self.warn(line, "data after EOF kept as a stray record");
+            let mut pairs = Vec::new();
+            while let Some(t) = self.next() {
+                pairs.push(t.to_pair());
+            }
+            self.drawing.stray.push(StrayRecord {
+                section: "EOF".into(),
+                index: 0,
+                pairs,
+            });
         }
         Ok(())
     }
@@ -214,7 +343,7 @@ impl<'a> Reader<'a> {
             "BLOCKS" => self.read_blocks(),
             "ENTITIES" => {
                 let mut entities = std::mem::take(&mut self.drawing.entities);
-                self.read_entities(&mut entities, &SECTION_END);
+                self.read_entities(&mut entities, &SECTION_END, "ENTITIES");
                 self.drawing.entities = entities;
             }
             "OBJECTS" => {
@@ -250,10 +379,18 @@ impl<'a> Reader<'a> {
                 self.warn(
                     token.line,
                     format!(
-                        "group {} before the first header variable; ignored",
+                        "group {} before the first header variable; kept as a stray record",
                         token.code
                     ),
                 );
+                match self.drawing.stray.last_mut() {
+                    Some(stray) if stray.section == "HEADER" => stray.pairs.push(token.to_pair()),
+                    _ => self.drawing.stray.push(StrayRecord {
+                        section: "HEADER".into(),
+                        index: 0,
+                        pairs: vec![token.to_pair()],
+                    }),
+                }
             }
         }
         if let Some(ver) = self.drawing.header.acadver()
@@ -269,15 +406,17 @@ impl<'a> Reader<'a> {
             let Some(token) = self.next() else { break };
             if token.is_marker("TABLE") {
                 self.read_table(token.line);
+                self.tables_read += 1;
             } else {
                 self.warn(
                     token.line,
                     format!(
-                        "unexpected group {} {:?} in TABLES; skipped",
+                        "unexpected group {} {:?} in TABLES; kept as a stray record",
                         token.code, token.raw
                     ),
                 );
-                self.skip_body();
+                let index = self.tables_read;
+                self.keep_stray(&token, "TABLES", index);
             }
         }
     }
@@ -389,14 +528,17 @@ impl<'a> Reader<'a> {
             if token.is_marker("BLOCK") {
                 self.read_block(&token);
             } else {
-                self.warn(
-                    token.line,
+                let what = if token.code == 0 {
+                    format!("{} outside a block definition", token.raw.trim())
+                } else {
                     format!(
-                        "unexpected group {} {:?} in BLOCKS; skipped",
+                        "group {} {:?} outside a block definition",
                         token.code, token.raw
-                    ),
-                );
-                self.skip_body();
+                    )
+                };
+                self.warn(token.line, format!("{what}; kept as a stray record"));
+                let index = self.drawing.blocks.len() + self.drawing.blocks.unparsed.len();
+                self.keep_stray(&token, "BLOCKS", index);
             }
         }
     }
@@ -440,7 +582,7 @@ impl<'a> Reader<'a> {
         self.body = body;
         let Ok(mut block) = parsed else { return };
 
-        self.read_entities(&mut block.entities, &BLOCK_END);
+        self.read_entities(&mut block.entities, &BLOCK_END, "BLOCKS");
         if self.peek_marker() == Some("ENDBLK") {
             self.next();
             let mut body = std::mem::take(&mut self.body);
@@ -455,7 +597,9 @@ impl<'a> Reader<'a> {
 
     /// Reads entity records until a `0` marker in `stop` (not consumed),
     /// grouping `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND`.
-    fn read_entities(&mut self, out: &mut Vec<Entity>, stop: &[&str]) {
+    fn read_entities(&mut self, out: &mut Vec<Entity>, stop: &[&str], section: &str) {
+        // The last entity that is not itself an orphaned child record.
+        let mut parent: Option<usize> = None;
         loop {
             match self.peek() {
                 None => return,
@@ -464,23 +608,22 @@ impl<'a> Reader<'a> {
                         return;
                     }
                 }
-                Some(t) => {
-                    let line = t.line;
-                    self.warn(line, "pairs before the first entity; ignored");
-                    self.skip_body();
+                Some(_) => {
+                    let Some(first) = self.next() else { return };
+                    self.warn(
+                        first.line,
+                        "pairs before the first entity; kept as a stray record",
+                    );
+                    self.keep_stray(&first, section, out.len());
                     continue;
                 }
             }
             let fallback = self.last_line;
             let line = self.peek().map_or(fallback, |t| t.line);
             if let Some(entity) = self.read_entity() {
-                // The parent is the last entity that is not itself an orphan.
-                let parent = out
-                    .iter()
-                    .rev()
-                    .find(|e| !matches!(e.kind.type_name(), "VERTEX" | "ATTRIB" | "SEQEND"));
-                if let Some(message) = orphan_message(&entity, parent) {
-                    self.warn(line, message);
+                match orphan_message(&entity, parent.and_then(|i| out.get(i))) {
+                    Some(message) => self.warn(line, message),
+                    None => parent = Some(out.len()),
                 }
                 out.push(entity);
             }
@@ -526,7 +669,7 @@ impl<'a> Reader<'a> {
     fn parse_record(&mut self, head: &Token<'a>) -> Entity {
         let mut body = std::mem::take(&mut self.body);
         self.read_body(&mut body);
-        let entity = parse_entity(head, &body, &mut self.warnings);
+        let entity = parse_entity(head, &body, self.code_page, &mut self.warnings);
         self.body = body;
         entity
     }

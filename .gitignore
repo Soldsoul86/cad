@@ -7,3 +7,6 @@
 # Python venv for corpus tools (ezdxf)
 /tools/.venv/
 __pycache__/
+
+# Fuzzing logs
+/crates/cad-dxf/fuzz/*.log

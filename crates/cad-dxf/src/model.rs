@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::encoding::FileEncoding;
 use crate::entity::Entity;
 use crate::table::{Named, Table, Tables};
 use crate::tokenizer::Pair;
@@ -289,9 +290,25 @@ impl Named for Block {
     }
 }
 
+/// Pairs found where the format does not allow them (outside any section,
+/// between tables or blocks, after `EOF`, ...). They are kept, with a
+/// warning, so nothing is lost; `section` and `index` say where they were.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrayRecord {
+    /// The enclosing section (`HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`), an
+    /// empty string outside any section, or `EOF` for data after the end.
+    pub section: String,
+    /// How many items came before it in that place: sections (outside any
+    /// section), header variables, tables, blocks, or entities.
+    pub index: usize,
+    pub pairs: Vec<Pair>,
+}
+
 /// A whole DXF document.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Drawing {
+    /// How the file's bytes were decoded; a writer uses it to save back.
+    pub encoding: FileEncoding,
     pub header: Header,
     /// The `CLASSES` section, verbatim.
     pub classes: Vec<Pair>,
@@ -304,6 +321,11 @@ pub struct Drawing {
     pub objects: Vec<Pair>,
     /// Sections with other names (e.g. `THUMBNAILIMAGE`), verbatim.
     pub other_sections: Vec<RawSection>,
+    /// Misplaced pairs, in file order.
+    pub stray: Vec<StrayRecord>,
+    /// The text from a line the tokenizer could not read to the end of the
+    /// file, if reading stopped early. Kept so it is not lost.
+    pub unparsed_tail: Option<String>,
 }
 
 #[cfg(test)]

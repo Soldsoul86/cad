@@ -101,42 +101,77 @@ const LIBREDWG_DUPLICATE_RECORDS: [&str; 18] = [
     "xdata_groups__libredwg__R2000.dxf",
 ];
 
-fn is_encoding_warning(w: &Warning) -> bool {
-    w.message.contains("UTF-8")
-}
-
 fn is_duplicate_record_warning(w: &Warning) -> bool {
-    w.message.contains("repeats handle") || w.message.contains("\"ENDBLK\" in BLOCKS")
+    w.message.contains("repeats handle")
+        || w.message == "ENDBLK outside a block definition; kept as a stray record"
 }
 
-/// M2 acceptance: every real-writer file loads with no warnings except
-/// encoding ones, apart from the known LibreDWG duplicate records.
+/// Hand-written files that exist to produce warnings.
+const DELIBERATELY_DAMAGED: [&str; 2] = ["damaged_entities.dxf", "entities_only_no_eof.dxf"];
+
+/// M2 acceptance: every corpus file loads with zero warnings, apart from the
+/// known LibreDWG duplicate records and the deliberately damaged fixtures.
 #[test]
-fn real_writer_files_have_no_warnings_except_encoding() {
+fn corpus_files_have_no_warnings() {
     let mut checked = 0;
     let mut problems = Vec::new();
     for path in corpus_files() {
         let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-        if !name.contains("__") {
+        if DELIBERATELY_DAMAGED.contains(&name.as_str()) {
             continue;
         }
         let (_, warnings) = cad_dxf::read_file(&path).unwrap();
         let known_bad = LIBREDWG_DUPLICATE_RECORDS.contains(&name.as_str());
         for w in warnings {
-            let allowed = is_encoding_warning(&w) || (known_bad && is_duplicate_record_warning(&w));
-            if !allowed {
+            if !(known_bad && is_duplicate_record_warning(&w)) {
                 problems.push(format!("{name}: {w}"));
             }
         }
         checked += 1;
     }
-    assert!(checked >= 185, "only {checked} real-writer files");
+    assert!(checked >= 196, "only {checked} files");
     assert!(
         problems.is_empty(),
         "{} warnings:\n{}",
         problems.len(),
         problems.join("\n")
     );
+}
+
+/// The special characters in the `text_styles` drawing decode to the same
+/// text whatever the writer, version or encoding (code page, UTF-8, \U+),
+/// for every file that has text.
+#[test]
+fn special_characters_decode_the_same_in_every_file() {
+    let wanted = "Wände Ø25 ±0.1 °C µm 配管";
+    let mut checked = 0;
+    let mut problems = Vec::new();
+    for path in corpus_files() {
+        let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+        // FreeCAD's exporter writes no text entities at all.
+        if !name.starts_with("text_styles__") || name.contains("__freecad__") {
+            continue;
+        }
+        let (d, _) = cad_dxf::read_file(&path).unwrap();
+        let found = d.entities.iter().any(|e| match &e.kind {
+            EntityKind::Text(t) => t.value == wanted,
+            _ => false,
+        });
+        if !found {
+            let texts: Vec<String> = d
+                .entities
+                .iter()
+                .filter_map(|e| match &e.kind {
+                    EntityKind::Text(t) if t.value.starts_with('W') => Some(t.value.clone()),
+                    _ => None,
+                })
+                .collect();
+            problems.push(format!("{name}: {texts:?}"));
+        }
+        checked += 1;
+    }
+    assert!(checked >= 10, "only {checked} files");
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 /// The known-bad list stays accurate: each listed file really has the defect.

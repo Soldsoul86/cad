@@ -35,7 +35,7 @@ Parsed = read into a typed entity by cad-dxf today; everything else is kept as `
 | ATTRIB | yes | 174 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | POLYLINE | yes | 145 | 47 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | SPLINE | yes | 90 | 26 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| ATTDEF |  | 54 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| ATTDEF | yes | 54 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | ELLIPSE | yes | 47 | 25 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | HATCH |  | 26 | 9 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | VIEWPORT |  | 20 | 10 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
