@@ -265,8 +265,10 @@ fn utf8_names() {
     assert_eq!(d.entities[1].layer, "配管");
 }
 
-/// Truncating every corpus file at every byte, and corrupting bytes, must
-/// never panic. A cheap stand-in until cargo-fuzz arrives in M2.
+/// Truncating the small hand-written corpus files at every byte, and
+/// corrupting bytes, must never panic. A cheap stand-in until cargo-fuzz
+/// arrives in M2. (Real-writer files, named `<drawing>__<tool>__<version>`,
+/// are too large for an exhaustive sweep.)
 #[test]
 fn damaged_input_never_panics() {
     let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
@@ -276,7 +278,12 @@ fn damaged_input_never_panics() {
         seed ^= seed << 17;
         seed
     };
-    for path in corpus_files() {
+    let hand_written = corpus_files().into_iter().filter(|p| {
+        !p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.contains("__"))
+    });
+    for path in hand_written {
         let bytes = std::fs::read(&path).unwrap();
         for cut in 0..=bytes.len() {
             let _ = read_bytes(&bytes[..cut]);
