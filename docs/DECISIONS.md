@@ -32,9 +32,9 @@ replaces one. When you make a new call the spec doesn't cover, add it here.
 8. **`999` comments outside sections** are dropped silently (the format
    allows them anywhere; they carry no drawing data).
 9. **Licence:** `MIT OR Apache-2.0`, with `LICENSE-MIT` and `LICENSE-APACHE`.
-10. **Versions:** `Version` covers R12 and 2000–2018. Other `$ACADVER` values
-    (e.g. R13/R14) still load, with a warning; `Header::acadver()` returns the
-    raw string.
+10. **Versions:** `Version` covers R12, R13, R14 and 2000–2018 (R13/R14
+    added in M2). Other `$ACADVER` values still load, with a warning;
+    `Header::acadver()` returns the raw string.
 11. **Encoding (interim):** input that isn't valid UTF-8 is decoded as Latin-1
     with a warning, until `$DWGCODEPAGE` handling lands in M2.
 
@@ -63,3 +63,65 @@ Also settled:
 - **The exhaustive damaged-input sweep** in `tests/corpus.rs` covers only the
   small hand-written files; real-writer files are too big for every-byte
   truncation. Proper fuzzing is M2.
+
+## M2 part A
+
+1. **Streaming reader, borrowed tokens.** The tokenizer yields `Token<'a>`
+   with the value borrowed from the input (`raw: &'a str`); the reader keeps
+   one token of lookahead and copies a value only when the model stores it.
+   This took the 50 MB load from 3.1 s to about 1 s; allocation was most of
+   the time. `tokenizer::Token` changed shape (public API, pre-1.0).
+2. **Benchmark:** `cargo bench -p cad-dxf --bench load` (no dependencies)
+   times `read_bytes` on the private 50 MB file, or on a synthetic ~50 MB
+   file when that is absent (e.g. in CI). It prints a warning above 2 s
+   rather than failing, since CI machine speed varies.
+3. **Child records are nested.** `VERTEX`s and the closing `SEQEND` live in
+   `Polyline::vertices` / `Polyline::seqend`; `ATTRIB`s and their `SEQEND`
+   in `Insert::attributes` / `Insert::seqend`. Children are full `Entity`
+   values (own handle, layer, ...) with `EntityKind::Vertex` / `Attrib`; the
+   `SEQEND` is kept as an `Unknown` entity so its handle survives. An
+   `INSERT` collects following `ATTRIB`s whether or not group 66 is set.
+4. **Orphaned children** (`VERTEX`, `ATTRIB`, `SEQEND` without a parent) are
+   kept in place with a warning. When one repeats the handle of a child of
+   the preceding entity, the warning says so.
+5. **Embedded objects:** from group `101` on (R2018 `MTEXT`/`ATTRIB`
+   "Embedded Object"), pairs go to `extra`, like XDATA, because they reuse
+   codes the entity itself uses.
+6. **`extra` stays in file order** across categories (`102` groups, embedded
+   objects, unknown codes, repeats of known codes, XDATA).
+7. **First occurrence wins** for codes a simple entity reads once; repeats
+   go to `extra`. Codes that are lists (LWPOLYLINE vertices, SPLINE knots,
+   weights and points, LTYPE elements, MTEXT `3` chunks) are read in order.
+8. **Count checks:** an `LWPOLYLINE` vertex count (90), `SPLINE` knot,
+   control and fit counts (72/73/74), weights vs control points, and `LTYPE`
+   element count (73) must match what follows, or the record is kept
+   verbatim with a warning.
+9. **Text is not decoded yet.** `Text::value`, `MText::text` and attribute
+   values are stored as written (not trimmed); `\U+XXXX`, `%%d` and MTEXT
+   formatting codes are left for the encoding work in M2 part B.
+10. **Dimensions:** group 70's low 4 bits pick the type (0–6, including
+    ordinate and 3-point angular, beyond the spec's four); the remaining
+    bits are kept in `Dimension::flags`. Each type reads only its own point
+    codes; any others go to `extra`. Dimension variables in `DIMSTYLE` are
+    kept as raw pairs (`DimStyle::variables`) until dimension rendering (M7).
+11. **`DIMSTYLE` handle is group 105 only.** Group 5 in a `DIMSTYLE` record is
+    the DIMBLK variable (an arrow block name), which R12 files use.
+12. **Shape-file text styles** (`STYLE` with flag 1) have empty names; tables
+    accept any number of empty-named entries and never look them up by name.
+13. **Blocks** are a `Table<Block>` keyed by case-insensitive name. A block
+    whose header can't be parsed, or that repeats a name, is kept verbatim
+    (through its `ENDBLK`) in `blocks.unparsed` with a warning. Group 3 is
+    dropped when it repeats the name. `ENDBLK` pairs are kept in `Block::end`.
+14. **Defaults when optional codes are missing** follow the DXF reference:
+    scale 1, width factor 1, text style `STANDARD`, ellipse 0..2π, MTEXT
+    attachment 1, INSERT 1×1 array.
+15. **Bulge maths** lives in `cad_geom::bulge` (`arc_from_bulge`); `cad-dxf`
+    stores bulges as read and uses `cad-geom` only in its tests.
+16. **Known-bad corpus files.** LibreDWG 0.14's R14/R2000 output (18 files)
+    repeats `VERTEX`/`ATTRIB` records after their `SEQEND` and writes an
+    extra `ENDBLK`, all with duplicate handles. The reader reports these;
+    `tests/corpus.rs` lists the files and allows only those warnings for
+    them. Every other corpus file loads with no warnings except encoding.
+17. **No true aligned dimension in the corpus:** ezdxf writes
+    `add_aligned_dim` as a rotated linear dimension (type 0). Type 1 is
+    covered by unit tests only.

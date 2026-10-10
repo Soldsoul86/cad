@@ -18,7 +18,8 @@ TOOLS = {
     "freecad": "FreeCAD 1.1.3 (LGPL) — import + DXF export via freecadcmd (writes R14 only)",
     "libredwg": "LibreDWG 0.14 (GPL), built from the GNU release — dwg2dxf --as <version>, "
                 "from a DWG 2018 that ODA made from the source (LibreDWG's dxf2dwg "
-                "could not read the ezdxf sources)",
+                "could not read the ezdxf sources). Its R14/R2000 output repeats some "
+                "VERTEX/ATTRIB/ENDBLK records with duplicate handles; cad-dxf reports those",
 }
 
 

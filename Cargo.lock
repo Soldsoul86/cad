@@ -22,6 +22,9 @@ dependencies = [
 [[package]]
 name = "cad-dxf"
 version = "0.0.1"
+dependencies = [
+ "cad-geom",
+]
 
 [[package]]
 name = "cad-geom"

@@ -2,8 +2,10 @@
 
 use std::fmt;
 
+use crate::entity::Entity;
+use crate::table::{Named, Table, Tables};
 use crate::tokenizer::Pair;
-use crate::value::{Value, parse_f64, parse_int};
+use crate::value::{parse_f64, parse_int};
 
 /// A point or vector in drawing units.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -46,6 +48,8 @@ impl fmt::Display for Handle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Version {
     R12,
+    R13,
+    R14,
     R2000,
     R2004,
     R2007,
@@ -59,6 +63,8 @@ impl Version {
     pub fn from_acadver(raw: &str) -> Option<Self> {
         Some(match raw.trim() {
             "AC1009" => Self::R12,
+            "AC1012" => Self::R13,
+            "AC1014" => Self::R14,
             "AC1015" => Self::R2000,
             "AC1018" => Self::R2004,
             "AC1021" => Self::R2007,
@@ -72,6 +78,8 @@ impl Version {
     pub fn acadver(self) -> &'static str {
         match self {
             Self::R12 => "AC1009",
+            Self::R13 => "AC1012",
+            Self::R14 => "AC1014",
             Self::R2000 => "AC1015",
             Self::R2004 => "AC1018",
             Self::R2007 => "AC1021",
@@ -228,146 +236,7 @@ impl Header {
     }
 }
 
-/// Table entries are keyed by name.
-pub trait Named {
-    fn name(&self) -> &str;
-}
-
-/// Case-insensitive comparison of table entry names.
-pub fn names_equal(a: &str, b: &str) -> bool {
-    a.chars()
-        .flat_map(char::to_uppercase)
-        .eq(b.chars().flat_map(char::to_uppercase))
-}
-
-/// A symbol table whose entries are unique by case-insensitive name.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Table<T> {
-    /// Pairs of the table's own record (handle, owner, max entries, ...).
-    pub header: Vec<Pair>,
-    pub entries: Vec<T>,
-    /// Entries that could not be parsed, kept verbatim (including their
-    /// leading `0` pair) so they are not lost.
-    pub unparsed: Vec<Vec<Pair>>,
-}
-
-impl<T> Default for Table<T> {
-    fn default() -> Self {
-        Self {
-            header: Vec::new(),
-            entries: Vec::new(),
-            unparsed: Vec::new(),
-        }
-    }
-}
-
-impl<T: Named> Table<T> {
-    pub fn get(&self, name: &str) -> Option<&T> {
-        self.entries.iter().find(|e| names_equal(e.name(), name))
-    }
-
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut T> {
-        self.entries
-            .iter_mut()
-            .find(|e| names_equal(e.name(), name))
-    }
-
-    pub fn contains(&self, name: &str) -> bool {
-        self.get(name).is_some()
-    }
-
-    /// Adds `entry`, replacing and returning any entry with the same name.
-    pub fn insert(&mut self, entry: T) -> Option<T> {
-        match self.get_mut(entry.name()) {
-            Some(existing) => Some(std::mem::replace(existing, entry)),
-            None => {
-                self.entries.push(entry);
-                None
-            }
-        }
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, T> {
-        self.entries.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
-
-/// A `LAYER` table entry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Layer {
-    pub name: String,
-    pub handle: Option<Handle>,
-    pub owner: Option<Handle>,
-    /// Group 70 flags: 1 = frozen, 2 = frozen in new viewports, 4 = locked.
-    pub flags: i16,
-    pub color: Color,
-    /// False when the layer is switched off (stored as a negative colour).
-    pub on: bool,
-    pub linetype: String,
-    pub lineweight: LineWeight,
-    pub plot: bool,
-    /// Pairs this library does not interpret, in file order.
-    pub extra: Vec<Pair>,
-}
-
-impl Layer {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            handle: None,
-            owner: None,
-            flags: 0,
-            color: Color::Index(7),
-            on: true,
-            linetype: "CONTINUOUS".into(),
-            lineweight: LineWeight::Default,
-            plot: true,
-            extra: Vec::new(),
-        }
-    }
-
-    pub fn frozen(&self) -> bool {
-        self.flags & 1 != 0
-    }
-
-    pub fn locked(&self) -> bool {
-        self.flags & 4 != 0
-    }
-}
-
-impl Named for Layer {
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-/// A table this milestone does not parse yet, kept verbatim.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawTable {
-    /// The table name from the pair after `0 TABLE` (e.g. `LTYPE`).
-    pub name: String,
-    /// Everything between that name and `0 ENDTAB`.
-    pub pairs: Vec<Pair>,
-}
-
-/// The `TABLES` section.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Tables {
-    pub layers: Table<Layer>,
-    /// Linetypes, text styles, dim styles, block records, ... in file order.
-    /// Parsed into typed tables in M2.
-    pub other: Vec<RawTable>,
-}
-
-/// A section this milestone does not parse, kept verbatim.
+/// A section this library does not parse, kept verbatim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawSection {
     pub name: String,
@@ -375,107 +244,48 @@ pub struct RawSection {
     pub pairs: Vec<Pair>,
 }
 
+/// A block definition from the `BLOCKS` section.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Line {
-    pub start: Point3,
-    pub end: Point3,
-    pub thickness: f64,
-    pub extrusion: Point3,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Circle {
-    pub center: Point3,
-    pub radius: f64,
-    pub thickness: f64,
-    pub extrusion: Point3,
-}
-
-/// A circular arc drawn counter-clockwise from `start_angle` to `end_angle`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Arc {
-    pub center: Point3,
-    pub radius: f64,
-    /// Degrees, as stored in the file.
-    pub start_angle: f64,
-    /// Degrees, as stored in the file.
-    pub end_angle: f64,
-    pub thickness: f64,
-    pub extrusion: Point3,
-}
-
-/// An entity this library does not understand (or could not parse).
-///
-/// `pairs` holds every pair after the `0 <type>` line, unchanged; this is
-/// the authoritative content and is what the writer will emit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unknown {
-    pub type_name: String,
-    pub pairs: Vec<Pair>,
-}
-
-impl Unknown {
-    /// The pairs as typed values.
-    pub fn group_codes(&self) -> impl Iterator<Item = (i16, Value)> + '_ {
-        self.pairs.iter().map(|p| (p.code, p.value()))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum EntityKind {
-    Line(Line),
-    Circle(Circle),
-    Arc(Arc),
-    Unknown(Unknown),
-}
-
-impl EntityKind {
-    /// The DXF type name, e.g. `LINE`.
-    pub fn type_name(&self) -> &str {
-        match self {
-            Self::Line(_) => "LINE",
-            Self::Circle(_) => "CIRCLE",
-            Self::Arc(_) => "ARC",
-            Self::Unknown(u) => &u.type_name,
-        }
-    }
-}
-
-/// A drawing entity: common properties plus its geometry.
-///
-/// For [`EntityKind::Unknown`] the common fields are a best-effort reading of
-/// the raw pairs, for convenience (e.g. filtering by layer); the raw pairs
-/// remain authoritative.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Entity {
+pub struct Block {
+    pub name: String,
     pub handle: Option<Handle>,
     pub owner: Option<Handle>,
     pub layer: String,
-    pub color: Color,
-    pub linetype: String,
-    pub lineweight: LineWeight,
-    pub visible: bool,
-    pub paper_space: bool,
-    pub kind: EntityKind,
-    /// Pairs of a known entity this library does not interpret (XDATA,
-    /// `102` groups, unknown codes), in file order. Empty for `Unknown`.
+    /// Group 70: 1 = anonymous, 2 = has attribute definitions, 4 = xref, ...
+    pub flags: i16,
+    pub base_point: Point3,
+    /// Xref path (group 1), empty if none.
+    pub xref_path: String,
+    /// Description (group 4), empty if none.
+    pub description: String,
+    pub entities: Vec<Entity>,
+    /// The pairs of the closing `ENDBLK` record (handle, owner, layer, ...).
+    pub end: Vec<Pair>,
+    /// Pairs of the `BLOCK` record this library does not interpret.
     pub extra: Vec<Pair>,
 }
 
-impl Entity {
-    pub fn new(kind: EntityKind) -> Self {
+impl Block {
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
+            name: name.into(),
             handle: None,
             owner: None,
             layer: "0".into(),
-            color: Color::ByLayer,
-            linetype: "BYLAYER".into(),
-            lineweight: LineWeight::ByLayer,
-            visible: true,
-            paper_space: false,
-            kind,
+            flags: 0,
+            base_point: Point3::default(),
+            xref_path: String::new(),
+            description: String::new(),
+            entities: Vec::new(),
+            end: Vec::new(),
             extra: Vec::new(),
         }
+    }
+}
+
+impl Named for Block {
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -486,8 +296,9 @@ pub struct Drawing {
     /// The `CLASSES` section, verbatim.
     pub classes: Vec<Pair>,
     pub tables: Tables,
-    /// The `BLOCKS` section, verbatim until block parsing lands in M2.
-    pub blocks: Vec<Pair>,
+    /// Block definitions, keyed by case-insensitive name. Definitions that
+    /// could not be parsed are kept verbatim in `blocks.unparsed`.
+    pub blocks: Table<Block>,
     pub entities: Vec<Entity>,
     /// The `OBJECTS` section, verbatim.
     pub objects: Vec<Pair>,
@@ -542,20 +353,9 @@ mod tests {
         for v in [Version::R12, Version::R2000, Version::R2018] {
             assert_eq!(Version::from_acadver(v.acadver()), Some(v));
         }
-        assert_eq!(Version::from_acadver("AC1014"), None);
-    }
-
-    #[test]
-    fn tables_are_case_insensitive() {
-        let mut table = Table::default();
-        assert!(table.insert(Layer::new("Walls")).is_none());
-        assert!(table.contains("WALLS"));
-        assert!(table.get("walls").is_some());
-        assert!(table.contains("wände") == table.contains("WÄNDE"));
-        let old = table.insert(Layer::new("WALLS")).expect("replaced");
-        assert_eq!(old.name, "Walls");
-        assert_eq!(table.len(), 1);
-        assert!(names_equal("wände", "WÄNDE"));
+        assert_eq!(Version::from_acadver("AC1014"), Some(Version::R14));
+        assert_eq!(Version::from_acadver("AC1012"), Some(Version::R13));
+        assert_eq!(Version::from_acadver("AC1006"), None);
     }
 
     #[test]

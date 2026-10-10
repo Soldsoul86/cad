@@ -14,18 +14,27 @@
 //! # Ok::<(), cad_dxf::DxfError>(())
 //! ```
 
+mod entity;
 mod error;
 mod model;
 mod reader;
+mod table;
 pub mod tokenizer;
 pub mod value;
 
+pub use entity::{
+    Arc, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert, Line,
+    LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
+};
 pub use error::{DxfError, Warning};
 pub use model::{
-    Arc, Circle, Color, Drawing, Entity, EntityKind, Handle, Header, HeaderVariable, Layer, Line,
-    LineWeight, Named, Point3, RawSection, RawTable, Table, Tables, Unknown, Version, Z_AXIS,
-    names_equal,
+    Block, Color, Drawing, Handle, Header, HeaderVariable, LineWeight, Point3, RawSection, Version,
+    Z_AXIS,
 };
 pub use reader::{read_bytes, read_file, read_str};
+pub use table::{
+    BlockRecord, DimStyle, Layer, Linetype, LinetypeElement, Named, RawTable, Table, Tables,
+    TextStyle, names_equal,
+};
 pub use tokenizer::Pair;
 pub use value::Value;

@@ -8,3 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+
+[[bench]]
+name = "load"
+harness = false
+
+[dev-dependencies]
+cad-geom.workspace = true

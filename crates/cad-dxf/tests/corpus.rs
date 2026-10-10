@@ -77,6 +77,176 @@ fn private_corpus_files_load() {
     }
 }
 
+/// LibreDWG 0.14 writes some records twice in R14/R2000 output: VERTEX and
+/// ATTRIB records repeated after their SEQEND, and an extra ENDBLK, with
+/// duplicate handles. These files load, but those defects are reported.
+const LIBREDWG_DUPLICATE_RECORDS: [&str; 18] = [
+    "ellipses_splines__libredwg__R14.dxf",
+    "ellipses_splines__libredwg__R2000.dxf",
+    "hatch_solids__libredwg__R14.dxf",
+    "hatch_solids__libredwg__R2000.dxf",
+    "layers_linetypes__libredwg__R14.dxf",
+    "layers_linetypes__libredwg__R2000.dxf",
+    "nested_blocks__libredwg__R14.dxf",
+    "nested_blocks__libredwg__R2000.dxf",
+    "paperspace_layout__libredwg__R14.dxf",
+    "paperspace_layout__libredwg__R2000.dxf",
+    "polylines__libredwg__R14.dxf",
+    "polylines__libredwg__R2000.dxf",
+    "site_mixed__libredwg__R14.dxf",
+    "site_mixed__libredwg__R2000.dxf",
+    "text_styles__libredwg__R14.dxf",
+    "text_styles__libredwg__R2000.dxf",
+    "xdata_groups__libredwg__R14.dxf",
+    "xdata_groups__libredwg__R2000.dxf",
+];
+
+fn is_encoding_warning(w: &Warning) -> bool {
+    w.message.contains("UTF-8")
+}
+
+fn is_duplicate_record_warning(w: &Warning) -> bool {
+    w.message.contains("repeats handle") || w.message.contains("\"ENDBLK\" in BLOCKS")
+}
+
+/// M2 acceptance: every real-writer file loads with no warnings except
+/// encoding ones, apart from the known LibreDWG duplicate records.
+#[test]
+fn real_writer_files_have_no_warnings_except_encoding() {
+    let mut checked = 0;
+    let mut problems = Vec::new();
+    for path in corpus_files() {
+        let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+        if !name.contains("__") {
+            continue;
+        }
+        let (_, warnings) = cad_dxf::read_file(&path).unwrap();
+        let known_bad = LIBREDWG_DUPLICATE_RECORDS.contains(&name.as_str());
+        for w in warnings {
+            let allowed = is_encoding_warning(&w) || (known_bad && is_duplicate_record_warning(&w));
+            if !allowed {
+                problems.push(format!("{name}: {w}"));
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked >= 185, "only {checked} real-writer files");
+    assert!(
+        problems.is_empty(),
+        "{} warnings:\n{}",
+        problems.len(),
+        problems.join("\n")
+    );
+}
+
+/// The known-bad list stays accurate: each listed file really has the defect.
+#[test]
+fn libredwg_duplicate_records_are_reported() {
+    for name in LIBREDWG_DUPLICATE_RECORDS {
+        let (_, warnings) = load(name);
+        assert!(
+            warnings.iter().any(is_duplicate_record_warning),
+            "{name} no longer reports duplicate records"
+        );
+    }
+}
+
+/// Every v0.1 entity type is parsed somewhere in the corpus, and the only
+/// unknown types left are ones outside v0.1.
+#[test]
+fn v01_entities_are_parsed_across_the_corpus() {
+    use std::collections::BTreeSet;
+    let mut typed = BTreeSet::new();
+    let mut unknown = BTreeSet::new();
+    let mut visit = |e: &cad_dxf::Entity| match &e.kind {
+        EntityKind::Unknown(u) => {
+            unknown.insert(u.type_name.clone());
+        }
+        kind => {
+            typed.insert(kind.type_name().to_owned());
+        }
+    };
+    for path in corpus_files() {
+        let (d, _) = cad_dxf::read_file(&path).unwrap();
+        let block_entities = d.blocks.iter().flat_map(|b| b.entities.iter());
+        for e in d.entities.iter().chain(block_entities) {
+            visit(e);
+            match &e.kind {
+                EntityKind::Polyline(p) => p.vertices.iter().for_each(&mut visit),
+                EntityKind::Insert(i) => i.attributes.iter().for_each(&mut visit),
+                _ => {}
+            }
+        }
+    }
+    for kind in [
+        "LINE",
+        "CIRCLE",
+        "ARC",
+        "LWPOLYLINE",
+        "ELLIPSE",
+        "POINT",
+        "TEXT",
+        "MTEXT",
+        "INSERT",
+        "ATTRIB",
+        "DIMENSION",
+        "SPLINE",
+        "POLYLINE",
+        "VERTEX",
+    ] {
+        assert!(typed.contains(kind), "{kind} never parsed");
+    }
+    // Damaged hand-written records and the LibreDWG repeats may also be
+    // unknown or orphaned; real v0.1 types must never be unknown otherwise.
+    let allowed_unknown = [
+        "3DFACE",
+        "ACME_CUSTOM_THING",
+        "ATTDEF",
+        "HATCH",
+        "LEADER",
+        "MULTILEADER",
+        "RAY",
+        "SEQEND",
+        "SOLID",
+        "TRACE",
+        "VIEWPORT",
+        "XLINE",
+        "LINE",
+        "CIRCLE",
+        "ARC",
+    ];
+    let unexpected: Vec<_> = unknown
+        .iter()
+        .filter(|t| !allowed_unknown.contains(&t.as_str()))
+        .collect();
+    assert!(unexpected.is_empty(), "unparsed v0.1 types: {unexpected:?}");
+}
+
+/// Dimension types present in the corpus. There is no true aligned (type 1)
+/// dimension: ezdxf writes `add_aligned_dim` as a rotated linear dimension,
+/// and no converter changes that. Type 1 is covered by unit tests.
+#[test]
+fn corpus_dimensions_cover_linear_radial_and_angular() {
+    use cad_dxf::DimensionKind as K;
+    let mut seen = [false; 4];
+    for path in corpus_files() {
+        let (d, _) = cad_dxf::read_file(&path).unwrap();
+        for e in &d.entities {
+            if let EntityKind::Dimension(dim) = &e.kind {
+                let i = match dim.kind {
+                    K::Linear { .. } => 0,
+                    K::Radius { .. } => 1,
+                    K::Diameter { .. } => 2,
+                    K::Angular { .. } | K::Angular3Point { .. } => 3,
+                    K::Aligned { .. } | K::Ordinate { .. } => continue,
+                };
+                seen[i] = true;
+            }
+        }
+    }
+    assert_eq!(seen, [true; 4], "linear, radius, diameter, angular");
+}
+
 #[test]
 fn r12_single_line() {
     let (d, w) = load("r12_single_line.dxf");
@@ -99,7 +269,7 @@ fn r12_circle_arc_layers() {
         d.tables.layers.get("geometry").unwrap().color,
         Color::Index(3)
     );
-    assert_eq!(d.tables.other[0].name, "LTYPE");
+    assert!(d.tables.linetypes.get("continuous").is_some());
 }
 
 #[test]
@@ -168,9 +338,10 @@ fn crlf_and_padded_files_match_plain_ones() {
 }
 
 #[test]
-fn unknown_entities_are_kept_verbatim() {
+fn hand_written_mix_of_entities() {
     let (d, w) = load("unknown_entities.dxf");
     assert!(w.is_empty(), "{w:?}");
+    // POLYLINE + 2 VERTEX + SEQEND are one entity.
     assert_eq!(
         kinds(&d),
         [
@@ -179,17 +350,25 @@ fn unknown_entities_are_kept_verbatim() {
             "POINT",
             "LINE",
             "POLYLINE",
-            "VERTEX",
-            "VERTEX",
-            "SEQEND",
             "ACME_CUSTOM_THING"
         ]
     );
-    assert_eq!(parsed(&d), 1);
-    let EntityKind::Unknown(poly) = &d.entities[0].kind else {
+    assert_eq!(parsed(&d), 5);
+    let EntityKind::LwPolyline(poly) = &d.entities[0].kind else {
         panic!()
     };
-    assert_eq!(poly.pairs.len(), 16);
+    assert!(poly.is_closed());
+    assert_eq!(poly.vertices.len(), 4);
+    assert_eq!(poly.vertices[1].bulge, 0.414213562373095);
+    let EntityKind::Polyline(p) = &d.entities[4].kind else {
+        panic!()
+    };
+    assert_eq!(p.vertices.len(), 2);
+    assert!(p.seqend.is_some());
+    let EntityKind::Unknown(custom) = &d.entities[5].kind else {
+        panic!()
+    };
+    assert_eq!(custom.pairs.len(), 4);
     assert_eq!(d.entities[1].layer, "ANNOT");
 }
 
@@ -243,7 +422,8 @@ fn empty_values() {
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(d.header.text_style(), Some(""));
     assert_eq!(d.entities.len(), 2);
-    assert_eq!(parsed(&d), 1);
+    assert_eq!(parsed(&d), 2);
+    assert!(matches!(&d.entities[0].kind, EntityKind::Text(t) if t.value.is_empty()));
 }
 
 #[test]

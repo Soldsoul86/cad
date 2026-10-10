@@ -11,8 +11,11 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-# What the cad-dxf reader parses into typed entities today (M1).
-PARSED = {"LINE", "CIRCLE", "ARC"}
+# What the cad-dxf reader parses into typed entities (M2 part A).
+PARSED = {
+    "LINE", "CIRCLE", "ARC", "LWPOLYLINE", "ELLIPSE", "POINT", "TEXT", "MTEXT", "INSERT",
+    "ATTRIB", "DIMENSION", "SPLINE", "POLYLINE", "VERTEX", "SEQEND",
+}
 # Structural records inside BLOCKS/ENTITIES that are not drawing entities.
 STRUCTURAL = {"BLOCK", "ENDBLK", "SECTION", "ENDSEC", "EOF"}
 VERSIONS = ["R12", "R14", "R2000", "R2004", "R2007", "R2010", "R2013", "R2018"]

@@ -28,17 +28,24 @@ impl Pair {
     }
 }
 
-/// A pair plus the 1-based line its group code was on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Token {
-    pub pair: Pair,
+/// A pair borrowed from the input, plus the 1-based line of its group code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Token<'a> {
+    pub code: i16,
+    /// The value exactly as in the input, minus the line ending.
+    pub raw: &'a str,
     pub line: usize,
 }
 
-impl Token {
+impl Token<'_> {
     /// True if this is a `0` pair whose value is `name` (ignoring whitespace).
     pub fn is_marker(&self, name: &str) -> bool {
-        self.pair.code == 0 && self.pair.raw.trim() == name
+        self.code == 0 && self.raw.trim() == name
+    }
+
+    /// An owned copy of the pair.
+    pub fn to_pair(&self) -> Pair {
+        Pair::new(self.code, self.raw)
     }
 }
 
@@ -59,14 +66,14 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn fail(&mut self, err: DxfError) -> Option<Result<Token, DxfError>> {
+    fn fail(&mut self, err: DxfError) -> Option<Result<Token<'a>, DxfError>> {
         self.done = true;
         Some(Err(err))
     }
 }
 
-impl Iterator for Tokenizer<'_> {
-    type Item = Result<Token, DxfError>;
+impl<'a> Iterator for Tokenizer<'a> {
+    type Item = Result<Token<'a>, DxfError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -101,7 +108,8 @@ impl Iterator for Tokenizer<'_> {
         };
         let value = value.strip_suffix('\r').unwrap_or(value);
         Some(Ok(Token {
-            pair: Pair::new(code, value),
+            code,
+            raw: value,
             line,
         }))
     }
@@ -117,7 +125,7 @@ mod tests {
         Tokenizer::new(text)
             .map(|t| {
                 let t = t.expect("valid input");
-                (t.pair.code, t.pair.raw)
+                (t.code, t.raw.to_owned())
             })
             .collect()
     }

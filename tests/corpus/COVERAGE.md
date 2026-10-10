@@ -21,22 +21,22 @@ Parsed = read into a typed entity by cad-dxf today; everything else is kept as `
 | Type | Parsed | Records | Files | Writers | Versions |
 | --- | --- | --- | --- | --- | --- |
 | LINE | yes | 3076 | 144 | ezdxf, freecad, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| POINT |  | 2291 | 72 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| POINT | yes | 2291 | 72 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | CIRCLE | yes | 1973 | 135 | ezdxf, freecad, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| INSERT |  | 877 | 72 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| VERTEX |  | 831 | 47 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| TEXT |  | 777 | 84 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| LWPOLYLINE |  | 375 | 142 | ezdxf, hand-written, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| MTEXT |  | 306 | 62 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| DIMENSION |  | 298 | 59 | ezdxf, libredwg, oda | R12, R2000, R2004, R2007, R2010, R2013, R2018 |
-| SEQEND |  | 226 | 57 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| INSERT | yes | 877 | 72 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| VERTEX | yes | 831 | 47 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| TEXT | yes | 777 | 84 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| LWPOLYLINE | yes | 375 | 142 | ezdxf, hand-written, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| MTEXT | yes | 306 | 62 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| DIMENSION | yes | 298 | 59 | ezdxf, libredwg, oda | R12, R2000, R2004, R2007, R2010, R2013, R2018 |
+| SEQEND | yes | 226 | 57 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | ARC | yes | 215 | 67 | ezdxf, freecad, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | SOLID |  | 176 | 164 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| ATTRIB |  | 174 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| POLYLINE |  | 145 | 47 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| SPLINE |  | 90 | 26 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| ATTRIB | yes | 174 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| POLYLINE | yes | 145 | 47 | ezdxf, hand-written, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| SPLINE | yes | 90 | 26 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | ATTDEF |  | 54 | 27 | ezdxf, libredwg, oda | R12, R14, R2000, R2004, R2007, R2010, R2013, R2018 |
-| ELLIPSE |  | 47 | 25 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
+| ELLIPSE | yes | 47 | 25 | ezdxf, freecad, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | HATCH |  | 26 | 9 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | VIEWPORT |  | 20 | 10 | ezdxf, libredwg, oda | R14, R2000, R2004, R2007, R2010, R2013, R2018 |
 | LEADER |  | 13 | 13 | ezdxf, libredwg, oda | R2000, R2004, R2007, R2010, R2013, R2018 |

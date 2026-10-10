@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## M2 part A — performance, entities, blocks, tables (unreleased)
+
+- Streaming reader with borrowed tokens: the 50 MB benchmark file loads in about 0.8–1.05 s (was 3.1 s). New benchmark: `cargo bench -p cad-dxf --bench load`.
+- R13 and R14 added to `Version`.
+- New typed entities: `LWPOLYLINE` (bulges, widths, vertex ids), `ELLIPSE`, `POINT`, `TEXT`, `MTEXT`, `INSERT` (arrays, attributes), `ATTRIB`, `DIMENSION` (linear, aligned, angular, diameter, radius, 3-point angular, ordinate), `SPLINE`, and `POLYLINE`/`VERTEX`/`SEQEND` sequences.
+- `BLOCKS` section parsed into `Drawing::blocks` (`Table<Block>`), including nested references and child sequences inside blocks.
+- New typed tables: linetypes (with complex elements), text styles, dim styles, block records.
+- `cad-geom`: `bulge::arc_from_bulge` and `bulge_from_sweep`.
+- Corpus acceptance test: all real-writer files load with no warnings except encoding, apart from 18 LibreDWG files whose duplicate records are reported.
+
+## Unreleased (pre-M2)
 
 - Recorded M1 design decisions in `docs/DECISIONS.md`; dropped the `dxf` crate evaluation from the spec.
 - Added `LICENSE-MIT` and `LICENSE-APACHE`.
