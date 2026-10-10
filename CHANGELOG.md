@@ -1,5 +1,16 @@
 # Changelog
 
+## M4 — Viewer (unreleased)
+
+- `cad-render` (no UI dependencies): drawing → scene of styled primitives (layers, colours, linetypes, nested blocks and arrays, OCS), SVG output, chunked GPU geometry with a coarse level of detail, and pan/zoom maths.
+- `cad-geom`: OCS (arbitrary axis algorithm) and 3D affine transforms.
+- `cad-app` viewer (eframe + glow): pan, zoom around the cursor, zoom extents, layers on/off, colours, linetypes and text; drag-and-drop to open; `--bench` frame timing and `--shot` screenshots.
+- 100k-entity file: 7.5 ms average, 15.2 ms 95th-percentile frame while panning and zooming (60 fps).
+- Golden SVG snapshots for all 198 corpus files (`tests/snapshots/`).
+- WebAssembly build of `cad-app` (CI job), with `index.html` for trunk.
+- `cad-app info` replaces the bare-file summary; `MText::plain_lines` in `cad-dxf`.
+- DECISIONS.md: M4 decisions and rules for M5 saving.
+
 ## M3 — Writer and round-trip (unreleased)
 
 - DXF writer for R12 and R2018 (`Drawing::to_bytes`, `write_file`, `generate_bytes`), with handles on every object and, in R2018, owner links, block records and layouts computed from the structure.

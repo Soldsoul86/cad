@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-46.3 -45.1006 92.6 161.2006" width="800" height="1393">
+<rect x="-46.3" y="-45.1006" width="92.6" height="161.2006" fill="#212121"/>
+<g transform="scale(1 -1)" fill="none" stroke-width="0.1075" stroke-linecap="round">
+<g data-layer="0">
+<text transform="translate(0 0) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">Standard LEFT</text>
+<text transform="translate(0 0) rotate(15) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">Standard CENTER</text>
+<text transform="translate(0 0) rotate(30) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="end" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">Standard RIGHT</text>
+<text transform="translate(0 0) rotate(45) scale(1 -1) skewX(0)" font-size="4" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ffffff" stroke="none">Standard MIDDLE</text>
+<text transform="translate(0 0) rotate(60) scale(1 -1) skewX(0)" font-size="4.5" font-family="sans-serif" text-anchor="start" dominant-baseline="text-before-edge" fill="#ffffff" stroke="none">Standard TOP_LEFT</text>
+<text transform="translate(0 -20) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SANS LEFT</text>
+<text transform="translate(0 0) rotate(15) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SANS CENTER</text>
+<text transform="translate(0 0) rotate(30) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="end" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SANS RIGHT</text>
+<text transform="translate(0 0) rotate(45) scale(1 -1) skewX(0)" font-size="4" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ffffff" stroke="none">SANS MIDDLE</text>
+<text transform="translate(0 0) rotate(60) scale(1 -1) skewX(0)" font-size="4.5" font-family="sans-serif" text-anchor="start" dominant-baseline="text-before-edge" fill="#ffffff" stroke="none">SANS TOP_LEFT</text>
+<text transform="translate(0 -40) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SERIF LEFT</text>
+<text transform="translate(0 0) rotate(15) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SERIF CENTER</text>
+<text transform="translate(0 0) rotate(30) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="end" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SERIF RIGHT</text>
+<text transform="translate(0 0) rotate(45) scale(1 -1) skewX(0)" font-size="4" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ffffff" stroke="none">SERIF MIDDLE</text>
+<text transform="translate(0 0) rotate(60) scale(1 -1) skewX(0)" font-size="4.5" font-family="sans-serif" text-anchor="start" dominant-baseline="text-before-edge" fill="#ffffff" stroke="none">SERIF TOP_LEFT</text>
+<text transform="translate(0 -60) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">MONO LEFT</text>
+<text transform="translate(0 0) rotate(15) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">MONO CENTER</text>
+<text transform="translate(0 0) rotate(30) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="end" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">MONO RIGHT</text>
+<text transform="translate(0 0) rotate(45) scale(1 -1) skewX(0)" font-size="4" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ffffff" stroke="none">MONO MIDDLE</text>
+<text transform="translate(0 0) rotate(60) scale(1 -1) skewX(0)" font-size="4.5" font-family="sans-serif" text-anchor="start" dominant-baseline="text-before-edge" fill="#ffffff" stroke="none">MONO TOP_LEFT</text>
+<text transform="translate(0 -80) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SIMPLEX LEFT</text>
+<text transform="translate(0 0) rotate(15) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SIMPLEX CENTER</text>
+<text transform="translate(0 0) rotate(30) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="end" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">SIMPLEX RIGHT</text>
+<text transform="translate(0 0) rotate(45) scale(1 -1) skewX(0)" font-size="4" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ffffff" stroke="none">SIMPLEX MIDDLE</text>
+<text transform="translate(0 0) rotate(60) scale(1 -1) skewX(0)" font-size="4.5" font-family="sans-serif" text-anchor="start" dominant-baseline="text-before-edge" fill="#ffffff" stroke="none">SIMPLEX TOP_LEFT</text>
+<text transform="translate(0 -100) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">Wände Ø25 ±0.1 °C µm 配管</text>
+<text transform="translate(0 -110) rotate(0) scale(1.5 -1) skewX(-15)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffffff" stroke="none">Oblique and wide</text>
+</g>
+</g>
+</svg>

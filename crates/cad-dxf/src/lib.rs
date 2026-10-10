@@ -28,6 +28,7 @@ pub use encoding::{CodePage, FileEncoding, decode_mtext, decode_text};
 pub use entity::{
     Arc, AttDef, Attrib, Circle, Dimension, DimensionKind, Ellipse, Entity, EntityKind, Insert,
     Line, LwPolyline, LwVertex, MText, Point, Polyline, Spline, Text, Unknown, Vertex,
+    mtext_plain_lines,
 };
 pub use error::{DxfError, Warning};
 pub use model::{

@@ -292,3 +292,96 @@ Also settled:
 17. **Write speed is not a target yet.** The 50 MB file saves back in about
     1.5 s after loading (re-parse plus copy) and generates in about 3 s
     (R2018) or 4 s (R12).
+
+## M4
+
+1. **`cad-render` reads `cad_dxf::Drawing` directly** for now: `cad-core`
+   has no document model until M5, and the spec's "cad-render draws from the
+   document held in cad-core" can be met by then without changing the
+   scene types. `cad-render` depends on `cad-dxf` and `cad-geom` only — no
+   UI — so M4b's visual diff reuses it as is.
+2. **Scene, then outputs.** `cad_render::build` turns a drawing into a
+   `Scene`: styled primitives in world XY (paths with bulges, fills,
+   points, text lines), with layers, colours (BYLAYER, BYBLOCK, ACI, true
+   colour), linetypes, block references (nested, arrays, layer-0 and
+   BYBLOCK inheritance) and OCS already resolved. `svg::to_svg` and
+   `tess::tessellate` (GPU vertex data) are both views of the scene.
+3. **What is drawn.** Model space only (layouts are M7). Drawn: LINE,
+   CIRCLE, ARC, LWPOLYLINE, POLYLINE (2D, 3D, spline-fit, polyface and
+   polygon meshes), ELLIPSE, SPLINE, POINT, TEXT, MTEXT, ATTRIB, INSERT,
+   DIMENSION (its block), SOLID, TRACE, 3DFACE, LEADER (its vertices),
+   constant ATTDEFs inside blocks, ATTDEF tags at top level. Not drawn,
+   counted in `Scene::skipped` and shown in the status bar: HATCH,
+   MULTILEADER, VIEWPORT, XLINE, RAY, IMAGE, WIPEOUT and other types.
+4. **Simplifications for M4:** lineweights are not shown (like a CAD
+   program with lineweight display off); MTEXT is laid out line by line
+   without word wrapping or inline formatting; text width factor and
+   oblique angle are kept in the scene and SVG but ignored on screen;
+   mirrored inserts draw their text readable, not mirrored; an off layer
+   hides only what is on that layer (frozen insert layers do not hide the
+   block's other layers); the on-screen font has no CJK glyphs.
+5. **Arcs and transforms.** OCS uses the arbitrary axis algorithm
+   (`cad_geom::transform`). Arcs stay exact (bulges) when the transform
+   keeps circles circular seen from above; under non-uniform scale or a
+   tilted plane they are flattened (5° steps) first. Mirroring flips bulge
+   signs.
+6. **Linetypes** are scaled by `$LTSCALE`, the entity's group 48 and the
+   block reference's scale; dashes are in world units. Patterns so fine
+   that a path would get more than 20,000 repeats are drawn solid.
+7. **GPU drawing.** eframe 0.36.2 with the glow (OpenGL 3 / WebGL2)
+   backend — the spec suggested wgpu; glow is smaller, works the same on
+   desktop and in browsers, and is enough for coloured lines. Vertex data
+   is built once per drawing in chunks of (layer, cell of a 16 × 16 grid);
+   vertices are `f32` offsets from the chunk centre, and the chunk-centre
+   minus view-centre offset is computed in `f64` each frame, so precision
+   is relative to the view (tested at 1e9). A frame only culls chunks
+   (hidden layers, off screen) and draws. Lines are 1 px.
+8. **Level of detail.** Each chunk with arcs also has a coarse version
+   (30° segments) used while its largest arc is under 30 px on screen;
+   this took the 100k-entity benchmark's 95th-percentile frame from 19 ms
+   to 15 ms.
+9. **Text on screen** uses egui's text renderer (not GPU geometry): only
+   text at least 4 px tall and on screen is drawn, at most 5,000 per
+   frame. CAD text height is the cap height, so the font size is height /
+   0.7.
+10. **Interaction:** middle-drag or left-drag pans (there is no selection
+    until M5), wheel and pinch zoom around the cursor, double middle click
+    or the toolbar button zooms to extents of the visible layers, layer
+    checkboxes toggle visibility, drag-and-drop opens a file (also in the
+    browser).
+11. **Golden snapshots.** `tests/snapshots/<corpus file>.svg` (198 files,
+    about 2 MB), compared by `cad-render/tests/snapshots.rs`; mismatches
+    are written to `target/snapshots-new/`, and `UPDATE_SNAPSHOTS=1`
+    accepts them. SVG uses numbers with at most 4 decimals, so changes
+    show as small text diffs and side by side on GitHub. Background #212121
+    and ACI 7 = white, as on screen.
+12. **Frame-rate check.** `cad-app --bench FILE [FRAMES]` animates pan and
+    zoom with vsync off and prints frame times. On this machine (Intel
+    Mac): 100k entities (`tests/corpus-private/big_100k__ezdxf__R2018.dxf`,
+    112,500 items, 5.2 M vertices) average 7.5 ms, 95th percentile 15.2 ms,
+    worst 21.7 ms; the 275k-entity file averages 8.9 ms, 95th percentile
+    18.8 ms. `cad-app --shot FILE OUT.ppm` saves a screenshot of the window
+    (no screen capture of other windows). These need a display, so CI does
+    not run them.
+13. **WebAssembly from the start.** `cad-app` builds for
+    `wasm32-unknown-unknown` (CI job `wasm32`, with clippy); on the web it
+    runs in the `cad_canvas` canvas of `crates/cad-app/index.html` (for
+    trunk) and opens dropped files. The toolchain file installs the target.
+14. **`cad-app` commands.** `cad-app [FILE]` now opens the viewer; the old
+    summary is `cad-app info FILE` (the validator uses it).
+15. **MTEXT plain text** moved into `cad-dxf` (`MText::plain_lines`,
+    `mtext_plain_lines`), used by both the R12 writer and the renderer.
+
+## Rules for M5 (decided before M5)
+
+1. **Saving an edited drawing keeps its DXF version and copies every
+   unchanged record exactly; only edited records are regenerated. Nothing
+   is dropped on save.** This replaces M3 decision 2 (edited drawings are
+   regenerated as R12 or R2018) for saving; R12 and R2018 stay the targets
+   of an explicit "Save As" conversion. It needs per-record source spans
+   and a writer for records of every version the reader accepts.
+2. **Unchanged files save instantly using a dirty flag instead of
+   re-reading.** This replaces the re-read comparison of M3 decision 1:
+   edits go through the document (M5's command engine), which marks what
+   changed.
+3. **Target: saving a 50 MB file takes under 2 s before v0.1.**

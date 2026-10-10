@@ -25,3 +25,14 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  wasm:
+    name: wasm32 (browser build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p cad-app --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build -p cad-app --release --target wasm32-unknown-unknown

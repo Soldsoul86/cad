@@ -178,7 +178,7 @@ def main():
                 problems[(src.name, target)].append("cad-app could not write it")
                 continue
             written[(src.name, target)] = dest
-            check = subprocess.run([str(CAD_APP), str(dest)], capture_output=True, text=True, check=False)
+            check = subprocess.run([str(CAD_APP), "info", str(dest)], capture_output=True, text=True, check=False)
             warnings = [l for l in check.stdout.splitlines() if l.startswith("warning")]
             if check.returncode != 0 or (warnings and src.name not in DELIBERATELY_DAMAGED):
                 problems[(src.name, target)].append(f"our reader: {check.stderr.strip() or warnings[:2]}")

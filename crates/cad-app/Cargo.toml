@@ -9,5 +9,13 @@ publish.workspace = true
 
 [dependencies]
 cad-dxf.workspace = true
-cad-core.workspace = true
 cad-render.workspace = true
+# UI and canvas (glow = OpenGL / WebGL2). MIT OR Apache-2.0.
+eframe = { version = "=0.36.2", default-features = false, features = ["glow", "default_fonts"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "=0.4.79"
+web-sys = { version = "=0.3.106", features = ["Document", "Element", "HtmlCanvasElement", "Window"] }

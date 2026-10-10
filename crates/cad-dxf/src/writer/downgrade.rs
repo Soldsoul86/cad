@@ -307,52 +307,8 @@ fn polyline_through(e: &Entity, mut points: Vec<[f64; 3]>, closed: bool) -> Enti
     out
 }
 
-/// MTEXT content without formatting, split into lines (`\P` and `\N`).
-pub(super) fn mtext_plain_lines(text: &str) -> Vec<String> {
-    let mut lines = vec![String::new()];
-    let push = |lines: &mut Vec<String>, c: char| {
-        if let Some(line) = lines.last_mut() {
-            line.push(c);
-        }
-    };
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => match chars.next() {
-                Some('P' | 'N') => lines.push(String::new()),
-                Some(c @ ('\\' | '{' | '}')) => push(&mut lines, c),
-                Some('~') => push(&mut lines, ' '),
-                // Toggles without arguments.
-                Some('L' | 'l' | 'O' | 'o' | 'K' | 'k') => {}
-                // Stacked text: "\Sa^b;", "\Sa/b;" or "\Sa#b;" reads as "a/b".
-                Some('S') => {
-                    for c in chars.by_ref() {
-                        match c {
-                            ';' => break,
-                            '^' | '#' => push(&mut lines, '/'),
-                            c => push(&mut lines, c),
-                        }
-                    }
-                }
-                // Codes with an argument up to ';' (font, colour, height, ...).
-                Some(_) => {
-                    for c in chars.by_ref() {
-                        if c == ';' {
-                            break;
-                        }
-                    }
-                }
-                None => {}
-            },
-            '{' | '}' => {}
-            c => push(&mut lines, c),
-        }
-    }
-    lines
-}
-
 fn mtext_lines(e: &Entity, m: &MText) -> Vec<Entity> {
-    let lines = mtext_plain_lines(&m.text);
+    let lines = m.plain_lines();
     let angle = match m.x_direction {
         Some(x) if x.x != 0.0 || x.y != 0.0 => x.y.atan2(x.x),
         _ => m.rotation.to_radians(),
@@ -575,19 +531,6 @@ pub(super) fn upgrade_unknown_markers(type_name: &str, pairs: &mut Vec<Pair>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn mtext_formatting_is_removed() {
-        assert_eq!(
-            mtext_plain_lines(
-                "{\\fArial|b1;NOTES:}\\P1. \\C1;ALL\\C256; DIMS\\P2. A\\\\B \\S1/2; \\Lu\\l"
-            ),
-            ["NOTES:", "1. ALL DIMS", "2. A\\B 1/2 u"]
-        );
-        assert_eq!(mtext_plain_lines("x\\~y\\{z\\}"), ["x y{z}"]);
-        assert_eq!(mtext_plain_lines(""), [""]);
-        assert_eq!(mtext_plain_lines("\\"), [""]);
-    }
 
     #[test]
     fn markers_are_added_to_r12_records() {

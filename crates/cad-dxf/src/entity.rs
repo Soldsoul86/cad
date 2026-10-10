@@ -179,6 +179,59 @@ pub struct MText {
     pub extrusion: Point3,
 }
 
+/// MTEXT content without formatting codes, split into lines at `\P` and
+/// `\N`. Stacked fractions read as `a/b`; `\~` is a space; `\\`, `\{` and `\}`
+/// are the literal characters.
+pub fn mtext_plain_lines(text: &str) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    let push = |lines: &mut Vec<String>, c: char| {
+        if let Some(line) = lines.last_mut() {
+            line.push(c);
+        }
+    };
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('P' | 'N') => lines.push(String::new()),
+                Some(c @ ('\\' | '{' | '}')) => push(&mut lines, c),
+                Some('~') => push(&mut lines, ' '),
+                // Toggles without arguments.
+                Some('L' | 'l' | 'O' | 'o' | 'K' | 'k') => {}
+                // Stacked text: "\Sa^b;", "\Sa/b;" or "\Sa#b;" reads as "a/b".
+                Some('S') => {
+                    for c in chars.by_ref() {
+                        match c {
+                            ';' => break,
+                            '^' | '#' => push(&mut lines, '/'),
+                            c => push(&mut lines, c),
+                        }
+                    }
+                }
+                // Codes with an argument up to ';' (font, colour, height, ...).
+                Some(_) => {
+                    for c in chars.by_ref() {
+                        if c == ';' {
+                            break;
+                        }
+                    }
+                }
+                None => {}
+            },
+            '{' | '}' => {}
+            c => push(&mut lines, c),
+        }
+    }
+    lines
+}
+
+impl MText {
+    /// The text without formatting, one string per line.
+    pub fn plain_lines(&self) -> Vec<String> {
+        mtext_plain_lines(&self.text)
+    }
+}
+
 /// A block reference (`INSERT`), possibly a rectangular array (`MINSERT`
 /// semantics via column/row counts) and possibly carrying attributes.
 #[derive(Debug, Clone, PartialEq)]
@@ -458,5 +511,23 @@ impl Entity {
             kind,
             extra: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mtext_formatting_is_removed() {
+        assert_eq!(
+            mtext_plain_lines(
+                "{\\fArial|b1;NOTES:}\\P1. \\C1;ALL\\C256; DIMS\\P2. A\\\\B \\S1/2; \\Lu\\l"
+            ),
+            ["NOTES:", "1. ALL DIMS", "2. A\\B 1/2 u"]
+        );
+        assert_eq!(mtext_plain_lines("x\\~y\\{z\\}"), ["x y{z}"]);
+        assert_eq!(mtext_plain_lines(""), [""]);
+        assert_eq!(mtext_plain_lines("\\"), [""]);
     }
 }
