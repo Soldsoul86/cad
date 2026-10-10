@@ -11,6 +11,8 @@ Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to wi
 - Layers, colors, linetypes, units
 - 20 core drafting commands with a command line, snapping and undo
 - Export to PDF and SVG
+- Visual diff between two drawings (M4b)
+- A WebAssembly build of the viewer and visual diff
 
 **Out of scope for v0.1**
 
@@ -22,6 +24,17 @@ Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to wi
 - Clean-room: build from public DXF documentation and your own test files. Never use Autodesk code, icons, or the AutoCAD name in the product.
 - Pick your own product name before the first public release. "Working name" in this spec is a placeholder.
 - Hand each milestone to Claude Code as its own task, with the acceptance criteria from the Milestones section pasted in.
+
+## Why it's better than AutoCAD
+
+This section is for planning only; the product itself never uses the AutoCAD name (see the rules above).
+
+- **Small and fast.** A single small download that starts instantly and stays responsive on large drawings (the DXF reader already loads 50 MB in under a second).
+- **Free and fully offline, with no account.** Every feature works without signing in or connecting to the internet.
+- **Visual diff between drawing revisions.** Open two versions of a drawing and see what was added, deleted and changed (milestone M4b).
+- **Modern scripting (later).** A scripting interface built on the same command engine, planned after v0.1.
+- **AI commands (later).** Natural-language requests turned into real, previewable commands, planned after v0.1.
+- **No telemetry without consent.** Nothing leaves the user's machine unless they explicitly choose to send it (for example, via "Send feedback").
 
 ## Architecture
 
@@ -159,7 +172,7 @@ UNDO (U) and REDO run outside this list: every command is one undo step, includi
 
 ## Milestones
 
-Seven milestones, each small enough for one focused Claude Code task. Don't start the next until the current one passes its acceptance criteria.
+Nine milestones, each small enough for one focused Claude Code task. Don't start the next until the current one passes its acceptance criteria. M1–M4b lead to a public preview release; M5–M7 lead to v0.1, released the same way.
 
 1. **M1 — Tokenizer and model.** Workspace set up; `cad-dxf` reads group-code pairs and parses `HEADER`, `TABLES` (layers only) and `LINE`/`CIRCLE`/`ARC`.
    - Accept: 10 simple corpus files load with zero panics; unit tests per entity; CI runs `cargo test`, `clippy`, `fmt`.
@@ -169,12 +182,23 @@ Seven milestones, each small enough for one focused Claude Code task. Don't star
    - Accept: round-trip test passes for the whole corpus; written files open cleanly in two other CAD programs.
 4. **M4 — Viewer.** `cad-app` opens a DXF and shows it with pan, zoom, layers on/off, and golden SVG snapshots.
    - Accept: 100k-entity file at 60 fps; snapshots match for the corpus.
-5. **M5 — Command engine and drawing commands.** Command line, point input formats, LINE, PLINE, CIRCLE, ARC, RECTANG, TEXT, ERASE, undo/redo, object snap, ortho.
+5. **M4b — Visual diff.** Open two DXF files and highlight added (green), deleted (red) and changed (yellow) entities. Entities are matched by handle first, and by geometry (same type, layer and coordinates within a tolerance) when handles differ, e.g. after a save in another program. Show a summary list of the changes and a "Next change" button that zooms to each one in turn. The comparison logic lives in a UI-free crate function with tests; the viewer only displays its result.
+   - Accept: tests on pairs of corpus files with known edits (added, deleted, moved, restyled entities, and pairs whose handles differ); a demo comparing two revisions of a floor plan.
+6. **Preview release.** First public release, built from M1–M4b:
+   - Pick the product name first (see the rules above).
+   - Tagged GitHub release with Windows, macOS and Linux installers built by CI from the tag.
+   - A WebAssembly build of the viewer and visual diff, hosted on GitHub Pages.
+   - README with screenshots.
+   - Issue templates for bug reports and feature requests.
+   - An in-app "Send feedback" link that opens the issue tracker in the browser; nothing is sent automatically.
+   - No telemetry.
+   - Accept: installers from the tagged CI run install and open a corpus file on all three platforms; the GitHub Pages build opens and diffs two corpus files in a browser; issue templates and the feedback link work; a check confirms the app makes no network requests on its own.
+7. **M5 — Command engine and drawing commands.** Command line, point input formats, LINE, PLINE, CIRCLE, ARC, RECTANG, TEXT, ERASE, undo/redo, object snap, ortho.
    - Accept: a scripted test draws a floor-plan outline using only typed commands and saves a valid DXF.
-6. **M6 — Editing commands.** MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, FILLET, EXPLODE, selection windows.
+8. **M6 — Editing commands.** MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, FILLET, EXPLODE, selection windows.
    - Accept: each command has geometry tests including edge cases (parallel lines, zero radius, arcs crossing 0°).
-7. **M7 — Dimensions, layers, plot, release.** DIMLINEAR, LAYER panel, PDF/SVG plot, installers for Windows, macOS, Linux.
-   - Accept: a sample drawing plots to a correctly scaled A3 PDF at 1:100; README with screenshots and a side-by-side demo video; v0.1 tagged on GitHub.
+9. **M7 — Dimensions, layers, plot, v0.1 release.** DIMLINEAR, LAYER panel, PDF/SVG plot, then release v0.1 the same way as the preview: CI-built installers for Windows, macOS and Linux from the tag, an updated WebAssembly build on GitHub Pages, README with screenshots, issue templates and the "Send feedback" link, and no telemetry.
+   - Accept: a sample drawing plots to a correctly scaled A3 PDF at 1:100; README with screenshots and a side-by-side demo video; v0.1 tagged on GitHub with installers built by CI for all three platforms and the GitHub Pages build updated.
 
 ## Working with Claude Code
 
