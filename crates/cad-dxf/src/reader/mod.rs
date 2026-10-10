@@ -15,7 +15,7 @@ use std::path::Path;
 use crate::encoding::{CodePage, FileEncoding};
 use crate::entity::{Entity, EntityKind};
 use crate::error::{DxfError, Warning};
-use crate::model::{Block, Drawing, HeaderVariable, RawSection, StrayRecord, Version};
+use crate::model::{Block, Drawing, HeaderVariable, RawSection, Source, StrayRecord, Version};
 use crate::table::{Named, RawTable, Table};
 use crate::tokenizer::{BINARY_SENTINEL, Pair, Token, Tokenizer};
 
@@ -36,6 +36,7 @@ pub fn read_bytes(bytes: &[u8]) -> Result<(Drawing, Vec<Warning>), DxfError> {
     if bytes.starts_with(BINARY_SENTINEL) {
         return Err(DxfError::BinaryNotSupported);
     }
+    let original = bytes;
     let (bom, bytes) = match bytes.strip_prefix(b"\xEF\xBB\xBF") {
         Some(rest) => (true, rest),
         None => (false, bytes),
@@ -76,11 +77,14 @@ pub fn read_bytes(bytes: &[u8]) -> Result<(Drawing, Vec<Warning>), DxfError> {
                     format!("{reason}; text decoded as {page}"),
                 ));
             }
-            let (text, had_errors) = code_page.decode_lossy(bytes);
-            if had_errors {
+            let (text, kept) = code_page.decode_preserving(bytes);
+            if kept > 0 {
                 warnings.push(Warning::new(
                     None,
-                    format!("some bytes are not valid {page} and were replaced"),
+                    format!(
+                        "{kept} bytes are not valid {page}; kept as U+F7xx characters so they \
+                         save back unchanged"
+                    ),
                 ));
             }
             (Cow::Owned(text), FileEncoding::CodePage(code_page))
@@ -88,18 +92,18 @@ pub fn read_bytes(bytes: &[u8]) -> Result<(Drawing, Vec<Warning>), DxfError> {
     };
     let (mut drawing, more) = read_text(&text, code_page)?;
     drawing.encoding = encoding;
+    drawing.source = Source::new(original);
     warnings.extend(more);
     Ok((drawing, warnings))
 }
 
-/// Reads a DXF document from text that is already decoded.
+/// Reads a DXF document from text.
 ///
-/// `$DWGCODEPAGE` still selects the code page for `%%nnn` codes.
+/// The same as [`read_bytes`] on the text's UTF-8 bytes, so `$DWGCODEPAGE`
+/// still selects the code page for `%%nnn` codes and
+/// [`Drawing::encoding`] reports what a writer should use.
 pub fn read_str(text: &str) -> Result<(Drawing, Vec<Warning>), DxfError> {
-    let code_page = header_value(text.as_bytes(), "$DWGCODEPAGE", "3")
-        .and_then(CodePage::from_dwgcodepage)
-        .unwrap_or(CodePage::ANSI_1252);
-    read_text(text, code_page)
+    read_bytes(text.as_bytes())
 }
 
 fn read_text(text: &str, code_page: CodePage) -> Result<(Drawing, Vec<Warning>), DxfError> {

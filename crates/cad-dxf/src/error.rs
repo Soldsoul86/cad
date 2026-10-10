@@ -15,6 +15,8 @@ pub enum DxfError {
     Syntax { line: usize, message: String },
     /// The input ended after a group code, before its value.
     UnexpectedEof { line: usize },
+    /// Writing is supported for R12 and R2018 only.
+    UnsupportedVersion(crate::model::Version),
 }
 
 impl DxfError {
@@ -30,7 +32,7 @@ impl DxfError {
 impl fmt::Display for DxfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(err) => write!(f, "could not read file: {err}"),
+            Self::Io(err) => write!(f, "file error: {err}"),
             Self::BinaryNotSupported => f.write_str("binary DXF is not supported yet"),
             Self::NotDxf => f.write_str("not a DXF file (no SECTION found)"),
             Self::Syntax { line, message } => write!(f, "line {line}: {message}"),
@@ -38,6 +40,13 @@ impl fmt::Display for DxfError {
                 write!(
                     f,
                     "line {line}: file ends after a group code, before its value"
+                )
+            }
+            Self::UnsupportedVersion(v) => {
+                write!(
+                    f,
+                    "cannot write {} ({v:?}); write R12 or R2018",
+                    v.acadver()
                 )
             }
         }

@@ -10,10 +10,10 @@ publish.workspace = true
 [dependencies]
 # Code pages for pre-2007 files (MIT OR Apache-2.0; data BSD-3-Clause).
 encoding_rs = "=0.8.35"
+# Curve flattening for R12 downgrades.
+cad-geom.workspace = true
 
 [[bench]]
 name = "load"
 harness = false
 
-[dev-dependencies]
-cad-geom.workspace = true

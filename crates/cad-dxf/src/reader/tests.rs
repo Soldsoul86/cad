@@ -1695,9 +1695,9 @@ fn unsupported_or_missing_code_page_falls_back_with_a_warning() {
     let (value, _, _, w) = text_value(&text_file("AC1009", None, b"x\xe4"));
     assert_eq!(value, "xä");
     assert!(w[0].message.contains("no $DWGCODEPAGE"), "{w:?}");
-    // Bytes the code page cannot decode are replaced, with a warning.
+    // Bytes the code page cannot decode are kept as private-use characters.
     let (value, _, _, w) = text_value(&text_file("AC1015", Some("ANSI_932"), b"\x94"));
-    assert_eq!(value, "\u{FFFD}");
+    assert_eq!(value, "\u{F794}", "kept, not replaced");
     assert!(
         w.iter().any(|w| w.message.contains("not valid ANSI_932")),
         "{w:?}"

@@ -4,3 +4,4 @@
 //! use it.
 
 pub mod bulge;
+pub mod curve;

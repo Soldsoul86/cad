@@ -1,6 +1,7 @@
 //! The in-memory drawing model.
 
 use std::fmt;
+use std::sync::Arc;
 
 use crate::encoding::FileEncoding;
 use crate::entity::Entity;
@@ -114,6 +115,50 @@ impl Color {
         }
     }
 
+    /// The RGB value of an ACI index (1–255). Indexes 1–9 and 250–255 use
+    /// the standard values; 10–249 follow the usual layout of 24 hues × 5
+    /// shades × 2 saturations, computed rather than tabulated, so they are
+    /// close to but not always exactly the colours other programs show.
+    pub fn aci_rgb(index: u8) -> (u8, u8, u8) {
+        const FIXED: [(u8, u8, u8); 10] = [
+            (0, 0, 0),
+            (255, 0, 0),
+            (255, 255, 0),
+            (0, 255, 0),
+            (0, 255, 255),
+            (0, 0, 255),
+            (255, 0, 255),
+            (255, 255, 255),
+            (128, 128, 128),
+            (192, 192, 192),
+        ];
+        match index {
+            0..=9 => FIXED[usize::from(index)],
+            250..=255 => {
+                let v = [51, 91, 132, 173, 214, 255][usize::from(index - 250)];
+                (v, v, v)
+            }
+            _ => {
+                let i = f64::from(index - 10);
+                let hue = (i / 10.0).floor() * 15.0;
+                let shade = (i % 10.0 / 2.0).floor();
+                let value = [1.0, 0.65, 0.5, 0.3, 0.15][shade as usize];
+                let saturation = if index % 2 == 0 { 1.0 } else { 0.5 };
+                hsv(hue, saturation, value)
+            }
+        }
+    }
+
+    /// The ACI index (1–255) closest to an RGB colour.
+    pub fn nearest_aci(r: u8, g: u8, b: u8) -> u8 {
+        let distance = |i: u8| {
+            let (pr, pg, pb) = Self::aci_rgb(i);
+            let d = |a: u8, b: u8| (i32::from(a) - i32::from(b)).pow(2);
+            d(pr, r) + d(pg, g) + d(pb, b)
+        };
+        (1..=255).min_by_key(|&i| distance(i)).unwrap_or(7)
+    }
+
     /// From a group 420 value (`0x00RRGGBB`). Some writers set flag bits in
     /// the top byte, so only the low 24 bits are used.
     pub fn from_true_color(value: i64) -> Option<Self> {
@@ -123,6 +168,23 @@ impl Color {
         let rgb = value & 0x00FF_FFFF;
         Some(Self::Rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8))
     }
+}
+
+fn hsv(hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {
+    let c = value * saturation;
+    let h = hue / 60.0;
+    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = value - c;
+    let to = |v: f64| ((v + m) * 255.0).round() as u8;
+    (to(r), to(g), to(b))
 }
 
 /// Line weight (group 370).
@@ -304,6 +366,40 @@ pub struct StrayRecord {
     pub pairs: Vec<Pair>,
 }
 
+/// The bytes a drawing was read from, kept so that an unchanged drawing saves
+/// back byte-for-byte (see [`Drawing::save_bytes`]).
+///
+/// The source is provenance, not content: it never affects equality, so two
+/// drawings with the same content compare equal whatever they were read from.
+#[derive(Clone, Default)]
+pub struct Source(Option<Arc<[u8]>>);
+
+impl Source {
+    pub fn new(bytes: &[u8]) -> Self {
+        Self(Some(Arc::from(bytes)))
+    }
+
+    /// The original bytes, if the drawing was read from a file.
+    pub fn bytes(&self) -> Option<&[u8]> {
+        self.0.as_deref()
+    }
+}
+
+impl PartialEq for Source {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(bytes) => write!(f, "Source({} bytes)", bytes.len()),
+            None => f.write_str("Source(none)"),
+        }
+    }
+}
+
 /// A whole DXF document.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Drawing {
@@ -326,6 +422,8 @@ pub struct Drawing {
     /// The text from a line the tokenizer could not read to the end of the
     /// file, if reading stopped early. Kept so it is not lost.
     pub unparsed_tail: Option<String>,
+    /// The bytes the drawing was read from (not part of its content).
+    pub source: Source,
 }
 
 #[cfg(test)]
@@ -353,6 +451,21 @@ mod tests {
             Some(Color::Rgb(255, 128, 0))
         );
         assert_eq!(Color::from_true_color(1 << 40), None);
+    }
+
+    #[test]
+    fn aci_palette_and_nearest() {
+        assert_eq!(Color::aci_rgb(1), (255, 0, 0));
+        assert_eq!(Color::aci_rgb(10), (255, 0, 0));
+        assert_eq!(Color::aci_rgb(255), (255, 255, 255));
+        assert_eq!(Color::nearest_aci(255, 0, 0), 1);
+        assert_eq!(Color::nearest_aci(0, 0, 250), 5);
+        assert_eq!(Color::nearest_aci(250, 250, 0), 2);
+        assert_eq!(Color::nearest_aci(130, 130, 130), 8);
+        for i in 1..=255 {
+            let (r, g, b) = Color::aci_rgb(i);
+            assert_eq!(Color::aci_rgb(Color::nearest_aci(r, g, b)), (r, g, b));
+        }
     }
 
     #[test]

@@ -1,5 +1,15 @@
 # Changelog
 
+## M3 — Writer and round-trip (unreleased)
+
+- DXF writer for R12 and R2018 (`Drawing::to_bytes`, `write_file`, `generate_bytes`), with handles on every object and, in R2018, owner links, block records and layouts computed from the structure.
+- Save-back (`save_bytes`, `save_file`): an unchanged drawing is written back byte-for-byte, including stray records, the unparsed tail and original text; all 198 corpus files do.
+- R12 downgrades: LWPOLYLINE → POLYLINE, ELLIPSE/SPLINE → polylines (`cad_geom::curve`), MTEXT → TEXT, true colour → nearest ACI, R12-valid names; everything lost is reported.
+- Bytes invalid in the code page are kept (as U+F7xx) and written back unchanged.
+- Round-trip tests over the corpus (byte-identical save-back; generated files load cleanly and are a fixpoint; R2018 keeps entity content).
+- `tools/validate_written.py`: all 396 generated files (198 × R12/R2018) open cleanly in ODA File Converter and FreeCAD and in our reader; report in `tests/corpus/WRITE_VALIDATION.md`.
+- `cad-app convert`, `generate` and `save` commands.
+
 ## M2 part B — nothing dropped, encodings, fuzzing (unreleased)
 
 - Stray and duplicate records (e.g. an extra `ENDBLK`) are kept in `Drawing::stray` with their position; an unreadable tail is kept in `Drawing::unparsed_tail`. Warnings unchanged.

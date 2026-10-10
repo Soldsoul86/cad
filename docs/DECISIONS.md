@@ -182,7 +182,8 @@ Also settled:
     0.4.13 pinned) has three targets: `tokenizer`, `reader` (`read_bytes`)
     and `text` (`decode_text`/`decode_mtext` on every code page). It is its
     own workspace and needs nightly; it is dev tooling only, so libFuzzer's
-    NCSA licence (BSD-style) does not reach anything shipped. CI does not
+    NCSA licence (BSD-style) does not reach anything shipped (now a rule in
+    CLAUDE.md). CI does not
     run it. `tools/fuzz.sh SECONDS` seeds every target from `tests/corpus`
     and the regression inputs and runs them in parallel, without a sanitizer
     (no `unsafe` code; overflow and bounds checks stay on; about 20× faster)
@@ -196,3 +197,98 @@ Also settled:
 11. **Linear-time leftovers.** `Fields::leftovers` and the orphan-parent
     lookup no longer rescan earlier pairs/entities, so huge records can't
     make the reader quadratic.
+
+## M3
+
+1. **Save-back is byte-identical when nothing changed.** `Drawing::source`
+   keeps the bytes the drawing was read from. `save_bytes` (and `to_bytes`
+   for the same version) re-reads them and, if that gives a drawing equal to
+   the current one, returns them unchanged: stray records, the unparsed
+   tail, original text, formatting and undecodable bytes all survive. All
+   198 corpus files save back byte-for-byte. `Source` never affects
+   equality (it is provenance, not content). Cost: the source bytes stay in
+   memory (50 MB for the 50 MB file), and the check re-parses on save.
+2. **Edited drawings are regenerated, not patched.** A changed drawing is
+   written by the generator, in R12 if it was R12 and R2018 otherwise, with
+   a warning when that changes the version. Reusing the original text for
+   unchanged records of an edited file is left for when editing exists (M5).
+3. **Two passes: normalise, then format.** The writer first makes a valid
+   copy of the drawing for the target version (handles, owners, required
+   tables, block records, layouts, R12 downgrades), then formats it. Writing
+   is deterministic, so read → write is a fixpoint: writing what was read
+   gives the same bytes and an equal drawing (tested for the whole corpus,
+   both versions).
+4. **Handles.** Existing handles are kept; missing ones are assigned above
+   every handle in the input; duplicates get new handles, with a warning.
+   `$HANDSEED` is one above the highest handle written. R12 output has
+   handles on entities, children and `ENDBLK` (as ODA writes R12), with
+   `$HANDLING 1`; table entries and `BLOCK` records have none.
+5. **Owners (R2018).** Computed from the structure, never trusted from the
+   input: entities → `*Model_Space`/`*Paper_Space` record; block contents,
+   `BLOCK` and `ENDBLK` → their block record; `VERTEX`/`ATTRIB`/`SEQEND` →
+   their parent; table entries → their table. Every block gets a
+   `BLOCK_RECORD`; files without layouts (R12, R13/R14) get an
+   `ACAD_LAYOUT` dictionary with `Model` and `Layout1` linked from the
+   records. Existing OBJECTS are copied as they are.
+6. **Required content is added.** Missing defaults (layer `0`, linetypes
+   `ByBlock`/`ByLayer`/`Continuous`, style and dim style `Standard`,
+   `VPORT *Active`, `APPID ACAD` and every XDATA application) and anything
+   entities refer to but the drawing lacks (layers, linetypes, text styles,
+   dim styles, empty blocks) are added, with warnings for the latter.
+7. **What generated files leave out, with warnings:** stray records, the
+   unparsed tail, orphaned `VERTEX`/`ATTRIB`/`SEQEND`, unparsed table
+   entries and blocks, and block records without a block. These are kept
+   by save-back only.
+8. **R12 downgrades.** `LWPOLYLINE` → `POLYLINE` (exact: bulges, widths,
+   elevation); `ELLIPSE` → polyline (5° steps) and `SPLINE` → polyline (16
+   points per knot span, NURBS with weights) via `cad_geom::curve`, 2D at
+   their elevation or 3D if not flat; `MTEXT` → one `TEXT` per line,
+   formatting removed, placed by attachment point; true colour → nearest
+   ACI (approximate palette, `Color::aci_rgb`); lineweights, the invisible
+   flag, newer codes and non-XDATA leftovers dropped; `SOLID`, `TRACE`,
+   `3DFACE`, `SHAPE` kept without newer codes; other types (`HATCH`,
+   `LEADER`, `MULTILEADER`, `XLINE`, `RAY`, `VIEWPORT`, ...) dropped; extra
+   layouts dropped; complex linetypes become plain dashes; header limited
+   to R12 variables; tables filtered to R12 groups; CLASSES and OBJECTS not
+   written. Every loss is a warning, counted per kind.
+9. **R12 names.** Names longer than 31 characters or with characters
+   outside the code page are renamed (unusable characters → `_`, unique
+   with `~n`), and every reference is updated (entities, blocks, layers,
+   header `$CLAYER`/`$CELTYPE`/`$TEXTSTYLE`/`$DIMSTYLE`). Application names
+   over 31 characters are dropped with their XDATA.
+10. **Version-specific records.** Entities of types defined in CLASSES
+    (e.g. `MULTILEADER`) are not copied into a different version: their
+    record layout changes between versions and ODA drops such copies. They
+    are dropped with a warning (same-version writes and save-back keep
+    them). R2018 output also drops entity types that are neither standard
+    nor in CLASSES (no program can read them).
+11. **Encodings.** R2018 output is UTF-8. R12 output uses the drawing's code
+    page (`Drawing::encoding`, else `$DWGCODEPAGE`, else ANSI_1252);
+    characters outside it become `\U+XXXX` (or `?` beyond U+FFFF) with a
+    warning. Text keeps its original form (`raw_value` etc.) when that
+    still decodes to the current value; otherwise the value is written.
+12. **Undecodable bytes are kept (fixes M2's one lossy case).** Bytes that
+    are not valid in the code page are read as `U+F700 + byte` instead of
+    U+FFFD, and the code-page encoder writes them back as the same byte. In
+    UTF-8 output they stay private-use characters, with a warning.
+13. **Formatting.** Group codes right-aligned in three columns, CRLF line
+    endings, floats in the shortest form that reads back exactly (with a
+    decimal point; exponent form below 1e-6 or from 1e15), MTEXT split in
+    250-character chunks. `read_str` is now `read_bytes` on the text's
+    bytes, so both report the same encoding.
+14. **API.** `Drawing::to_bytes(version)`, `write_file(path, version)`
+    (R12 or R2018; other versions are `DxfError::UnsupportedVersion`),
+    `generate_bytes(version)` (never reuses the source), `save_bytes()`,
+    `save_file(path)`. `cad-app convert|generate|save` exposes them.
+15. **`cad-dxf` depends on `cad-geom`** (curve flattening for R12). Neither
+    has UI dependencies, so the spec's separation still holds.
+16. **External validation.** `tools/validate_written.py` writes every
+    corpus file as R12 and R2018 and checks it with our reader, ODA File
+    Converter and FreeCAD (see `tests/corpus/WRITE_VALIDATION.md`). ODA
+    repairs silently instead of warning, so "opens without warnings" means:
+    ODA's re-save of our file differs from it no more than ODA's re-save of
+    the original corpus file does, and FreeCAD prints no problem messages.
+    Result: 396 of 396 clean.
+17. **Write speed is not a target yet.** The 50 MB file saves back in about
+    1.5 s after loading (re-parse plus copy) and generates in about 3 s
+    (R2018) or 4 s (R12).

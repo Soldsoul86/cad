@@ -14,5 +14,6 @@ Project: open-source 2D CAD app in Rust (DXF library + drafting app). Full spec:
 - Every new entity or command ships with tests. Run `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` before finishing.
 - Geometry maths goes in `cad-geom` as pure, tested functions before it is wired into commands or UI.
 - Pin exact dependency versions; only MIT, Apache-2.0, BSD or zlib licences.
+- Dev-only tools (fuzzers, benchmarks) may use other permissive licences such as NCSA, as long as they never ship.
 - Add a `CHANGELOG.md` entry per milestone.
 - When you have to decide something the spec doesn't cover, record it in `docs/DECISIONS.md` and note it in your summary.

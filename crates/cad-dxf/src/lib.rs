@@ -22,6 +22,7 @@ mod reader;
 mod table;
 pub mod tokenizer;
 pub mod value;
+mod writer;
 
 pub use encoding::{CodePage, FileEncoding, decode_mtext, decode_text};
 pub use entity::{
@@ -30,7 +31,7 @@ pub use entity::{
 };
 pub use error::{DxfError, Warning};
 pub use model::{
-    Block, Color, Drawing, Handle, Header, HeaderVariable, LineWeight, Point3, RawSection,
+    Block, Color, Drawing, Handle, Header, HeaderVariable, LineWeight, Point3, RawSection, Source,
     StrayRecord, Version, Z_AXIS,
 };
 pub use reader::{read_bytes, read_file, read_str};

@@ -58,12 +58,86 @@ impl CodePage {
         !matches!(self.0, 932 | 936 | 949 | 950)
     }
 
-    /// Decodes `bytes`, replacing invalid sequences; the flag is true if any
-    /// were replaced.
-    pub(crate) fn decode_lossy(self, bytes: &[u8]) -> (String, bool) {
+    /// Decodes `bytes` without losing any: a byte that is not valid in this
+    /// code page becomes the private-use character `U+F700 + byte` (see
+    /// [`RAW_BYTE_BASE`]), which [`CodePage::encode`] turns back into the
+    /// same byte. Returns the text and the number of such bytes.
+    pub(crate) fn decode_preserving(self, bytes: &[u8]) -> (String, usize) {
         let encoding = self.encoding().unwrap_or(encoding_rs::WINDOWS_1252);
-        let (text, had_errors) = encoding.decode_without_bom_handling(bytes);
-        (text.into_owned(), had_errors)
+        if let Some(text) = encoding.decode_without_bom_handling_and_without_replacement(bytes) {
+            return (text.into_owned(), 0);
+        }
+        let mut out = String::with_capacity(bytes.len());
+        let mut kept = 0;
+        let mut i = 0;
+        while i < bytes.len() {
+            // Characters are at most 4 bytes (GB18030); take the shortest
+            // prefix that decodes to exactly one character.
+            let decoded = (1..=4.min(bytes.len() - i)).find_map(|n| {
+                let text = encoding
+                    .decode_without_bom_handling_and_without_replacement(&bytes[i..i + n])?;
+                let mut chars = text.chars();
+                let c = chars.next()?;
+                chars.next().is_none().then_some((c, n))
+            });
+            match decoded {
+                Some((c, n)) => {
+                    out.push(c);
+                    i += n;
+                }
+                None => {
+                    out.push(raw_byte_char(bytes[i]));
+                    kept += 1;
+                    i += 1;
+                }
+            }
+        }
+        (out, kept)
+    }
+
+    /// Encodes `text` in this code page. Characters made by
+    /// [`CodePage::decode_preserving`] become their original bytes again;
+    /// other characters the code page cannot represent are written as
+    /// `\U+XXXX` escapes (or `?` beyond U+FFFF). Returns the bytes and the
+    /// number of characters escaped or replaced.
+    pub(crate) fn encode(self, text: &str) -> (Vec<u8>, usize) {
+        let encoding = self.encoding().unwrap_or(encoding_rs::WINDOWS_1252);
+        let mut out = Vec::with_capacity(text.len());
+        let mut escaped = 0;
+        let mut buf = [0u8; 4];
+        let mut run_start = 0;
+        let flush = |out: &mut Vec<u8>, run: &str| {
+            if run.is_empty() {
+                return;
+            }
+            let (bytes, _, _) = encoding.encode(run);
+            out.extend_from_slice(&bytes);
+        };
+        for (i, c) in text.char_indices() {
+            if c.is_ascii() {
+                continue;
+            }
+            if let Some(byte) = original_byte(c) {
+                flush(&mut out, &text[run_start..i]);
+                out.push(byte);
+                run_start = i + c.len_utf8();
+                continue;
+            }
+            let single = c.encode_utf8(&mut buf);
+            let (_, _, unmappable) = encoding.encode(single);
+            if unmappable {
+                flush(&mut out, &text[run_start..i]);
+                if let Ok(code) = u16::try_from(u32::from(c)) {
+                    out.extend_from_slice(format!("\\U+{code:04X}").as_bytes());
+                } else {
+                    out.push(b'?');
+                }
+                escaped += 1;
+                run_start = i + c.len_utf8();
+            }
+        }
+        flush(&mut out, &text[run_start..]);
+        (out, escaped)
     }
 
     /// Decodes `bytes`; `None` if they are not valid in this code page.
@@ -71,6 +145,22 @@ impl CodePage {
         let (text, had_errors) = self.encoding()?.decode_without_bom_handling(bytes);
         (!had_errors).then(|| text.into_owned())
     }
+}
+
+/// Bytes that are not valid in a file's code page are kept as the
+/// private-use characters `U+F700..=U+F7FF` (`U+F700 + byte`), so they can
+/// be written back unchanged.
+pub const RAW_BYTE_BASE: u32 = 0xF700;
+
+fn raw_byte_char(byte: u8) -> char {
+    char::from_u32(RAW_BYTE_BASE + u32::from(byte)).unwrap_or('\u{FFFD}')
+}
+
+/// The original byte a [`RAW_BYTE_BASE`] character stands for.
+pub(crate) fn original_byte(c: char) -> Option<u8> {
+    u32::from(c)
+        .checked_sub(RAW_BYTE_BASE)
+        .and_then(|b| u8::try_from(b).ok())
 }
 
 /// How a file's bytes were turned into text.
@@ -280,6 +370,35 @@ mod tests {
         }
         // An incomplete double-byte character is an error, not a guess.
         assert_eq!(CodePage(932).decode(b"\x94"), None);
+    }
+
+    #[test]
+    fn undecodable_bytes_are_kept_and_written_back() {
+        // 0x94 alone is an incomplete Shift-JIS character; 0xFF is not valid.
+        let bytes = b"ok \x94\x7a\x8a\xc7 \x94 x\xff";
+        let (text, kept) = CodePage(932).decode_preserving(bytes);
+        assert_eq!(kept, 2);
+        assert_eq!(text, "ok 配管 \u{F794} x\u{F7FF}");
+        let (back, escaped) = CodePage(932).encode(&text);
+        assert_eq!(back, bytes);
+        assert_eq!(escaped, 0);
+        // Single-byte pages too: 0xAA has no character in windows-1253.
+        let (text, kept) = CodePage(1253).decode_preserving(b"\xaa");
+        assert_eq!((text.as_str(), kept), ("\u{F7AA}", 1));
+        assert_eq!(CodePage(1253).encode(&text).0, b"\xaa");
+    }
+
+    #[test]
+    fn encoding_escapes_what_the_code_page_lacks() {
+        let (bytes, escaped) = CodePage(1252).encode("Wände ⌀25 配");
+        assert_eq!(bytes, b"W\xe4nde \\U+230025 \\U+914D");
+        assert_eq!(escaped, 2);
+        assert_eq!(
+            decode_text(&CodePage(1252).decode_preserving(&bytes).0, CP1252),
+            "Wände ⌀25 配"
+        );
+        assert_eq!(CodePage(1252).encode("🙂").0, b"?");
+        assert_eq!(CodePage(932).encode("配管").0, b"\x94\x7a\x8a\xc7");
     }
 
     #[test]
