@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Recorded M1 design decisions in `docs/DECISIONS.md`; dropped the `dxf` crate evaluation from the spec.
+- Added `LICENSE-MIT` and `LICENSE-APACHE`.
+- Committed the corpus generator as `tools/gen_corpus.py`.
+- Corpus tests also load files from the git-ignored `tests/corpus-private/` when present.
+
 ## M1 — Tokenizer and model (unreleased)
 
 - Cargo workspace with `cad-dxf`, `cad-geom`, `cad-core`, `cad-render` and `cad-app` (the last four are stubs).

@@ -1,7 +1,7 @@
 //! M1 acceptance: every corpus file loads without panicking, plus spot
 //! checks of what was read and a cheap robustness sweep over damaged input.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cad_dxf::{Color, Drawing, EntityKind, LineWeight, Point3, Version, Warning, read_bytes};
 
@@ -9,14 +9,26 @@ fn corpus_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus")
 }
 
-fn corpus_files() -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(corpus_dir())
-        .expect("tests/corpus exists")
+/// Git-ignored folder for local files that can't be redistributed.
+fn private_corpus_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus-private")
+}
+
+/// The `.dxf` files directly in `dir`, sorted; empty if `dir` doesn't exist.
+fn dxf_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
         .map(|e| e.expect("readable dir entry").path())
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dxf")))
         .collect();
     files.sort();
     files
+}
+
+fn corpus_files() -> Vec<PathBuf> {
+    dxf_files(&corpus_dir())
 }
 
 fn load(name: &str) -> (Drawing, Vec<Warning>) {
@@ -42,6 +54,25 @@ fn at_least_ten_corpus_files_load() {
     for path in files {
         if let Err(err) = cad_dxf::read_file(&path) {
             panic!("{} failed to load: {err}", path.display());
+        }
+    }
+}
+
+/// Files in `tests/corpus-private/`, when present, must load too.
+#[test]
+fn private_corpus_files_load() {
+    let files = dxf_files(&private_corpus_dir());
+    if files.is_empty() {
+        eprintln!("no private corpus files; skipping");
+    }
+    for path in files {
+        match cad_dxf::read_file(&path) {
+            Ok((_, warnings)) => {
+                for w in warnings {
+                    eprintln!("{}: {w}", path.display());
+                }
+            }
+            Err(err) => panic!("{} failed to load: {err}", path.display()),
         }
     }
 }

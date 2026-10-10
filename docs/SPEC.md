@@ -45,7 +45,7 @@ cad/
 
 ## Step 1: DXF core library
 
-The library (`cad-dxf`) turns a DXF file into a clean Rust data model and back, with no data loss for anything it doesn't understand. Before writing it, spend a day evaluating the existing `dxf` crate on crates.io: if its model and licence fit, wrap or fork it instead of starting from zero.
+The library (`cad-dxf`) turns a DXF file into a clean Rust data model and back, with no data loss for anything it doesn't understand.
 
 ### Data model
 

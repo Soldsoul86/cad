@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+
+# Local DXF files that can't be redistributed; corpus tests load them when present.
+/tests/corpus-private/

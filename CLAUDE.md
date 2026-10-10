@@ -4,7 +4,7 @@ Project: open-source 2D CAD app in Rust (DXF library + drafting app). Full spec:
 
 ## Rules
 
-- Read `docs/SPEC.md` before any task. Work on one milestone at a time; don't start the next until the current one passes its acceptance criteria.
+- Read `docs/SPEC.md` and `docs/DECISIONS.md` before any task; don't contradict a recorded decision without saying so, and add new ones there. Work on one milestone at a time; don't start the next until the current one passes its acceptance criteria.
 - Clean-room only: use public DXF documentation and test files. Never paste or imitate Autodesk source code, icons or branding, and never use the AutoCAD name in the product.
 - Never panic on user input; return errors or warnings.
 - Unknown DXF data must survive a round-trip unchanged.
@@ -13,4 +13,4 @@ Project: open-source 2D CAD app in Rust (DXF library + drafting app). Full spec:
 - Geometry maths goes in `cad-geom` as pure, tested functions before it is wired into commands or UI.
 - Pin exact dependency versions; only MIT, Apache-2.0, BSD or zlib licences.
 - Add a `CHANGELOG.md` entry per milestone.
-- When you have to decide something the spec doesn't cover, note it in your summary.
+- When you have to decide something the spec doesn't cover, record it in `docs/DECISIONS.md` and note it in your summary.
