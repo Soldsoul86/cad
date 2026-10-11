@@ -710,7 +710,7 @@ Also settled:
    history:** one commit of the current tree, made from `git archive`
    (tracked files only, so nothing git-ignored can slip in), with no
    earlier commits, so no ODA file exists in any public commit.
-   `Soldsoul86/cad` stays the private full history. The commit uses the
+   The private development repository keeps the full history. The commit uses the
    GitHub no-reply address as author, so no personal email address is
    published.
 4. **GitHub Pages:** `.github/workflows/pages.yml` builds the browser
