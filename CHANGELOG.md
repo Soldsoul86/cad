@@ -9,7 +9,7 @@
 - Added changes are blue (colour-blind safe with red and yellow); bright keyboard focus outline; P for previous change.
 - Plainer headlines: named colours ("dark grey (8) to magenta (6)"), one phrase for a hatch pattern change; "What isn't compared?" under the list; empty state explains what to do.
 - Demo: caption timing at reading speed, scaled captions, thicker selection frame, `?demo&format=landscape|vertical` for 16:9 and 9:16 recordings.
-- `docs/ux/audit.md`: walkthroughs, ranked issues, before/after screenshots.
+- A usability audit (walkthroughs as five kinds of first-time user, issues ranked by severity) drove these changes.
 
 ## Demo refinement (unreleased)
 

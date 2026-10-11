@@ -54,9 +54,8 @@ the shorter side of the screen (about 41 px in a 1080p frame) and wrap.
 window size records the right frame; the app lays itself out for it (in
 9:16 the change list goes under the drawing). For a pixel-exact capture,
 use a browser window or device emulation of 960 × 540 (or 540 × 960) CSS
-pixels at a device pixel ratio of 2. The frames in `docs/ux/img/demo-*`
-were taken that way (`tools/web_browser_test.mjs --viewport 960,540,2
---at …`).
+pixels at a device pixel ratio of 2. Frames can be captured that way with
+`tools/web_browser_test.mjs --viewport 960,540,2 --at …`.
 
 The three clicks are chosen from the real results by `Compare::demo_picks`:
 one change of each kind (circle, dimension, text) that the cloud does not

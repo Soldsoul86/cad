@@ -897,7 +897,9 @@ Replaces First-run decisions 2, 4 (the layer rule), 7 and part of 3.
 
 ## UX pass
 
-From the audit in `docs/ux/audit.md` (issues U1–U20, deferred D1–D4).
+From a usability audit of the live app as five kinds of first-time user
+(issues U1–U20 fixed; D1–D4 deferred: native file dialog, screen readers,
+reading big files off the main thread, keyboard pan and zoom).
 
 1. **Choosing files (web).** "Choose files…" opens the system file dialog
    through a hidden `<input type="file" multiple>` in the page; the app
