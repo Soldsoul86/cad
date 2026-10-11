@@ -716,6 +716,14 @@ Also settled:
 4. **GitHub Pages:** `.github/workflows/pages.yml` builds the browser
    version with `tools/build_web.sh` and deploys it, with a `CNAME` of
    `lightable.dev`; it runs only in the public repository.
+5. **No comparisons with named commercial CAD products** anywhere in the
+   docs: Lightable is described as a companion that works alongside
+   existing CAD applications, which are not named. SPEC.md's "Why it's
+   better than …" section is now "Why Lightable"; the clean-room rule in
+   CLAUDE.md and SPEC.md speaks of "another CAD vendor's" code and branding
+   and "the names of existing CAD applications". The binary DXF file-format
+   marker in the reader (`AutoCAD Binary DXF`) stays: it is the literal
+   header the format uses and must be recognised.
 
 ## Rules for M5 (decided before M5)
 

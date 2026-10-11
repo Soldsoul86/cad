@@ -4,7 +4,7 @@
 
 ## Overview
 
-Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to without relearning: same command-line workflow, same core commands, and it reads and writes DXF. Step 1 is a standalone DXF library; Step 2 is the drafting app built on top of it.
+Build Lightable, a free, open-source 2D CAD app in Rust that works as a companion alongside existing CAD applications: it reads and writes DXF, so drawings move freely between Lightable and the tools a team already uses, and its command-line workflow is familiar to anyone who has drafted with existing CAD applications. Step 1 is a standalone DXF library; Step 2 is the drafting app built on top of it.
 
 **In scope for v0.1**
 
@@ -23,13 +23,13 @@ Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to wi
 
 **Rules that apply everywhere**
 
-- Clean-room: build from public DXF documentation and your own test files. Never use Autodesk code, icons, or the AutoCAD name in the product.
+- Clean-room: build from public DXF documentation and your own test files. Never use another CAD vendor's code, icons or branding, and never use the names of existing CAD applications in the product.
 - Pick your own product name before the first public release. "Working name" in this spec is a placeholder. (Chosen: **Lightable**; see DECISIONS.md.)
 - Hand each milestone to Claude Code as its own task, with the acceptance criteria from the Milestones section pasted in.
 
-## Why it's better than AutoCAD
+## Why Lightable
 
-This section is for planning only; the product itself never uses the AutoCAD name (see the rules above).
+Lightable is a companion that works alongside existing CAD applications, not a replacement for them: it reads and writes the same DXF files, so it can sit next to whatever a team already uses. What it focuses on:
 
 - **Small and fast.** A single small download that starts instantly and stays responsive on large drawings (the DXF reader already loads 50 MB in under a second).
 - **Free and fully offline, with no account.** Every feature works without signing in or connecting to the internet.
@@ -86,7 +86,7 @@ The library (`lightable-dxf`) turns a DXF file into a clean Rust data model and 
 - Write two targets: R12 (widest compatibility) and AC1032 (2018).
 - Assign and preserve handles; keep owner/handle references consistent.
 - Write `Unknown` items back byte-for-byte in their original position.
-- Output must open in at least two other programs (LibreCAD, QCAD, or a free DWG/DXF viewer) without warnings.
+- Output must open without warnings in at least two other DXF readers (existing CAD applications or a free DWG/DXF viewer).
 
 ### Public API (target shape)
 
@@ -106,7 +106,7 @@ drawing.write_file("out.dxf", lightable_dxf::Version::R2018)?;
 
 ## Step 2: Drafting app
 
-The app should feel familiar to an AutoCAD user within five minutes: type a command, answer the prompts, see the result. Everything is driven through the command line; toolbars are shortcuts to commands, never separate code paths.
+The app should feel familiar within five minutes to anyone who has used existing CAD applications: type a command, answer the prompts, see the result. Everything is driven through the command line; toolbars are shortcuts to commands, never separate code paths.
 
 ### Canvas
 
@@ -229,7 +229,7 @@ Put this spec in the repo as `docs/SPEC.md` and the rules below in `CLAUDE.md`, 
 - Core principle (as at the top of this spec): one clear request for a professional task, with transparency, control and independent validation.
 - Every automated or AI feature must show its plan, preview changes before applying, let the user approve or reject, be checked by an independent rule-based validator, and keep a log.
 - Read `docs/SPEC.md` before any task. Work on one milestone at a time.
-- Clean-room only: use public DXF documentation and test files. Never paste or imitate Autodesk source code, icons or branding.
+- Clean-room only: use public DXF documentation and test files. Never paste or imitate another CAD vendor's source code, icons or branding.
 - Never panic on user input; return errors or warnings.
 - Unknown DXF data must survive a round-trip unchanged.
 - Every new entity or command ships with tests. Run `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` before finishing.
