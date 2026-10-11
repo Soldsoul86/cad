@@ -66,7 +66,7 @@ fn check(
             continue;
         }
         if update {
-            std::fs::create_dir_all(&snapshots).unwrap();
+            std::fs::create_dir_all(snapshots).unwrap();
             std::fs::write(snapshots.join(&name), &svg).unwrap();
         } else {
             std::fs::create_dir_all(&new_dir).unwrap();
