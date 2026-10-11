@@ -9,7 +9,8 @@
 //!     lightable save IN.dxf OUT.dxf              save back (unchanged = identical)
 //!     lightable diff A.dxf B.dxf [--json OUT]    list changes from A to B
 //!     lightable --diff A.dxf B.dxf [--side]      compare A and B in the viewer
-//!     lightable --example [--side]               compare the built-in example revisions
+//!     lightable --example [bracket|plan] [--side]  compare a built-in example
+//!     lightable --demo                          play the 30-second demo
 //!     lightable --diff A B --report              save the PNG change report and quit
 //!     lightable --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
 //!
@@ -19,6 +20,7 @@
 
 mod app;
 mod compare;
+mod examples;
 mod feedback;
 mod files;
 mod gpu;
@@ -81,7 +83,8 @@ mod cli {
                 let (da, db) = (load(a)?, load(b)?);
                 let diff = lightable_diff::diff(&da, &db, &lightable_diff::DiffOptions::default());
                 for c in &diff.changes {
-                    println!("{c}");
+                    let markup = if c.markup { " (revision markup)" } else { "" };
+                    println!("{}{markup}\n    {c}", c.headline);
                 }
                 println!(
                     "{} added, {} deleted, {} changed, {} unchanged, {} equivalent",
@@ -132,6 +135,8 @@ fn main() -> std::process::ExitCode {
     }
     let mut side_by_side = false;
     let mut report_and_quit = false;
+    let mut demo = false;
+    let mut example = None;
     let (bench, paths) = match args.as_slice() {
         [flag, path, rest @ ..] if flag == "--bench" => {
             let frames = rest.first().and_then(|n| n.parse().ok()).unwrap_or(600);
@@ -141,9 +146,22 @@ fn main() -> std::process::ExitCode {
             Some(app::Bench::screenshot(out.clone())),
             vec![path.clone()],
         ),
-        [flag, rest @ ..] if flag == "--example" || (flag == "--diff" && rest.len() >= 2) => {
-            let (paths, rest) = if flag == "--example" {
-                (Vec::new(), rest)
+        [flag, rest @ ..]
+            if flag == "--example" || flag == "--demo" || (flag == "--diff" && rest.len() >= 2) =>
+        {
+            let (paths, rest) = if flag == "--example" || flag == "--demo" {
+                demo = flag == "--demo";
+                // `--example [ID]`: an optional example id.
+                match rest.first() {
+                    Some(id) if !id.starts_with("--") => {
+                        example = Some(id.clone());
+                        (Vec::new(), &rest[1..])
+                    }
+                    _ => {
+                        example = Some(String::new());
+                        (Vec::new(), rest)
+                    }
+                }
             } else {
                 (vec![rest[0].clone(), rest[1].clone()], &rest[2..])
             };
@@ -159,7 +177,7 @@ fn main() -> std::process::ExitCode {
                     ("--shot", Some(out)) => bench = Some(app::Bench::screenshot(out.clone())),
                     _ => {
                         eprintln!(
-                            "usage: lightable --diff A.dxf B.dxf | --example [--side] [--report] [--shot OUT.ppm]"
+                            "usage: lightable --diff A.dxf B.dxf | --example [bracket|plan] | --demo  [--side] [--report] [--shot OUT.ppm]"
                         );
                         return std::process::ExitCode::FAILURE;
                     }
@@ -176,11 +194,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let mut files = if args.first().is_some_and(|a| a == "--example") {
-        app::example_files()
-    } else {
-        Vec::new()
-    };
+    let mut files = Vec::new();
     for path in paths {
         match std::fs::read(&path) {
             Ok(bytes) => files.push((path, bytes)),
@@ -207,10 +221,14 @@ fn main() -> std::process::ExitCode {
         Box::new(move |cc| {
             Ok(Box::new(app::CadApp::new(
                 cc,
-                files,
-                bench,
-                side_by_side,
-                report_and_quit,
+                app::Start {
+                    files,
+                    example,
+                    bench,
+                    side_by_side,
+                    report_and_quit,
+                    demo,
+                },
             )))
         }),
     );
@@ -234,25 +252,29 @@ fn main() {
         else {
             return;
         };
-        // `?example` in the page address opens the built-in example, so it
-        // can be shared as a link.
+        // The page opens with the default example; `?example=plan` picks
+        // another, and `?demo` plays the demo sequence.
         let search = eframe::web_sys::window()
             .and_then(|w| w.location().search().ok())
             .unwrap_or_default();
-        let files = if search
-            .trim_start_matches('?')
-            .split('&')
-            .any(|p| p == "example" || p.starts_with("example="))
-        {
-            app::example_files()
-        } else {
-            Vec::new()
+        let params: Vec<&str> = search.trim_start_matches('?').split('&').collect();
+        let example = params
+            .iter()
+            .find_map(|p| p.strip_prefix("example="))
+            .map(str::to_owned);
+        let demo = params
+            .iter()
+            .any(|p| *p == "demo" || p.starts_with("demo="));
+        let start = app::Start {
+            example,
+            demo,
+            ..Default::default()
         };
         let _ = eframe::WebRunner::new()
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, files, None, false, false)))),
+                Box::new(|cc| Ok(Box::new(app::CadApp::new(cc, start)))),
             )
             .await;
     });

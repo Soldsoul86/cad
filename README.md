@@ -22,7 +22,7 @@ Viewer: drag (middle or left button) to pan, scroll or pinch to zoom around the 
 
 Compare two revisions: `cargo run --release -p lightable -- --diff old.dxf new.dxf` (add `--side` for side by side), or drop two files on the window. The overlay shows added entities in green, deleted in red and changed in yellow; "Next change" zooms to each one, and "Export JSON" saves a change report. Without a window: `lightable diff old.dxf new.dxf [--json report.json]`.
 
-Try it without a drawing: `cargo run --release -p lightable -- --example` (or "Try the example" in the toolbar) compares two revisions of a sample floor plan. "Export PNG report" saves the overlay and change list as one image.
+Start it with no file (`cargo run --release -p lightable`) and it opens on an example: two revisions of a steel bracket drawing, with the changes listed in plain words. `--example plan` opens the floor-plan example and `--demo` plays a 30-second walkthrough (on the web: `?example=plan`, `?demo`). "Details" shows exact values, what is not compared yet, and the JSON and PNG exports.
 
 Browser version: `tools/build_web.sh` (needs `cargo install wasm-bindgen-cli --version 0.2.129 --locked`), then serve `target/web` (for example `python3 -m http.server -d target/web 8080`) and open it; drop one DXF to view it or two to compare them, or add `?example` to the address. Files are read in the page and never uploaded.
 

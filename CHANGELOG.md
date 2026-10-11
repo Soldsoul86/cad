@@ -1,5 +1,13 @@
 # Changelog
 
+## First-run experience (unreleased)
+
+- The app opens on a comparison: a new default example, a steel bracket drawing Rev B → Rev C with exactly 4 design changes, a revision cloud and a title block; the floor plan stays as a second example in an example picker.
+- Plain-words headlines for every change ("Circle Ø12 moved 5 mm right", "Circle diameter changed from 12 mm to 14 mm", "Text changed from M12 to M16"), with units from `$INSUNITS`; revision clouds and title-block changes counted as revision markup.
+- Layered UI: summary and legend with no clicks; change list; side by side; everything else behind "Details". One hint at a time.
+- Demo mode (`?demo`, `--demo`): a captioned 30-second walkthrough ending on "Free. Open source. Your files never leave your computer. lightable.dev".
+- Fixed: text on screen was drawn about one text height too low.
+
 ## Public repository (unreleased)
 
 - `lightable-dxf`: every public item documented; `missing_docs` enforced.

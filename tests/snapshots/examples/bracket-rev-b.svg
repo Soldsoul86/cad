@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5.94 -215.94 308.88 221.88" width="800" height="575">
+<rect x="-5.94" y="-215.94" width="308.88" height="221.88" fill="#212121"/>
+<g transform="scale(1 -1)" fill="none" stroke-width="0.2059" stroke-linecap="round">
+<g data-layer="BORDER">
+<path d="M0 0L297 0L297 210L0 210Z" stroke="#808080"/>
+</g>
+<g data-layer="TITLE">
+<path d="M187 5L292 5L292 45L187 45Z" stroke="#808080"/>
+<path d="M187 15L292 15" stroke="#808080"/>
+<path d="M187 25L292 25" stroke="#808080"/>
+<path d="M187 35L292 35" stroke="#808080"/>
+<path d="M262 5L262 15" stroke="#808080"/>
+<text transform="translate(190 38.5) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">STEEL MOUNTING BRACKET</text>
+<text transform="translate(190 29) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">MATERIAL: S235 STEEL, 6 mm PLATE</text>
+<text transform="translate(190 19) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">DRAWING No. LT-0042    SCALE 1:1    mm</text>
+<text transform="translate(190 9) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">LIGHTABLE EXAMPLE</text>
+<text transform="translate(266 8.5) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">REV B</text>
+</g>
+<g data-layer="OUTLINE">
+<path d="M40 60L200 60L200 160L40 160Z" stroke="#ffffff"/>
+</g>
+<g data-layer="HOLES">
+<path d="M61 75A6 6 0 0 1 49 75A6 6 0 0 1 61 75" stroke="#00ffff"/>
+<path d="M191 75A6 6 0 0 1 179 75A6 6 0 0 1 191 75" stroke="#00ffff"/>
+<path d="M191 145A6 6 0 0 1 179 145A6 6 0 0 1 191 145" stroke="#00ffff"/>
+<path d="M61 145A6 6 0 0 1 49 145A6 6 0 0 1 61 145" stroke="#00ffff"/>
+<path d="M125.1 110A5.1 5.1 0 0 1 114.9 110A5.1 5.1 0 0 1 125.1 110" stroke="#00ffff"/>
+</g>
+<g data-layer="NOTES">
+<text transform="translate(127 116) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">M12</text>
+<text transform="translate(46 165) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">4x Ø12 THRU</text>
+</g>
+<g data-layer="DIMS">
+<path d="M40 58L40 48" stroke="#00ff00"/>
+<path d="M200 58L200 48" stroke="#00ff00"/>
+<path d="M41.5 51.5L38.5 48.5" stroke="#00ff00"/>
+<path d="M198.5 48.5L201.5 51.5" stroke="#00ff00"/>
+<path d="M40 50L200 50" stroke="#00ff00"/>
+<text transform="translate(120 51) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">160</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="40" cy="50" r="0.3089" fill="#ffffff"/>
+<circle cx="40" cy="60" r="0.3089" fill="#ffffff"/>
+<circle cx="200" cy="60" r="0.3089" fill="#ffffff"/>
+</g>
+<g data-layer="DIMS">
+<path d="M38 60L20 60" stroke="#00ff00"/>
+<path d="M38 160L20 160" stroke="#00ff00"/>
+<path d="M20.5 61.5L23.5 58.5" stroke="#00ff00"/>
+<path d="M23.5 158.5L20.5 161.5" stroke="#00ff00"/>
+<path d="M22 60L22 160" stroke="#00ff00"/>
+<text transform="translate(21 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">100</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="22" cy="60" r="0.3089" fill="#ffffff"/>
+<circle cx="40" cy="60" r="0.3089" fill="#ffffff"/>
+<circle cx="40" cy="160" r="0.3089" fill="#ffffff"/>
+</g>
+</g>
+</svg>

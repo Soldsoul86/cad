@@ -725,6 +725,67 @@ Also settled:
    marker in the reader's code stays: it is the literal header that binary
    DXF files start with, and must be recognised.
 
+## First-run experience
+
+1. **The app opens on a comparison.** With no file to open (desktop with no
+   arguments, or the web page), the default example opens at once, so the
+   first screen shows what Lightable does. `?example=plan` (web) or
+   `--example plan` (desktop) picks the other example; the example picker
+   in the toolbar switches between them.
+2. **Default example: a steel mounting bracket, Rev B → Rev C**
+   (`tools/gen_example.py`, ezdxf, millimetres, `$INSUNITS = 4`), with a
+   sheet border and title block. Rev C has exactly 4 design changes (one
+   hole moved 5 mm, one hole Ø12 → Ø14, thread note M12 → M16, a 10 × 10
+   chamfer on one corner), a revision cloud around the chamfer and the
+   title block's revision letter. Rev C is Rev B edited in place, so
+   handles are kept. The apartment plan is kept as the second example
+   (`plan-rev-a/b.dxf`, renamed from `example-rev-a/b.dxf`).
+3. **Headlines in plain words, mechanically true** (`lightable_diff::words`,
+   `Change::headline`): "Circle Ø12 moved 5 mm right", "Circle diameter
+   changed from 12 mm to 14 mm", "Text changed from M12 to M16", "Polyline
+   corner at (200, 160) chamfered 10 × 10 mm". Every part comes from the
+   values compared: moves are split into right/left/up/down; circles are
+   named by diameter; a chamfer is reported only when one vertex is
+   replaced by two points that lie on its two edges with a straight
+   segment between them (a curved one is "rounded"); other vertex changes
+   are counted. Lengths carry the unit named by `$INSUNITS` (of B, else A)
+   and none otherwise; angles carry "°". The exact property values stay in
+   `details` (shown under "Details").
+4. **Revision markup is counted apart from design changes**
+   (`Change::markup`, `words::is_markup`): a closed polyline made only of
+   arcs (a revision cloud), and anything on a layer whose name starts with
+   TITLE, BORDER or REV. The summary counts design changes ("4 changes
+   found between Rev B and Rev C") and adds "plus 2 revision markups";
+   the list shows markup under its own heading, after the design changes.
+   This is a stated rule on names and shapes, not a guess about intent;
+   JSON reports it per change (`markup`) and in `summary.markup`.
+5. **Layers of the UI.** 1: no clicks: overlay, summary line, legend.
+   2: the change list as headlines; a click zooms (smoothly, to at least a
+   quarter of the drawing). 3: the "Side by side" toggle. 4–5: "Details"
+   shows the exact values, entity type/handle/layer, uncertain and
+   not-shown notes, "Not compared yet", the layer panel, the status bar,
+   Zoom extents and the exports. The status bar also appears, without
+   details, to report an export or a problem.
+6. **Hints:** one at a time, in order ("Click a change to zoom in.", then
+   Side by side, then Details), each next to what it is about; a hint goes
+   once its action is used (in any order). They are not remembered
+   between sessions.
+7. **Demo mode** (`?demo`, `--demo`): about 30 seconds, then an end card.
+   0 s overview, 3.5 s side by side, 7 s zoom on the revision cloud, 11 s
+   overlay, 14 / 17 / 20 s the first three changes (captions are their
+   headlines), 23 s the report layout, 26.5 s the end card "Free. Open
+   source. Your files never leave your computer. lightable.dev". The
+   export step shows the report layout without saving a file, so no
+   download dialog interrupts a recording. View changes are animated
+   (1.2 s in the demo, 0.6 s for clicks).
+8. **Text placement fix.** egui positions a text by its top-left corner
+   and only rotates around the given anchor, so text was drawn about one
+   text height too low since M4. The app now puts the alignment point (the
+   font's real baseline for baseline-aligned text) on the insertion point
+   and rotates around it; screen text now matches the SVG snapshots.
+9. **Snapshots** now also cover the four example drawings
+   (`tests/snapshots/examples/`).
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

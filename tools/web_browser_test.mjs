@@ -3,7 +3,7 @@
 // (the data its developer tools show):
 //
 //   node tools/web_browser_test.mjs chrome|firefox URL OUTDIR [--click X,Y]... [--wait MS]
-//        [--drop FILE[,FILE]]
+//        [--drop FILE[,FILE]] [--at MS[,MS]...]
 //
 // --drop hands local files to the page through the debugging connection
 // (not over the network) and drops them on the app's canvas, as a user's
@@ -28,10 +28,12 @@ mkdirSync(join(out, "downloads"), { recursive: true });
 const clicks = [];
 let wait = 12000;
 let drop = [];
+let at = [];
 for (let i = 0; i < rest.length; i++) {
   if (rest[i] === "--click") clicks.push(rest[++i].split(",").map(Number));
   if (rest[i] === "--wait") wait = Number(rest[++i]);
   if (rest[i] === "--drop") drop = rest[++i].split(",");
+  if (rest[i] === "--at") at = rest[++i].split(",").map(Number);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const profile = mkdtempSync(join(tmpdir(), `cad-${browser}-`));
@@ -172,6 +174,14 @@ async function firefox() {
 
 const b = browser === "firefox" ? await firefox() : await chrome();
 try {
+  if (at.length) {
+    // Screenshots at these times (ms after loading), e.g. to follow ?demo.
+    const t0 = Date.now();
+    for (const [k, ms] of at.entries()) {
+      await sleep(Math.max(0, ms - (Date.now() - t0)));
+      await b.shot(`at-${k}-${ms}.png`);
+    }
+  }
   await sleep(wait);
   let afterDrop = requests.length;
   if (drop.length) {
