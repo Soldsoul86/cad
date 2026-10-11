@@ -24,7 +24,7 @@ Build a free, open-source 2D CAD app in Rust that AutoCAD users can switch to wi
 **Rules that apply everywhere**
 
 - Clean-room: build from public DXF documentation and your own test files. Never use Autodesk code, icons, or the AutoCAD name in the product.
-- Pick your own product name before the first public release. "Working name" in this spec is a placeholder.
+- Pick your own product name before the first public release. "Working name" in this spec is a placeholder. (Chosen: **Lightable**; see DECISIONS.md.)
 - Hand each milestone to Claude Code as its own task, with the acceptance criteria from the Milestones section pasted in.
 
 ## Why it's better than AutoCAD
@@ -40,19 +40,19 @@ This section is for planning only; the product itself never uses the AutoCAD nam
 
 ## Architecture
 
-One Cargo workspace with five crates. `cad-dxf` and `cad-geom` have no UI dependencies, so other projects can use them on their own.
+One Cargo workspace with five crates. `lightable-dxf` and `lightable-geom` have no UI dependencies, so other projects can use them on their own.
 
-`cad-render` draws from the document held in `cad-core`; geometry maths lives only in `cad-geom`, so commands and rendering share one tested implementation.
+`lightable-render` draws from the document held in `lightable-core`; geometry maths lives only in `lightable-geom`, so commands and rendering share one tested implementation.
 
 ```text
 cad/
 ├── Cargo.toml          # workspace
 ├── crates/
-│   ├── cad-dxf/        # Step 1
-│   ├── cad-geom/
-│   ├── cad-core/
-│   ├── cad-render/
-│   └── cad-app/        # binary
+│   ├── lightable-dxf/        # Step 1
+│   ├── lightable-geom/
+│   ├── lightable-core/
+│   ├── lightable-render/
+│   └── lightable/        # binary
 ├── tests/corpus/       # DXF test files
 ├── docs/SPEC.md        # this spec
 └── CLAUDE.md
@@ -60,7 +60,7 @@ cad/
 
 ## Step 1: DXF core library
 
-The library (`cad-dxf`) turns a DXF file into a clean Rust data model and back, with no data loss for anything it doesn't understand.
+The library (`lightable-dxf`) turns a DXF file into a clean Rust data model and back, with no data loss for anything it doesn't understand.
 
 ### Data model
 
@@ -91,9 +91,9 @@ The library (`cad-dxf`) turns a DXF file into a clean Rust data model and back, 
 ### Public API (target shape)
 
 ```rust
-let (drawing, warnings) = cad_dxf::read_file("plan.dxf")?;
+let (drawing, warnings) = lightable_dxf::read_file("plan.dxf")?;
 for e in drawing.entities.iter().filter(|e| e.layer == "WALLS") { /* ... */ }
-drawing.write_file("out.dxf", cad_dxf::Version::R2018)?;
+drawing.write_file("out.dxf", lightable_dxf::Version::R2018)?;
 ```
 
 ### Testing
@@ -194,13 +194,13 @@ Planned after v0.1, built on the command engine (M5–M7) and visual diff (M4b).
 
 Nine milestones, each small enough for one focused Claude Code task. Don't start the next until the current one passes its acceptance criteria. M1–M4b lead to a public preview release; M5–M7 lead to v0.1, released the same way.
 
-1. **M1 — Tokenizer and model.** Workspace set up; `cad-dxf` reads group-code pairs and parses `HEADER`, `TABLES` (layers only) and `LINE`/`CIRCLE`/`ARC`.
+1. **M1 — Tokenizer and model.** Workspace set up; `lightable-dxf` reads group-code pairs and parses `HEADER`, `TABLES` (layers only) and `LINE`/`CIRCLE`/`ARC`.
    - Accept: 10 simple corpus files load with zero panics; unit tests per entity; CI runs `cargo test`, `clippy`, `fmt`.
 2. **M2 — Full v0.1 reader.** All v0.1 entities, blocks, text encodings, `Unknown` preservation, warnings.
    - Accept: all 50+ corpus files load; fuzzing runs 1 hour with no crash; 50 MB file loads in under 2 s.
 3. **M3 — Writer and round-trip.** R12 and 2018 output.
    - Accept: round-trip test passes for the whole corpus; written files open cleanly in two other CAD programs.
-4. **M4 — Viewer.** `cad-app` opens a DXF and shows it with pan, zoom, layers on/off, and golden SVG snapshots.
+4. **M4 — Viewer.** `lightable` opens a DXF and shows it with pan, zoom, layers on/off, and golden SVG snapshots.
    - Accept: 100k-entity file at 60 fps; snapshots match for the corpus.
 5. **M4b — Visual diff.** Open two DXF files and highlight added (green), deleted (red) and changed (yellow) entities. Entities are matched by handle first, and by geometry (same type, layer and coordinates within a tolerance) when handles differ, e.g. after a save in another program. Show a summary list of the changes and a "Next change" button that zooms to each one in turn. The comparison logic lives in a UI-free crate function with tests; the viewer only displays its result.
    - Accept: tests on pairs of corpus files with known edits (added, deleted, moved, restyled entities, and pairs whose handles differ); a demo comparing two revisions of a floor plan.

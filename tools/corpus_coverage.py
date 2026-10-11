@@ -2,7 +2,7 @@
 
 Usage: python3 tools/corpus_coverage.py tests/corpus > tests/corpus/COVERAGE.md
 
-Reads group-code pairs directly (independent of cad-dxf) and counts the
+Reads group-code pairs directly (independent of lightable-dxf) and counts the
 `0 <TYPE>` records in the ENTITIES and BLOCKS sections. File names follow
 <drawing>__<writer>__<version>.dxf; other files count as "hand-written".
 """
@@ -11,7 +11,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-# What the cad-dxf reader parses into typed entities (M2).
+# What the lightable-dxf reader parses into typed entities (M2).
 PARSED = {
     "LINE", "CIRCLE", "ARC", "LWPOLYLINE", "ELLIPSE", "POINT", "TEXT", "MTEXT", "INSERT",
     "ATTRIB", "ATTDEF", "DIMENSION", "SPLINE", "POLYLINE", "VERTEX", "SEQEND",
@@ -68,7 +68,7 @@ def main():
         row = [matrix[(w, v)] for v in VERSIONS + ["—"]]
         out.append(f"| {w} | " + " | ".join(str(n) if n else "·" for n in row) + f" | {sum(row)} |")
     out += ["", "## Entity types", "",
-            "Parsed = read into a typed entity by cad-dxf today; everything else is kept as `Unknown`.", "",
+            "Parsed = read into a typed entity by lightable-dxf today; everything else is kept as `Unknown`.", "",
             "| Type | Parsed | Records | Files | Writers | Versions |",
             "| --- | --- | --- | --- | --- | --- |"]
     for kind, n in occurrences.most_common():

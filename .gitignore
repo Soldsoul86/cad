@@ -9,7 +9,7 @@
 __pycache__/
 
 # Fuzzing logs
-/crates/cad-dxf/fuzz/*.log
+/crates/lightable-dxf/fuzz/*.log
 
 # Change reports exported next to drawings
 *.changes.json

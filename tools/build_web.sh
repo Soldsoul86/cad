@@ -6,10 +6,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 OUT=target/web
-cargo build -p cad-app --release --target wasm32-unknown-unknown
+cargo build -p lightable --release --target wasm32-unknown-unknown
 rm -rf "$OUT"
 mkdir -p "$OUT"
 wasm-bindgen --target web --no-typescript --out-dir "$OUT" \
-  target/wasm32-unknown-unknown/release/cad-app.wasm
+  target/wasm32-unknown-unknown/release/lightable.wasm
 cp web/index.html web/main.js "$OUT/"
 ls -l "$OUT"

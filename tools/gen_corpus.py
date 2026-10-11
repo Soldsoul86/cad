@@ -4,7 +4,7 @@ Usage: python3 tools/gen_corpus.py tests/corpus
 
 Each file targets one reader behaviour (versions, line endings, padding,
 unknown entities, damaged records, ...). The corpus tests in
-crates/cad-dxf/tests/corpus.rs assert on their exact contents, so update
+crates/lightable-dxf/tests/corpus.rs assert on their exact contents, so update
 those tests when changing a file here.
 """
 import sys, os

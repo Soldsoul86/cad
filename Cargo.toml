@@ -5,13 +5,16 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+# Checked in CI for the published libraries (let-chains need 1.88).
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/lightable-dev/lightable"
+homepage = "https://lightable.dev"
 publish = false
 
 [workspace.dependencies]
-cad-dxf = { path = "crates/cad-dxf" }
-cad-geom = { path = "crates/cad-geom" }
-cad-core = { path = "crates/cad-core" }
-cad-render = { path = "crates/cad-render" }
-cad-diff = { path = "crates/cad-diff" }
+lightable-dxf = { path = "crates/lightable-dxf", version = "0.1.0" }
+lightable-geom = { path = "crates/lightable-geom", version = "0.1.0" }
+lightable-core = { path = "crates/lightable-core" }
+lightable-render = { path = "crates/lightable-render" }
+lightable-diff = { path = "crates/lightable-diff" }

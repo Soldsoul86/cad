@@ -183,59 +183,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "cad-app"
-version = "0.0.1"
-dependencies = [
- "cad-diff",
- "cad-dxf",
- "cad-render",
- "eframe",
- "js-sys",
- "png",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "cad-core"
-version = "0.0.1"
-dependencies = [
- "cad-dxf",
- "cad-geom",
-]
-
-[[package]]
-name = "cad-diff"
-version = "0.0.1"
-dependencies = [
- "cad-dxf",
- "cad-geom",
- "cad-render",
- "serde_json",
-]
-
-[[package]]
-name = "cad-dxf"
-version = "0.0.1"
-dependencies = [
- "cad-geom",
- "encoding_rs",
-]
-
-[[package]]
-name = "cad-geom"
-version = "0.0.1"
-
-[[package]]
-name = "cad-render"
-version = "0.0.1"
-dependencies = [
- "cad-dxf",
- "cad-geom",
- "serde_json",
-]
-
-[[package]]
 name = "calloop"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1140,6 +1087,59 @@ dependencies = [
  "libc",
  "plain",
  "redox_syscall 0.9.4",
+]
+
+[[package]]
+name = "lightable"
+version = "0.0.1"
+dependencies = [
+ "eframe",
+ "js-sys",
+ "lightable-diff",
+ "lightable-dxf",
+ "lightable-render",
+ "png",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "lightable-core"
+version = "0.0.1"
+dependencies = [
+ "lightable-dxf",
+ "lightable-geom",
+]
+
+[[package]]
+name = "lightable-diff"
+version = "0.0.1"
+dependencies = [
+ "lightable-dxf",
+ "lightable-geom",
+ "lightable-render",
+ "serde_json",
+]
+
+[[package]]
+name = "lightable-dxf"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "lightable-geom",
+]
+
+[[package]]
+name = "lightable-geom"
+version = "0.1.0"
+
+[[package]]
+name = "lightable-render"
+version = "0.0.1"
+dependencies = [
+ "lightable-dxf",
+ "lightable-geom",
+ "serde_json",
 ]
 
 [[package]]

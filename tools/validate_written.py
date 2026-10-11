@@ -1,9 +1,9 @@
-"""Checks that files cad-dxf writes open cleanly in other programs.
+"""Checks that files lightable-dxf writes open cleanly in other programs.
 
 Usage: python3 tools/validate_written.py OUT_DIR [--limit N]
 
 For every file in tests/corpus and each target (R12, R2018):
-1. `cad-app generate` writes it (always generated, never the source bytes).
+1. `lightable generate` writes it (always generated, never the source bytes).
 2. ODA File Converter re-saves it in the same version with audit on. Any
    .err file is a failure. ODA repairs problems silently, so the re-saved
    file is compared with ours: every handle in BLOCKS and ENTITIES must keep
@@ -19,7 +19,7 @@ For every file in tests/corpus and each target (R12, R2018):
 4. Our own reader loads it with no warnings.
 
 Writes OUT_DIR/report.md and prints a summary. Needs a release build of
-cad-app, ODA File Converter in ~/Applications or /Applications, and FreeCAD
+lightable, ODA File Converter in ~/Applications or /Applications, and FreeCAD
 in /Applications.
 """
 
@@ -32,7 +32,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CAD_APP = ROOT / "target/release/cad-app"
+CAD_APP = ROOT / "target/release/lightable"
 ODA = next((p for p in [pathlib.Path.home() / "Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
                         pathlib.Path("/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter")]
             if p.exists()), None)
@@ -175,7 +175,7 @@ def main():
             subprocess.run([str(CAD_APP), "generate", str(src), str(dest), target],
                            capture_output=True, check=False)
             if not dest.exists():
-                problems[(src.name, target)].append("cad-app could not write it")
+                problems[(src.name, target)].append("lightable could not write it")
                 continue
             written[(src.name, target)] = dest
             check = subprocess.run([str(CAD_APP), "info", str(dest)], capture_output=True, text=True, check=False)

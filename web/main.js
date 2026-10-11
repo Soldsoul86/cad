@@ -1,6 +1,6 @@
 // Loads the app (built by tools/build_web.sh). Everything runs in this
 // page; files you drop are read here and never sent anywhere.
-import init from "./cad-app.js";
+import init from "./lightable.js";
 
 init().then(
   () => document.getElementById("loading")?.remove(),

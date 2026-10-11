@@ -7,7 +7,7 @@
 // ?clicks=x,y;x,y (CSS pixels), and then reports every network request
 // the page made after the drop plus any blocked by the Content Security
 // Policy. The result is shown at the bottom and in the title.
-import init from "/target/web/cad-app.js";
+import init from "/target/web/lightable.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const params = new URLSearchParams(location.search);

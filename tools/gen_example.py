@@ -1,6 +1,6 @@
 """The built-in example: two revisions of a small apartment floor plan.
 
-Usage: tools/.venv/bin/python tools/gen_example.py crates/cad-app/assets
+Usage: tools/.venv/bin/python tools/gen_example.py crates/lightable/assets
 
 Writes example-rev-a.dxf and example-rev-b.dxf (millimetres). Everything
 in them is generated here with ezdxf (MIT), so the files are ours to ship

@@ -72,7 +72,7 @@ Also settled:
    one token of lookahead and copies a value only when the model stores it.
    This took the 50 MB load from 3.1 s to about 1 s; allocation was most of
    the time. `tokenizer::Token` changed shape (public API, pre-1.0).
-2. **Benchmark:** `cargo bench -p cad-dxf --bench load` (no dependencies)
+2. **Benchmark:** `cargo bench -p lightable-dxf --bench load` (no dependencies)
    times `read_bytes` on the private 50 MB file, or on a synthetic ~50 MB
    file when that is absent (e.g. in CI). It prints a warning above 2 s
    rather than failing, since CI machine speed varies.
@@ -116,8 +116,8 @@ Also settled:
 14. **Defaults when optional codes are missing** follow the DXF reference:
     scale 1, width factor 1, text style `STANDARD`, ellipse 0..2π, MTEXT
     attachment 1, INSERT 1×1 array.
-15. **Bulge maths** lives in `cad_geom::bulge` (`arc_from_bulge`); `cad-dxf`
-    stores bulges as read and uses `cad-geom` only in its tests.
+15. **Bulge maths** lives in `lightable_geom::bulge` (`arc_from_bulge`); `lightable-dxf`
+    stores bulges as read and uses `lightable-geom` only in its tests.
 16. **Known-bad corpus files.** LibreDWG 0.14's R14/R2000 output (18 files)
     repeats `VERTEX`/`ATTRIB` records after their `SEQEND` and writes an
     extra `ENDBLK`, all with duplicate handles. The reader reports these;
@@ -178,7 +178,7 @@ Also settled:
    stored as written (after byte decoding), including any `\U+` escapes, so
    references between them keep matching. The prompt of an ATTDEF is also
    stored as written.
-10. **Fuzzing.** `crates/cad-dxf/fuzz` (cargo-fuzz 0.13.2, libfuzzer-sys
+10. **Fuzzing.** `crates/lightable-dxf/fuzz` (cargo-fuzz 0.13.2, libfuzzer-sys
     0.4.13 pinned) has three targets: `tokenizer`, `reader` (`read_bytes`)
     and `text` (`decode_text`/`decode_mtext` on every code page). It is its
     own workspace and needs nightly; it is dev tooling only, so libFuzzer's
@@ -241,7 +241,7 @@ Also settled:
    by save-back only.
 8. **R12 downgrades.** `LWPOLYLINE` → `POLYLINE` (exact: bulges, widths,
    elevation); `ELLIPSE` → polyline (5° steps) and `SPLINE` → polyline (16
-   points per knot span, NURBS with weights) via `cad_geom::curve`, 2D at
+   points per knot span, NURBS with weights) via `lightable_geom::curve`, 2D at
    their elevation or 3D if not flat; `MTEXT` → one `TEXT` per line,
    formatting removed, placed by attachment point; true colour → nearest
    ACI (approximate palette, `Color::aci_rgb`); lineweights, the invisible
@@ -279,8 +279,8 @@ Also settled:
 14. **API.** `Drawing::to_bytes(version)`, `write_file(path, version)`
     (R12 or R2018; other versions are `DxfError::UnsupportedVersion`),
     `generate_bytes(version)` (never reuses the source), `save_bytes()`,
-    `save_file(path)`. `cad-app convert|generate|save` exposes them.
-15. **`cad-dxf` depends on `cad-geom`** (curve flattening for R12). Neither
+    `save_file(path)`. `lightable convert|generate|save` exposes them.
+15. **`lightable-dxf` depends on `lightable-geom`** (curve flattening for R12). Neither
     has UI dependencies, so the spec's separation still holds.
 16. **External validation.** `tools/validate_written.py` writes every
     corpus file as R12 and R2018 and checks it with our reader, ODA File
@@ -295,12 +295,12 @@ Also settled:
 
 ## M4
 
-1. **`cad-render` reads `cad_dxf::Drawing` directly** for now: `cad-core`
-   has no document model until M5, and the spec's "cad-render draws from the
-   document held in cad-core" can be met by then without changing the
-   scene types. `cad-render` depends on `cad-dxf` and `cad-geom` only — no
+1. **`lightable-render` reads `lightable_dxf::Drawing` directly** for now: `lightable-core`
+   has no document model until M5, and the spec's "lightable-render draws from the
+   document held in lightable-core" can be met by then without changing the
+   scene types. `lightable-render` depends on `lightable-dxf` and `lightable-geom` only — no
    UI — so M4b's visual diff reuses it as is.
-2. **Scene, then outputs.** `cad_render::build` turns a drawing into a
+2. **Scene, then outputs.** `lightable_render::build` turns a drawing into a
    `Scene`: styled primitives in world XY (paths with bulges, fills,
    points, text lines), with layers, colours (BYLAYER, BYBLOCK, ACI, true
    colour), linetypes, block references (nested, arrays, layer-0 and
@@ -321,7 +321,7 @@ Also settled:
    hides only what is on that layer (frozen insert layers do not hide the
    block's other layers); the on-screen font has no CJK glyphs.
 5. **Arcs and transforms.** OCS uses the arbitrary axis algorithm
-   (`cad_geom::transform`). Arcs stay exact (bulges) when the transform
+   (`lightable_geom::transform`). Arcs stay exact (bulges) when the transform
    keeps circles circular seen from above; under non-uniform scale or a
    tilted plane they are flattened (5° steps) first. Mirroring flips bulge
    signs.
@@ -350,34 +350,34 @@ Also settled:
     checkboxes toggle visibility, drag-and-drop opens a file (also in the
     browser).
 11. **Golden snapshots.** `tests/snapshots/<corpus file>.svg` (198 files,
-    about 2 MB), compared by `cad-render/tests/snapshots.rs`; mismatches
+    about 2 MB), compared by `lightable-render/tests/snapshots.rs`; mismatches
     are written to `target/snapshots-new/`, and `UPDATE_SNAPSHOTS=1`
     accepts them. SVG uses numbers with at most 4 decimals, so changes
     show as small text diffs and side by side on GitHub. Background #212121
     and ACI 7 = white, as on screen.
-12. **Frame-rate check.** `cad-app --bench FILE [FRAMES]` animates pan and
+12. **Frame-rate check.** `lightable --bench FILE [FRAMES]` animates pan and
     zoom with vsync off and prints frame times. On this machine (Intel
     Mac): 100k entities (`tests/corpus-private/big_100k__ezdxf__R2018.dxf`,
     112,500 items, 5.2 M vertices) average 7.5 ms, 95th percentile 15.2 ms,
     worst 21.7 ms; the 275k-entity file averages 8.9 ms, 95th percentile
-    18.8 ms. `cad-app --shot FILE OUT.ppm` saves a screenshot of the window
+    18.8 ms. `lightable --shot FILE OUT.ppm` saves a screenshot of the window
     (no screen capture of other windows). These need a display, so CI does
     not run them.
-13. **WebAssembly from the start.** `cad-app` builds for
+13. **WebAssembly from the start.** `lightable` builds for
     `wasm32-unknown-unknown` (CI job `wasm32`, with clippy); on the web it
-    runs in the `cad_canvas` canvas of `crates/cad-app/index.html` (since
+    runs in the `cad_canvas` canvas of `crates/lightable/index.html` (since
     preview preparation: `web/index.html`, built by `tools/build_web.sh`; for
     trunk) and opens dropped files. The toolchain file installs the target.
-14. **`cad-app` commands.** `cad-app [FILE]` now opens the viewer; the old
-    summary is `cad-app info FILE` (the validator uses it).
-15. **MTEXT plain text** moved into `cad-dxf` (`MText::plain_lines`,
+14. **`lightable` commands.** `lightable [FILE]` now opens the viewer; the old
+    summary is `lightable info FILE` (the validator uses it).
+15. **MTEXT plain text** moved into `lightable-dxf` (`MText::plain_lines`,
     `mtext_plain_lines`), used by both the R12 writer and the renderer.
 
 ## M4b
 
-1. **Own crate, UI-free.** `crates/cad-diff` depends on `cad-dxf`,
-   `cad-geom` and `cad-render` only. `cad_diff::diff(a, b, &options)`
-   returns a `Diff`; `cad_diff::view` turns it into recoloured scenes; the
+1. **Own crate, UI-free.** `crates/lightable-diff` depends on `lightable-dxf`,
+   `lightable-geom` and `lightable-render` only. `lightable_diff::diff(a, b, &options)`
+   returns a `Diff`; `lightable_diff::view` turns it into recoloured scenes; the
    app only uploads and draws them. `Diff::to_json` writes the report by
    hand (no serde in the library; `serde_json` is a dev-dependency for
    the tests).
@@ -392,7 +392,7 @@ Also settled:
    is ignored. Never compared: handles, owners, reactors, subclass
    markers, entity order, the way numbers are written. Other tables
    (text styles, linetypes, ...) are not compared yet.
-3. **Entities as labelled values** (`cad_diff::features`): common
+3. **Entities as labelled values** (`lightable_diff::features`): common
    properties (layer, colour, linetype, lineweight, visibility, extended
    data) and the entity's own content, each value tagged as a name, text,
    length, angle, plain number, position or direction. Details in plain
@@ -471,7 +471,7 @@ Also settled:
     lists are only built when that fails. The 50 MB drawing (275k
     entities) against itself: 1.8 s for the diff after 2 s reading both;
     with every handle changed and the order reversed (content matching
-    only): 4.3 s. `cargo run --release -p cad-diff --example timing A B
+    only): 4.3 s. `cargo run --release -p lightable-diff --example timing A B
     [--renumber]` measures it.
 13. **Views.** Overlay: B in grey with added green and changed yellow
     on top of A's deleted entities in red and A's version of changed
@@ -482,17 +482,17 @@ Also settled:
     wide) with a white frame, and "Export JSON" (native: written next to
     B as `<B>.changes.json`; web: copied to the clipboard). Only
     model-space changes are zoomable; paper, block, layer and setting
-    changes are listed. Compare is opened with `cad-app --diff A B
+    changes are listed. Compare is opened with `lightable --diff A B
     [--side]`, by dropping two files at once, or with "Compare with…"
-    then dropping the newer file. `cad-app diff A B [--json OUT]` prints
+    then dropping the newer file. `lightable diff A B [--json OUT]` prints
     the changes.
-14. **JSON report** `cad-diff/1`: `a`, `b`, `tolerance`,
+14. **JSON report** `lightable-diff/1`: `a`, `b`, `tolerance`,
     `handles_trusted`, `summary` (added, deleted, changed, unchanged,
     equivalent, not_shown, uncertain), `redrawn` and `changes`; each
     change has kind, place, type, layer, handle, details, geometry,
     shown, certain, old/new (handle, index, layer) and bounds
     `[xmin, ymin, xmax, ymax]` or null.
-15. **`cad-render` additions:** `Item::entity` (the entity an item was
+15. **`lightable-render` additions:** `Item::entity` (the entity an item was
     drawn from), `build_with(d, paper_space)` and `build_block(d, name)`.
     Limitations: a changed block definition is reported in the block, not
     on each reference to it; changes inside arrays and nested blocks are
@@ -503,7 +503,7 @@ Also settled:
 1. **Changed blocks show on their references.** A change inside a named
    block definition lists the top-level entities that show the block —
    references to it, also through other blocks at any depth
-   (`cad_diff::block_users`) — in `Change::used_by_old` / `used_by_new`
+   (`lightable_diff::block_users`) — in `Change::used_by_old` / `used_by_new`
    (`"used_by_before"` / `"used_by"` in the JSON). Those references are
    drawn in the change colour in the overlay and side-by-side views, the
    change list says "shown by N reference(s): INSERT …", and "Next change"
@@ -517,14 +517,14 @@ Also settled:
    `$INSUNITS`/`$LTSCALE`, the OBJECTS section, anonymous blocks, and
    other sections when present. The hint compares definitions without
    handles, so a skipped difference is pointed out rather than hidden.
-3. **Hatches: boundary plus fill, no patterns yet.** `cad_dxf::hatch`
+3. **Hatches: boundary plus fill, no patterns yet.** `lightable_dxf::hatch`
    reads the boundary paths of a HATCH (polyline paths with bulges; line,
    arc, ellipse and spline edges; elevation and extrusion) from the raw
    pairs as a read-only view — hatches stay `Unknown`, so they still
    round-trip unchanged. Clockwise arc and ellipse edges are stored with
    mirrored angles. The renderer draws each loop as a line and the
    even-odd region as a new `Shape::Region`, triangulated by
-   `cad_geom::fill::even_odd_triangles` (horizontal slabs; holes and
+   `lightable_geom::fill::even_odd_triangles` (horizontal slabs; holes and
    islands alternate). Solid hatches are filled in the entity colour;
    pattern hatches are filled with a dim tint of it (30 %) until patterns
    are drawn; gradient hatches are filled in the entity colour. Fills are
@@ -533,11 +533,11 @@ Also settled:
    change colour. A hatch whose boundary cannot be read is counted as "not
    drawn". Checked against ezdxf: `tools/gen_hatch_fixtures.py` writes 8
    hatches covering every boundary kind plus ezdxf's own flattening of
-   them (`tests/hatch/`); `cad-render/tests/hatches.rs` requires every
+   them (`tests/hatch/`); `lightable-render/tests/hatches.rs` requires every
    point of each to lie within 0.02 of the other's boundary and the areas
    to agree within 1 %. The diff now treats hatches as shown; a pattern
    change adds "patterns are not drawn yet".
-4. **Built-in example** (`crates/cad-app/assets/example-rev-*.dxf`, about
+4. **Built-in example** (`crates/lightable/assets/example-rev-*.dxf`, about
    60 KB each): two revisions of a small apartment plan made by
    `tools/gen_example.py` with ezdxf (MIT) — no ODA or third-party files.
    Revision B is revision A edited in place, so handles are kept like a
@@ -545,7 +545,7 @@ Also settled:
    wall, new kitchen island, renamed room, moved label, solid floor hatch
    changed to a pattern, edited CHAIR block (4 references), FURNITURE
    layer colour, new dimension. One click: "Try the example" in the
-   toolbar; also `cad-app --example` and `?example` in the web address.
+   toolbar; also `lightable --example` and `?example` in the web address.
 5. **PNG report.** "Export PNG report" shows a report layout for a few
    frames (header with both file names and the legend, the overlay fitted
    to the drawings, the change list with as many changes as fit and then
@@ -553,7 +553,7 @@ Also settled:
    a footer "Made with <app name> <version> · <repository>") and captures
    it with egui's screenshot command, so the report looks exactly like the
    app. Encoded with the `png` crate (=0.18.1, already in the lockfile
-   through eframe). `cad-app --diff A B --report` writes it and quits.
+   through eframe). `lightable --diff A B --report` writes it and quits.
 6. **Where exports go.** Native: next to drawing B as
    `<B>.changes.json` / `.changes.png`, or in `~/Downloads` when B is not
    a file on disk (the example). Web: a download created in the page
@@ -567,7 +567,7 @@ Also settled:
    avoids a dependency); the web opens a new tab. Nothing is sent by the
    app. No tracking or analytics anywhere.
 8. **App name in one place:** `APP_NAME` and `REPO_URL` in
-   `cad-app/src/main.rs`, used by the footer and the feedback link. The
+   `lightable/src/main.rs`, used by the footer and the feedback link. The
    product name is still the working name.
 9. **Web build without trunk.** `tools/build_web.sh` builds the wasm,
    runs `wasm-bindgen --target web` (wasm-bindgen-cli 0.2.129, matching
@@ -601,7 +601,7 @@ Also settled:
       Firefox over WebDriver BiDi (`network.beforeRequestSent`), each in a
       fresh profile, and lists every request. Every run: only GET
       requests for the page's own files (`index.html`, `main.js`,
-      `cad-app.js`, `cad-app_bg.wasm`; the harness also fetches the test
+      `lightable.js`, `lightable_bg.wasm`; the harness also fetches the test
       files before dropping them), no request to any other origin, no
       request with a body, nothing after the drop — including exporting
       (downloads are made in the page from memory).
@@ -642,6 +642,52 @@ Also settled:
     - Large files (tens of MB) take 30–50 s to open in a browser.
     - Safari was tested without remote automation, so only through the
       harness (no screenshots of the live page).
+
+## Rename to Lightable and crates.io preparation
+
+1. **The product is Lightable.** Crates renamed: `cad-dxf` → `lightable-dxf`,
+   `cad-geom` → `lightable-geom`, `cad-diff` → `lightable-diff`,
+   `cad-render` → `lightable-render`, `cad-app` → `lightable` (the app;
+   binary `lightable`), and the empty `cad-core` stub → `lightable-core`
+   for consistency (not in the requested list). Directories moved with
+   `git mv`; every reference in code, docs, tools and CI updated. Earlier
+   sections of this file now use the new names too. `APP_NAME` is
+   "Lightable" (window title, page title, report footer, feedback text) and
+   `REPO_URL` is `https://github.com/lightable-dev/lightable` (feedback link,
+   report footer, crate metadata) — the code still lives in the current
+   repository until it moves there, so the feedback link points at the new
+   home. Licence holder: "The Lightable contributors".
+2. **The diff report format id is now `lightable-diff/1`** (was
+   `cad-diff/1`); nothing outside this repository reads it yet.
+3. **Kept as it was:** the comment written into
+   `tests/corpus/all_sections.dxf` by `tools/gen_corpus.py` ("Hand-written
+   test file for cad-dxf") is test data, so the generator still writes the
+   old text and regenerating reproduces the committed file. Corpus and
+   snapshot files were not touched.
+4. **Published crates: `lightable-geom` and `lightable-dxf`, version
+   0.1.0** (the other crates stay at 0.0.1 and `publish = false`). 0.1.0
+   rather than 0.0.1 because every 0.0.x release is semver-incompatible
+   with the next. `lightable-dxf` depends on `lightable-geom` (curve
+   flattening for R12 downgrades), so geom is published first; the
+   workspace dependency carries `version = "0.1.0"`.
+5. **Metadata:** licence `MIT OR Apache-2.0` (licence files copied into
+   each crate, since a package only contains its own directory),
+   repository `https://github.com/lightable-dev/lightable`, homepage
+   `https://lightable.dev`, documentation on docs.rs, a README per crate
+   whose examples run as doctests, keywords and categories (no third-party
+   product names). Packages contain only `src/`, the README and the licence
+   files: the tests, benchmarks and fuzz targets read this repository's
+   test files and stay here.
+6. **Minimum Rust is 1.88**, not the 1.85 the workspace claimed: the
+   libraries use let-chains. Verified: they build on 1.88.0 and fail on
+   1.87.0. CI now checks 1.88 for both libraries, builds their docs with
+   warnings as errors and runs `cargo publish --dry-run`. Raising
+   `rust-version` let clippy suggest newer standard functions
+   (`as_chunks`, `is_multiple_of`, ...); applied.
+7. **Docs:** `lightable-geom` documents every public item and enforces it
+   with `#![warn(missing_docs)]`. `lightable-dxf` still has 243
+   undocumented public items, mostly struct fields; the crate and module
+   docs and README cover how to use it.
 
 ## Rules for M5 (decided before M5)
 
