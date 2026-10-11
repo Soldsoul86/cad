@@ -722,8 +722,8 @@ Also settled:
    better than …" section is now "Why Lightable"; the clean-room rule in
    CLAUDE.md and SPEC.md speaks of "another CAD vendor's" code and branding
    and "the names of existing CAD applications". The binary DXF file-format
-   marker in the reader (`AutoCAD Binary DXF`) stays: it is the literal
-   header the format uses and must be recognised.
+   marker in the reader's code stays: it is the literal header that binary
+   DXF files start with, and must be recognised.
 
 ## Rules for M5 (decided before M5)
 
