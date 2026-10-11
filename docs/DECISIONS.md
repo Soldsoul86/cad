@@ -863,9 +863,8 @@ Replaces First-run decisions 2, 4 (the layer rule), 7 and part of 3.
    key names, inspection panels).
    Drawing text with ☑ ✔ ★ ⚠ or similar now shows egui's replacement
    glyph. The fonts are under the Ubuntu Font Licence 1.0 and the Hack
-   licence (MIT with Bitstream Vera); both were shipped before through
-   `default_fonts`, and neither is on CLAUDE.md's licence list, which
-   names code licences: recorded here as an existing exception for fonts.
+   licence (MIT with Bitstream Vera), both allowed for bundled fonts by
+   CLAUDE.md.
 
 10. **Smaller web download.** `tools/build_web.sh` builds with the
     `wasm-release` profile (opt-level "s", LTO, one codegen unit, no debug
