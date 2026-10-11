@@ -64,7 +64,7 @@ fn change(c: &Change) -> String {
         )
     });
     format!(
-        "    {{\"kind\": {}, \"place\": {}, \"type\": {}, \"layer\": {}, \"handle\": {}, \"details\": [{}], \"geometry\": {}, \"shown\": {}, \"certain\": {}, \"old\": {}, \"new\": {}, \"bounds\": {}, \"used_by_before\": [{}], \"used_by\": [{}], \"headline\": {}, \"markup\": {}}}",
+        "    {{\"kind\": {}, \"place\": {}, \"type\": {}, \"layer\": {}, \"handle\": {}, \"details\": [{}], \"geometry\": {}, \"shown\": {}, \"certain\": {}, \"old\": {}, \"new\": {}, \"bounds\": {}, \"used_by_before\": [{}], \"used_by\": [{}], \"headline\": {}, \"markup\": {}, \"revision_cloud\": {}}}",
         string(c.kind.as_str()),
         string(&c.place.to_string()),
         string(&c.entity_type),
@@ -80,7 +80,8 @@ fn change(c: &Change) -> String {
         refs(&c.used_by_old),
         refs(&c.used_by_new),
         string(&c.headline),
-        c.markup
+        c.markup,
+        c.revision_cloud
     )
 }
 
@@ -97,12 +98,13 @@ pub fn report(d: &Diff, a: &str, b: &str) -> String {
     );
     let _ = writeln!(
         s,
-        "  \"summary\": {{\"added\": {}, \"deleted\": {}, \"changed\": {}, \"design_changes\": {}, \"markup\": {}, \"unchanged\": {}, \"equivalent\": {}, \"not_shown\": {}, \"uncertain\": {}}},",
+        "  \"summary\": {{\"added\": {}, \"deleted\": {}, \"changed\": {}, \"design_changes\": {}, \"markup\": {}, \"revision_clouds\": {}, \"unchanged\": {}, \"equivalent\": {}, \"not_shown\": {}, \"uncertain\": {}}},",
         d.count(ChangeKind::Added),
         d.count(ChangeKind::Deleted),
         d.count(ChangeKind::Changed),
         d.design_changes().count(),
         d.markup_count(),
+        d.cloud_count(),
         d.unchanged,
         d.equivalent,
         d.changes.iter().filter(|c| !c.shown).count(),

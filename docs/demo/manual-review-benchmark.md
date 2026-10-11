@@ -65,8 +65,8 @@ visible) do not show.
 | M3 | "Revision cloud added" (revision markup) |
 | M4 | "Polyline added", "Text “C” added" (revision markup) |
 
-Summary line: "10 changes found between Rev B and Rev C", plus 8 revision
-markup entities listed separately. Every expected item is found, nothing
+Summary line: "10 changes found between Rev B and Rev C", beside it "plus revision
+markup (8 items, including 1 revision cloud)"; the markup is listed separately. Every expected item is found, nothing
 is reported that is not in the inventory (test
 `bracket_rev_c_matches_the_expected_change_inventory`). Each line zooms to
 the change on click. The PNG and JSON reports carry the same list.

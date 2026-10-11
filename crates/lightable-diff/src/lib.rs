@@ -145,6 +145,9 @@ pub struct Change {
     /// Revision markup (a revision cloud, title block text) rather than a
     /// change to the design; see [`words::is_markup`].
     pub markup: bool,
+    /// A revision cloud (a closed polyline made only of arcs) was added,
+    /// deleted or changed; see [`words::is_revision_cloud`]. Always markup.
+    pub revision_cloud: bool,
 }
 
 impl Change {
@@ -231,6 +234,30 @@ impl Diff {
     /// Number of revision markup changes.
     pub fn markup_count(&self) -> usize {
         self.changes.iter().filter(|c| c.markup).count()
+    }
+
+    /// Number of revision clouds among the markup changes.
+    pub fn cloud_count(&self) -> usize {
+        self.changes.iter().filter(|c| c.revision_cloud).count()
+    }
+
+    /// The markup part of the summary: "plus revision markup (8 items,
+    /// including 1 revision cloud)"; `None` without markup.
+    pub fn markup_summary(&self) -> Option<String> {
+        let m = self.markup_count();
+        if m == 0 {
+            return None;
+        }
+        let items = if m == 1 {
+            "1 item".to_owned()
+        } else {
+            format!("{m} items")
+        };
+        Some(match self.cloud_count() {
+            0 => format!("plus revision markup ({items})"),
+            1 => format!("plus revision markup ({items}, including 1 revision cloud)"),
+            k => format!("plus revision markup ({items}, including {k} revision clouds)"),
+        })
     }
 
     pub fn count(&self, kind: ChangeKind) -> usize {
@@ -795,6 +822,8 @@ impl<'a> PlaceDiff<'a> {
                 used_by_new: Vec::new(),
                 headline,
                 markup,
+                revision_cloud: words::is_revision_cloud(x.entity)
+                    || words::is_revision_cloud(y.entity),
             });
         }
         let single =
@@ -830,6 +859,7 @@ impl<'a> PlaceDiff<'a> {
                     used_by_new: Vec::new(),
                     headline: words::added_or_deleted(e.entity, kind == ChangeKind::Added),
                     markup: words::is_markup(e.entity),
+                    revision_cloud: words::is_revision_cloud(e.entity),
                 }
             };
         for (i, e) in self.a.iter().enumerate() {
@@ -969,6 +999,7 @@ pub fn diff(a: &Drawing, b: &Drawing, options: &DiffOptions) -> Diff {
                     used_by_new: Vec::new(),
                     headline: String::new(),
                     markup: false,
+                    revision_cloud: false,
                 });
             }
         }
@@ -1055,6 +1086,7 @@ pub fn diff(a: &Drawing, b: &Drawing, options: &DiffOptions) -> Diff {
                 used_by_new: Vec::new(),
                 headline: String::new(),
                 markup: false,
+                revision_cloud: false,
             });
         }
     }
@@ -1278,12 +1310,47 @@ fn table_change(kind: ChangeKind, name: &str, mut details: Vec<String>) -> Chang
         used_by_new: Vec::new(),
         headline: String::new(),
         markup: false,
+        revision_cloud: false,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_markup_summary_counts_items_and_clouds() {
+        let change = |markup: bool, cloud: bool| Change {
+            markup,
+            revision_cloud: cloud,
+            ..table_change(ChangeKind::Added, "X", Vec::new())
+        };
+        let summary = |c: Vec<Change>| {
+            Diff {
+                changes: c,
+                ..Default::default()
+            }
+            .markup_summary()
+        };
+        assert_eq!(summary(vec![change(false, false)]), None);
+        assert_eq!(
+            summary(vec![change(true, false)]).as_deref(),
+            Some("plus revision markup (1 item)")
+        );
+        assert_eq!(
+            summary(vec![change(true, true), change(true, false)]).as_deref(),
+            Some("plus revision markup (2 items, including 1 revision cloud)")
+        );
+        assert_eq!(
+            summary(vec![
+                change(true, true),
+                change(true, true),
+                change(false, false)
+            ])
+            .as_deref(),
+            Some("plus revision markup (2 items, including 2 revision clouds)")
+        );
+    }
     use lightable_dxf::{Circle, Line, Point3};
 
     fn line(handle: u64, layer: &str, a: (f64, f64), b: (f64, f64)) -> Entity {

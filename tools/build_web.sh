@@ -31,7 +31,8 @@ fi
 A=crates/lightable/assets
 cargo run --release -p lightable-diff --example web_preview -- \
   "$A/bracket-rev-b.dxf" "$A/bracket-rev-c.dxf" "Rev B" "Rev C" \
-  "Steel bracket, Rev B to Rev C" "$OUT"
+  "Steel bracket, Rev B to Rev C" "$OUT" \
+  "Example: the drafter clouded only the bolt note."
 cp web/main.js "$OUT/"
 # The change list goes into the page; the progress line needs the unpacked
 # size of the app.

@@ -3,7 +3,7 @@
 //! change headlines as static HTML, both made by the comparison itself.
 //!
 //!     cargo run --release -p lightable-diff --example web_preview -- \
-//!         A.dxf B.dxf "Rev B" "Rev C" "Steel bracket" OUT_DIR
+//!         A.dxf B.dxf "Rev B" "Rev C" "Steel bracket" OUT_DIR [NOTE]
 //!
 //! Writes OUT_DIR/preview.svg and OUT_DIR/changes.html. The list is read
 //! back from the JSON diff report (`Diff::to_json`), the same report the
@@ -21,8 +21,12 @@ fn escape(s: &str) -> String {
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [a_path, b_path, a_label, b_label, title, out] = args.as_slice() else {
-        return Err("usage: web_preview A.dxf B.dxf A_LABEL B_LABEL TITLE OUT_DIR".into());
+    let (args, note) = match args.as_slice() {
+        [rest @ .., note] if rest.len() == 6 => (rest, Some(note.as_str())),
+        all => (all, None),
+    };
+    let [a_path, b_path, a_label, b_label, title, out] = args else {
+        return Err("usage: web_preview A.dxf B.dxf A_LABEL B_LABEL TITLE OUT_DIR [NOTE]".into());
     };
     let read = |p: &str| {
         lightable_dxf::read_file(p)
@@ -82,9 +86,19 @@ fn main() -> Result<(), String> {
         escape(a_label),
         escape(b_label)
     );
+    if let Some(markup) = diff.markup_summary() {
+        let _ = writeln!(
+            html,
+            "  <p class=\"markup-summary\">{}</p>",
+            escape(&markup)
+        );
+    }
+    if let Some(note) = note {
+        let _ = writeln!(html, "  <p class=\"example-note\">{}</p>", escape(note));
+    }
     let _ = writeln!(html, "  <ol>\n{}  </ol>", list(false));
     if markup > 0 {
-        let _ = writeln!(html, "  <h2>Revision markup ({markup})</h2>");
+        let _ = writeln!(html, "  <h2>Revision markup</h2>");
         let _ = writeln!(html, "  <ol class=\"markup\">\n{}  </ol>", list(true));
     }
     let _ = writeln!(

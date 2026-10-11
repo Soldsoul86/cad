@@ -247,13 +247,16 @@ impl Compare {
 
     /// Where the revision cloud is, if the changes include one.
     pub fn cloud_bounds(&self) -> Option<Bounds> {
-        let c = self
-            .diff
-            .changes
-            .iter()
-            .find(|c| c.headline.starts_with("Revision cloud"))?;
+        let c = self.diff.changes.iter().find(|c| c.revision_cloud)?;
         // The cloud and a little around it.
         Some(dview::zoom_box(c.bounds?, self.extent, 0.2))
+    }
+
+    /// The built-in example's note on how it was drawn ("Example: the
+    /// drafter clouded only the bolt note."); never for the user's files.
+    pub fn example_note(&self) -> Option<&'static str> {
+        let id = self.example?;
+        crate::examples::EXAMPLES.iter().find(|e| e.id == id)?.note
     }
 
     /// How many design changes (not revision markup) were found.
@@ -269,7 +272,7 @@ impl Compare {
             .diff
             .changes
             .iter()
-            .filter(|c| c.headline.starts_with("Revision cloud"))
+            .filter(|c| c.revision_cloud)
             .filter_map(|c| c.bounds)
             .collect();
         let inside = |b: &Bounds| {
@@ -430,15 +433,8 @@ impl Compare {
                     .strong()
                     .color(Color32::WHITE),
             );
-            let markup = self.diff.markup_count();
-            if markup > 0 {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "plus {markup} revision markup{}",
-                        if markup == 1 { "" } else { "s" }
-                    ))
-                    .color(Color32::from_gray(150)),
-                );
+            if let Some(markup) = self.diff.markup_summary() {
+                ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
             }
             ui.add_space(16.0);
             legend(ui);
@@ -460,6 +456,13 @@ impl Compare {
                 }
             });
         });
+        if let Some(note) = self.example_note() {
+            ui.label(
+                egui::RichText::new(note)
+                    .italics()
+                    .color(Color32::from_gray(185)),
+            );
+        }
         ui.add_space(6.0);
         zoom
     }
@@ -565,7 +568,13 @@ impl Compare {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.heading(self.summary());
+            if let Some(markup) = self.diff.markup_summary() {
+                ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
+            }
         });
+        if let Some(note) = self.example_note() {
+            ui.label(egui::RichText::new(note).italics());
+        }
         ui.horizontal(|ui| {
             legend(ui);
             ui.separator();
@@ -783,7 +792,7 @@ impl Compare {
         let markup = d.markup_count();
         if markup > 0 {
             s.push_str(&format!(
-                " + {markup} revision markup{}",
+                " + {markup} revision markup item{}",
                 if markup == 1 { "" } else { "s" }
             ));
         }

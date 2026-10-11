@@ -15,6 +15,9 @@ pub struct Example {
     pub b_name: &'static str,
     pub a: &'static [u8],
     pub b: &'static [u8],
+    /// A line on how the example was drawn, shown under the summary. It
+    /// describes our example file, not something the comparison found.
+    pub note: Option<&'static str>,
 }
 
 pub static EXAMPLES: [Example; 2] = [
@@ -27,6 +30,7 @@ pub static EXAMPLES: [Example; 2] = [
         b_name: "bracket-rev-c.dxf",
         a: include_bytes!("../assets/bracket-rev-b.dxf"),
         b: include_bytes!("../assets/bracket-rev-c.dxf"),
+        note: Some("Example: the drafter clouded only the bolt note."),
     },
     Example {
         id: "plan",
@@ -37,6 +41,7 @@ pub static EXAMPLES: [Example; 2] = [
         b_name: "plan-rev-b.dxf",
         a: include_bytes!("../assets/plan-rev-a.dxf"),
         b: include_bytes!("../assets/plan-rev-b.dxf"),
+        note: None,
     },
 ];
 
@@ -65,7 +70,14 @@ mod tests {
     fn the_web_build_names_the_default_example_as_the_app_does() {
         let script = include_str!("../../../tools/build_web.sh");
         let e = find("");
-        for s in [e.a_name, e.b_name, e.a_label, e.b_label, e.title] {
+        for s in [
+            e.a_name,
+            e.b_name,
+            e.a_label,
+            e.b_label,
+            e.title,
+            e.note.unwrap(),
+        ] {
             assert!(script.contains(s), "tools/build_web.sh does not say {s:?}");
         }
     }

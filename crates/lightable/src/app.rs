@@ -201,6 +201,10 @@ pub struct CadApp {
     /// A demo zoom to start once this frame's pane size is known (a demo
     /// step can switch side by side or Details, which resizes the panes).
     demo_zoom: Option<(lightable_render::Bounds, f64)>,
+    /// The view shows everything and nobody has moved it since: when the
+    /// panes change size (the change list settling its width, Side by
+    /// side), it is fitted again.
+    auto_fit: bool,
     demo: Option<Demo>,
     /// The demo caption shown now.
     caption: Option<String>,
@@ -270,6 +274,7 @@ impl CadApp {
             example_pending: example,
             anim: None,
             demo_zoom: None,
+            auto_fit: false,
             demo: demo.then_some(Demo {
                 start: None,
                 step: usize::MAX,
@@ -307,6 +312,7 @@ impl CadApp {
         now: f64,
         seconds: f64,
     ) {
+        self.auto_fit = false;
         let mut to = self.view;
         to.fit(bounds, margin);
         self.anim = Some(Anim {
@@ -419,6 +425,7 @@ impl CadApp {
     }
 
     fn fit(&mut self) {
+        self.auto_fit = true;
         if let Some(c) = &self.compare {
             if let Some(b) = c.bounds() {
                 self.view.fit(&b, 0.03);
@@ -564,7 +571,12 @@ impl CadApp {
             None => vec![rect],
         };
         let pane = panes[0];
-        self.view.size = [f64::from(pane.width()), f64::from(pane.height())];
+        let size = [f64::from(pane.width()), f64::from(pane.height())];
+        let resized = size != self.view.size;
+        self.view.size = size;
+        if resized && self.auto_fit && self.anim.is_none() && rect.width() > 0.0 {
+            self.fit();
+        }
         if let Some((b, margin)) = self.demo_zoom.take() {
             let now = ui.input(|i| i.time);
             self.animate_to(&b, margin, now, 1.2);
@@ -583,6 +595,7 @@ impl CadApp {
         {
             let d = response.drag_delta();
             self.view.pan(f64::from(d.x), f64::from(d.y));
+            self.auto_fit = false;
         }
         if response.double_clicked_by(PointerButton::Middle) {
             self.fit();
@@ -592,6 +605,7 @@ impl CadApp {
             let factor = f64::from(scroll * 0.0025).exp() * f64::from(pinch);
             if factor != 1.0 {
                 self.view.zoom_at(local(pos), factor);
+                self.auto_fit = false;
             }
         }
         if let Some(c) = &self.compare {

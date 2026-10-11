@@ -8,8 +8,10 @@
 - Headlines contain no coordinates ("Corner chamfered 10 × 10 mm"); coordinates are in the details.
 - Demo script rewritten around a pre-release review; every number and headline in it is computed from the comparison (`docs/demo/`).
 - Web: while the app loads, the example's overlay and change list (made by the comparison at build time) and a download progress line; the app is 3.92 MB (1.59 MB compressed, was 6.62 / 2.41 MB) through a size profile, wasm-opt and dropping egui's emoji fonts; ready in about 12 s on "Fast 3G" (was 16 s), with the change list visible after 0.7 s.
+- Fixed: the first view of a comparison was fitted before the change list settled its width, cutting off part of the drawing (most visibly the floor plan); the view now refits when the panes resize until it is moved.
 - Fixed: demo zooms fitted to the previous pane size when a step switched side by side or Details; long headlines in the PNG report were cut off.
 - `lightable diff A B --svg OUT` writes the overlay as SVG.
+- Summary: "plus revision markup (M items, including K revision clouds)"; the bracket example adds "Example: the drafter clouded only the bolt note." JSON: `revision_cloud` per change, `summary.revision_clouds`.
 
 ## First-run experience (unreleased)
 

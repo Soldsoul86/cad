@@ -81,5 +81,5 @@ Revision markup (records the revision; not part of the part):
   (it says so under "Not compared yet") and compares the dimension
   entities themselves instead.
 - One engineering change (ECN-017) shows up as ten design-content
-  differences and several markup entities. The counts are not meant to
+  differences and 8 markup items (drawing objects). The counts are not meant to
   match: one intention, many consequences.

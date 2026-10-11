@@ -72,6 +72,10 @@ fn bracket_rev_c_matches_the_expected_change_inventory() {
     );
     // One engineering intention, ten design-content differences.
     assert_eq!(d.design_changes().count(), 10);
+    assert_eq!(
+        d.markup_summary().as_deref(),
+        Some("plus revision markup (8 items, including 1 revision cloud)")
+    );
     assert!(
         d.changes
             .iter()

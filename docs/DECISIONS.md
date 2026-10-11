@@ -883,6 +883,18 @@ Replaces First-run decisions 2, 4 (the layer rule), 7 and part of 3.
     `node tools/web_browser_test.mjs chrome URL OUT --throttle` repeats the
     measurement (OUT/timing.json).
 
+11. **Summary wording.** First screen, for any files: "N changes found
+    between X and Y", beside it "plus revision markup (M items, including
+    K revision cloud(s))", the cloud part left out when K is 0. "Items"
+    because markup is counted per drawing object (the bracket's revision
+    table row is four of them), and layers 1–3 never say "entities". K
+    comes from `Change::revision_cloud` (shape detection, also in the JSON
+    report as `revision_cloud` and `summary.revision_clouds`), not from
+    headline text. A built-in example may carry a note shown under the
+    summary ("Example: the drafter clouded only the bolt note."); it
+    describes the example file and is never shown for the user's files.
+    The PNG report header and the web preview use the same words.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

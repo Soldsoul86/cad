@@ -4,6 +4,18 @@ Situation: a manufacturing engineer checks Rev C of a steel bracket drawing
 before it goes to the supplier. The revision cloud suggests a small change;
 the drawing changed in more places.
 
+First screen (before the demo starts, and for any pair of files):
+
+> **10 changes found between Rev B and Rev C** · plus revision markup (8 items, including 1 revision cloud)
+> *Example: the drafter clouded only the bolt note.*
+
+The first line comes from the comparison for any files (the cloud part is
+left out when no revision cloud changed). The italic line belongs to the
+built-in bracket example only: it describes how the example was drawn and
+is never shown for your own files. The 8 markup items are drawing objects:
+the revision letter, the revision-table row (a polyline, a line and two
+texts), the cloud, and the revision triangle with its letter.
+
 Every number and headline on screen comes from the comparison of the two
 DXF files at the moment the demo runs (`crates/lightable/src/app.rs`,
 `run_demo`). Nothing is typed in by hand except the connecting words.
