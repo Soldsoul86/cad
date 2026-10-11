@@ -3,11 +3,12 @@
 Usage: tools/.venv/bin/python tools/gen_example.py crates/lightable/assets
 
 - bracket-rev-b.dxf / bracket-rev-c.dxf (the default example): a steel
-  mounting bracket fabrication drawing with a title block. Rev C has
-  exactly 4 design changes: one hole moved 5 mm, one hole Ø12 → Ø14, the
-  thread note M12 → M16 and a 10 × 10 chamfer on one corner, plus revision
-  markup: a revision cloud around the chamfer and the title block's
-  revision letter.
+  mounting bracket drawing (160 x 100 x 10 mm plate, four bolts through
+  clearance holes). Rev C is one engineering change, bolts M12 -> M16,
+  with its consequences: larger clearance holes, holes moved for edge
+  distance, the callout and dimensions updated. The drafter clouds only
+  the bolt note. The expected changes were written down first, in
+  bracket-rev-c-inventory.md / .json.
 - plan-rev-a.dxf / plan-rev-b.dxf: two revisions of a small apartment
   plan showing each kind of change the diff reports: a moved door, a
   removed wall, a new kitchen island, a renamed room, a changed floor
@@ -100,7 +101,11 @@ def revise(doc, e):
 
 
 def bracket():
-    """Rev B of the bracket; returns the document and what Rev C edits."""
+    """Rev B of the bracket; returns the document and what Rev C edits.
+
+    A 160 x 100 mm plate, 10 mm S235JR, four M12 bolts through Ø13.5
+    clearance holes (ISO 273 medium series) at 20 mm edge distance
+    (EN 1993-1-8 Table 3.3: at least 1.2 d0 = 16.2 mm)."""
     doc = ezdxf.new("R2018", setup=True)
     doc.header["$INSUNITS"] = 4
     for name, color in [("OUTLINE", 7), ("HOLES", 4), ("NOTES", 2), ("DIMS", 3), ("BORDER", 8),
@@ -108,65 +113,107 @@ def bracket():
         doc.layers.add(name, color=color)
     msp = doc.modelspace()
     e = {}
-    # Sheet border and title block (revision markup lives here).
-    msp.add_lwpolyline([(0, 0), (297, 0), (297, 210), (0, 210)], close=True, dxfattribs={"layer": "BORDER"})
-    msp.add_lwpolyline([(187, 5), (292, 5), (292, 45), (187, 45)], close=True, dxfattribs={"layer": "TITLE"})
-    for y in (15, 25, 35):
-        msp.add_line((187, y), (292, y), dxfattribs={"layer": "TITLE"})
-    msp.add_line((262, 5), (262, 15), dxfattribs={"layer": "TITLE"})
-
     LEFT = TextEntityAlignment.LEFT
+    MID = TextEntityAlignment.MIDDLE_CENTER
 
-    def text(s, x, y, align, h, layer):
+    def text(s, x, y, h, layer, align=LEFT):
         t = msp.add_text(s, height=h, dxfattribs={"layer": layer})
         t.set_placement((x, y), align=align)
         return t
 
-    # Text on a baseline inside each row (35-45, 25-35, 15-25, 5-15).
-    text("STEEL MOUNTING BRACKET", 190, 38.5, LEFT, 3.5, "TITLE")
-    text("MATERIAL: S235 STEEL, 6 mm PLATE", 190, 29, LEFT, 2.5, "TITLE")
-    text("DRAWING No. LT-0042    SCALE 1:1    mm", 190, 19, LEFT, 2.5, "TITLE")
-    text("LIGHTABLE EXAMPLE", 190, 9, LEFT, 2.5, "TITLE")
-    e["rev"] = text("REV B", 266, 8.5, LEFT, 3.5, "TITLE")
-    # The part: a 160 × 100 plate with four mounting holes and a tapped hole.
-    e["outline"] = msp.add_lwpolyline([(40, 60), (200, 60), (200, 160), (40, 160)], close=True,
-                                      dxfattribs={"layer": "OUTLINE"})
-    e["holes"] = [msp.add_circle(c, 6, dxfattribs={"layer": "HOLES"})
-                  for c in [(55, 75), (185, 75), (185, 145), (55, 145)]]
-    msp.add_circle((120, 110), 5.1, dxfattribs={"layer": "HOLES"})
-    e["thread"] = text("M12", 127, 116, TextEntityAlignment.LEFT, 3.5, "NOTES")
-    text("4x Ø12 THRU", 46, 165, LEFT, 3, "NOTES")
-    # Readable at 1:1: 3.5 mm text, 3 mm arrows, lengths as drawn (the
-    # EZDXF style otherwise scales them by 100).
+    def line(a, b, layer):
+        return msp.add_line(a, b, dxfattribs={"layer": layer})
+
+    # Sheet border, title block and revision table.
+    msp.add_lwpolyline([(0, 0), (297, 0), (297, 210), (0, 210)], close=True, dxfattribs={"layer": "BORDER"})
+    msp.add_lwpolyline([(187, 5), (292, 5), (292, 45), (187, 45)], close=True, dxfattribs={"layer": "TITLE"})
+    for y in (15, 25, 35):
+        line((187, y), (292, y), "TITLE")
+    line((262, 5), (262, 15), "TITLE")
+    text("STEEL MOUNTING BRACKET", 190, 38.5, 3.5, "TITLE")
+    text("MATERIAL: S235JR (EN 10025-2), 10 mm PLATE", 190, 29, 2.5, "TITLE")
+    text("DRAWING No. LT-0042    SCALE 1:1    mm", 190, 19, 2.5, "TITLE")
+    text("LIGHTABLE EXAMPLE", 190, 9, 2.5, "TITLE")
+    e["rev"] = text("REV B", 266, 8.5, 3.5, "TITLE")
+    # Revision table above the title block: header and row B.
+    msp.add_lwpolyline([(187, 45), (292, 45), (292, 59), (187, 59)], close=True, dxfattribs={"layer": "TITLE"})
+    line((187, 52), (292, 52), "TITLE")
+    line((197, 45), (197, 59), "TITLE")
+    text("REV", 189, 54.5, 2.5, "TITLE")
+    text("DESCRIPTION", 200, 54.5, 2.5, "TITLE")
+    text("B", 190, 47.5, 2.5, "TITLE")
+    text("FIRST ISSUE", 200, 47.5, 2.5, "TITLE")
+
+    # The part.
+    msp.add_lwpolyline([(40, 60), (200, 60), (200, 160), (40, 160)], close=True, dxfattribs={"layer": "OUTLINE"})
+    e["holes"] = [msp.add_circle(c, 6.75, dxfattribs={"layer": "HOLES"})
+                  for c in [(60, 80), (180, 80), (180, 140), (60, 140)]]
+    e["callout"] = text("4x Ø13.5 THRU", 72, 68, 3, "NOTES")
+    e["bolts"] = text("BOLTS: 4x M12 ISO 4017 - 8.8", 40, 34, 3, "NOTES")
+    text("GENERAL TOLERANCES ISO 2768-m", 40, 27, 2.5, "NOTES")
+    text("BREAK ALL SHARP EDGES", 40, 21, 2.5, "NOTES")
+
+    # Dimensions: readable at 1:1 (3.5 mm text, 3 mm arrows), lengths as
+    # drawn (the EZDXF style otherwise scales them by 100).
     style = {"dimtxt": 3.5, "dimasz": 3, "dimexe": 2, "dimexo": 2, "dimgap": 1, "dimlfac": 1}
-    msp.add_linear_dim(base=(40, 50), p1=(40, 60), p2=(200, 60), dimstyle="EZDXF", override=style,
-                       dxfattribs={"layer": "DIMS"}).render()
-    msp.add_linear_dim(base=(22, 60), p1=(40, 60), p2=(40, 160), angle=90, dimstyle="EZDXF", override=style,
-                       dxfattribs={"layer": "DIMS"}).render()
+
+    def dim(base, p1, p2, angle=0):
+        d = msp.add_linear_dim(base=base, p1=p1, p2=p2, angle=angle, dimstyle="EZDXF", override=style,
+                               dxfattribs={"layer": "DIMS"})
+        d.render()
+        return d.dimension
+
+    dim((40, 48), (40, 60), (200, 60))                 # overall width 160
+    dim((24, 60), (40, 60), (40, 160), angle=90)       # overall height 100
+    e["dims"] = {
+        "top_edge": dim((40, 172), (40, 160), (60, 140)),             # 20
+        "top_pitch": dim((40, 172), (60, 140), (180, 140)),           # 120
+        "right_edge": dim((212, 60), (200, 160), (180, 140), angle=90),  # 20
+        "right_pitch": dim((212, 60), (180, 140), (180, 80), angle=90),  # 60
+    }
     return doc, e
 
 
 def bracket_rev_c(doc, e):
-    """Rev C: exactly 4 design changes, a revision cloud around the
-    chamfer, and the new revision letter."""
+    """Rev C (ECN-017): bolts M12 -> M16. Holes Ø17.5 (ISO 273 medium for
+    M16), moved 5 mm inward for 25 mm edge distance (EN 1993-1-8: at least
+    1.2 d0 = 21 mm); callout, bolt note and dimensions follow. The drafter
+    clouds only the bolt note. See bracket-rev-c-inventory.md."""
     msp = doc.modelspace()
-    e["holes"][1].dxf.center = (190, 75)       # hole moved 5 mm right
-    e["holes"][3].dxf.radius = 7               # Ø12 → Ø14
-    e["thread"].dxf.text = "M16"               # thread note M12 → M16
-    # 10 × 10 chamfer on the top right corner (200, 160).
-    e["outline"].set_points([(40, 60), (200, 60), (200, 150), (190, 160), (40, 160)])
-    e["outline"].close(True)
+    for hole, c in zip(e["holes"], [(65, 85), (175, 85), (175, 135), (65, 135)]):
+        hole.dxf.center = c
+        hole.dxf.radius = 8.75
+    e["callout"].dxf.text = "4x Ø17.5 THRU"
+    e["bolts"].dxf.text = "BOLTS: 4x M16 ISO 4017 - 8.8"
+    for key, p1, p2 in [("top_edge", (40, 160), (65, 135)), ("top_pitch", (65, 135), (175, 135)),
+                        ("right_edge", (200, 160), (175, 135)), ("right_pitch", (175, 135), (175, 85))]:
+        d = e["dims"][key]
+        d.dxf.defpoint2 = p1
+        d.dxf.defpoint3 = p2
+        d.override().render()
+
+    # Revision markup.
     e["rev"].dxf.text = "REV C"
-    # Revision cloud: a closed polyline of arcs around the chamfer.
-    x0, y0, x1, y1 = 180, 140, 212, 172
-    step = 6.4
+    title = {"layer": "TITLE"}
+    msp.add_lwpolyline([(187, 59), (187, 66), (292, 66), (292, 59)], dxfattribs=title)
+    msp.add_line((197, 59), (197, 66), dxfattribs=title)
+    for s, x in [("C", 190), ("BOLTS M12 TO M16 (ECN-017)", 200)]:
+        t = msp.add_text(s, height=2.5, dxfattribs=title)
+        t.set_placement((x, 61.5), align=TextEntityAlignment.LEFT)
+    # Revision cloud (a closed polyline of arcs) around the bolt note only.
+    x0, y0, x1, y1 = 36, 30, 100, 41
+    step = 5.5
     pts = []
     for (ax, ay), (bx, by) in [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)),
                                ((x0, y1), (x0, y0))]:
-        n = round(((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 / step)
+        n = max(1, round(((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 / step))
         for k in range(n):
             pts.append((ax + (bx - ax) * k / n, ay + (by - ay) * k / n, -0.55))
     msp.add_lwpolyline(pts, format="xyb", close=True, dxfattribs={"layer": "REVISION"})
+    # Revision triangle "C" next to the cloud.
+    msp.add_lwpolyline([(104, 31), (114, 31), (109, 40)], close=True, dxfattribs={"layer": "REVISION"})
+    t = msp.add_text("C", height=3, dxfattribs={"layer": "REVISION"})
+    t.set_placement((109, 34.5), align=TextEntityAlignment.MIDDLE_CENTER)
 
 
 def main():

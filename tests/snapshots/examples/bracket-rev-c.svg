@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5.94 -215.94 308.88 221.88" width="800" height="575">
-<rect x="-5.94" y="-215.94" width="308.88" height="221.88" fill="#212121"/>
-<g transform="scale(1 -1)" fill="none" stroke-width="0.2059" stroke-linecap="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16.548 -216.148 319.696 222.296" width="800" height="556">
+<rect x="-16.548" y="-216.148" width="319.696" height="222.296" fill="#212121"/>
+<g transform="scale(1 -1)" fill="none" stroke-width="0.2131" stroke-linecap="round">
 <g data-layer="BORDER">
 <path d="M0 0L297 0L297 210L0 210Z" stroke="#808080"/>
 </g>
@@ -11,53 +11,121 @@
 <path d="M187 35L292 35" stroke="#808080"/>
 <path d="M262 5L262 15" stroke="#808080"/>
 <text transform="translate(190 38.5) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">STEEL MOUNTING BRACKET</text>
-<text transform="translate(190 29) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">MATERIAL: S235 STEEL, 6 mm PLATE</text>
+<text transform="translate(190 29) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">MATERIAL: S235JR (EN 10025-2), 10 mm PLATE</text>
 <text transform="translate(190 19) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">DRAWING No. LT-0042    SCALE 1:1    mm</text>
 <text transform="translate(190 9) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">LIGHTABLE EXAMPLE</text>
 <text transform="translate(266 8.5) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">REV C</text>
+<path d="M187 45L292 45L292 59L187 59Z" stroke="#808080"/>
+<path d="M187 52L292 52" stroke="#808080"/>
+<path d="M197 45L197 59" stroke="#808080"/>
+<text transform="translate(189 54.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">REV</text>
+<text transform="translate(200 54.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">DESCRIPTION</text>
+<text transform="translate(190 47.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">B</text>
+<text transform="translate(200 47.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">FIRST ISSUE</text>
 </g>
 <g data-layer="OUTLINE">
-<path d="M40 60L200 60L200 150L190 160L40 160Z" stroke="#ffffff"/>
+<path d="M40 60L200 60L200 160L40 160Z" stroke="#ffffff"/>
 </g>
 <g data-layer="HOLES">
-<path d="M61 75A6 6 0 0 1 49 75A6 6 0 0 1 61 75" stroke="#00ffff"/>
-<path d="M196 75A6 6 0 0 1 184 75A6 6 0 0 1 196 75" stroke="#00ffff"/>
-<path d="M191 145A6 6 0 0 1 179 145A6 6 0 0 1 191 145" stroke="#00ffff"/>
-<path d="M62 145A7 7 0 0 1 48 145A7 7 0 0 1 62 145" stroke="#00ffff"/>
-<path d="M125.1 110A5.1 5.1 0 0 1 114.9 110A5.1 5.1 0 0 1 125.1 110" stroke="#00ffff"/>
+<path d="M73.75 85A8.75 8.75 0 0 1 56.25 85A8.75 8.75 0 0 1 73.75 85" stroke="#00ffff"/>
+<path d="M183.75 85A8.75 8.75 0 0 1 166.25 85A8.75 8.75 0 0 1 183.75 85" stroke="#00ffff"/>
+<path d="M183.75 135A8.75 8.75 0 0 1 166.25 135A8.75 8.75 0 0 1 183.75 135" stroke="#00ffff"/>
+<path d="M73.75 135A8.75 8.75 0 0 1 56.25 135A8.75 8.75 0 0 1 73.75 135" stroke="#00ffff"/>
 </g>
 <g data-layer="NOTES">
-<text transform="translate(127 116) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">M16</text>
-<text transform="translate(46 165) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">4x Ø12 THRU</text>
+<text transform="translate(72 68) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">4x Ø17.5 THRU</text>
+<text transform="translate(40 34) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BOLTS: 4x M16 ISO 4017 - 8.8</text>
+<text transform="translate(40 27) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">GENERAL TOLERANCES ISO 2768-m</text>
+<text transform="translate(40 21) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BREAK ALL SHARP EDGES</text>
 </g>
 <g data-layer="DIMS">
-<path d="M40 58L40 48" stroke="#00ff00"/>
-<path d="M200 58L200 48" stroke="#00ff00"/>
-<path d="M41.5 51.5L38.5 48.5" stroke="#00ff00"/>
-<path d="M198.5 48.5L201.5 51.5" stroke="#00ff00"/>
-<path d="M40 50L200 50" stroke="#00ff00"/>
-<text transform="translate(120 51) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">160</text>
+<path d="M40 58L40 46" stroke="#00ff00"/>
+<path d="M200 58L200 46" stroke="#00ff00"/>
+<path d="M41.5 49.5L38.5 46.5" stroke="#00ff00"/>
+<path d="M198.5 46.5L201.5 49.5" stroke="#00ff00"/>
+<path d="M40 48L200 48" stroke="#00ff00"/>
+<text transform="translate(120 49) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">160</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="40" cy="50" r="0.3089" fill="#ffffff"/>
-<circle cx="40" cy="60" r="0.3089" fill="#ffffff"/>
-<circle cx="200" cy="60" r="0.3089" fill="#ffffff"/>
+<circle cx="40" cy="48" r="0.3197" fill="#ffffff"/>
+<circle cx="40" cy="60" r="0.3197" fill="#ffffff"/>
+<circle cx="200" cy="60" r="0.3197" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M38 60L20 60" stroke="#00ff00"/>
-<path d="M38 160L20 160" stroke="#00ff00"/>
-<path d="M20.5 61.5L23.5 58.5" stroke="#00ff00"/>
-<path d="M23.5 158.5L20.5 161.5" stroke="#00ff00"/>
-<path d="M22 60L22 160" stroke="#00ff00"/>
-<text transform="translate(21 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">100</text>
+<path d="M38 60L22 60" stroke="#00ff00"/>
+<path d="M38 160L22 160" stroke="#00ff00"/>
+<path d="M22.5 61.5L25.5 58.5" stroke="#00ff00"/>
+<path d="M25.5 158.5L22.5 161.5" stroke="#00ff00"/>
+<path d="M24 60L24 160" stroke="#00ff00"/>
+<text transform="translate(23 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">100</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="22" cy="60" r="0.3089" fill="#ffffff"/>
-<circle cx="40" cy="60" r="0.3089" fill="#ffffff"/>
-<circle cx="40" cy="160" r="0.3089" fill="#ffffff"/>
+<circle cx="24" cy="60" r="0.3197" fill="#ffffff"/>
+<circle cx="40" cy="60" r="0.3197" fill="#ffffff"/>
+<circle cx="40" cy="160" r="0.3197" fill="#ffffff"/>
+</g>
+<g data-layer="DIMS">
+<path d="M40 162L40 174" stroke="#00ff00"/>
+<path d="M65 137L65 174" stroke="#00ff00"/>
+<path d="M41.5 173.5L38.5 170.5" stroke="#00ff00"/>
+<path d="M63.5 170.5L66.5 173.5" stroke="#00ff00"/>
+<path d="M40 172L65 172" stroke="#00ff00"/>
+<text transform="translate(52.5 173) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">25</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="40" cy="172" r="0.3197" fill="#ffffff"/>
+<circle cx="40" cy="160" r="0.3197" fill="#ffffff"/>
+<circle cx="65" cy="135" r="0.3197" fill="#ffffff"/>
+</g>
+<g data-layer="DIMS">
+<path d="M65 137L65 174" stroke="#00ff00"/>
+<path d="M175 137L175 174" stroke="#00ff00"/>
+<path d="M66.5 173.5L63.5 170.5" stroke="#00ff00"/>
+<path d="M173.5 170.5L176.5 173.5" stroke="#00ff00"/>
+<path d="M65 172L175 172" stroke="#00ff00"/>
+<text transform="translate(120 173) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">110</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="65" cy="172" r="0.3197" fill="#ffffff"/>
+<circle cx="65" cy="135" r="0.3197" fill="#ffffff"/>
+<circle cx="175" cy="135" r="0.3197" fill="#ffffff"/>
+</g>
+<g data-layer="DIMS">
+<path d="M202 160L214 160" stroke="#00ff00"/>
+<path d="M177 135L214 135" stroke="#00ff00"/>
+<path d="M210.5 161.5L213.5 158.5" stroke="#00ff00"/>
+<path d="M213.5 133.5L210.5 136.5" stroke="#00ff00"/>
+<path d="M212 160L212 135" stroke="#00ff00"/>
+<text transform="translate(216.5 147.5) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">25</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="212" cy="160" r="0.3197" fill="#ffffff"/>
+<circle cx="200" cy="160" r="0.3197" fill="#ffffff"/>
+<circle cx="175" cy="135" r="0.3197" fill="#ffffff"/>
+</g>
+<g data-layer="DIMS">
+<path d="M177 135L214 135" stroke="#00ff00"/>
+<path d="M177 85L214 85" stroke="#00ff00"/>
+<path d="M210.5 136.5L213.5 133.5" stroke="#00ff00"/>
+<path d="M213.5 83.5L210.5 86.5" stroke="#00ff00"/>
+<path d="M212 135L212 85" stroke="#00ff00"/>
+<text transform="translate(216.5 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">50</text>
+</g>
+<g data-layer="Defpoints">
+<circle cx="212" cy="135" r="0.3197" fill="#ffffff"/>
+<circle cx="175" cy="135" r="0.3197" fill="#ffffff"/>
+<circle cx="175" cy="85" r="0.3197" fill="#ffffff"/>
+</g>
+<g data-layer="TITLE">
+<path d="M187 59L187 66L292 66L292 59" stroke="#808080"/>
+<path d="M197 59L197 66" stroke="#808080"/>
+<text transform="translate(190 61.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">C</text>
+<text transform="translate(200 61.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">BOLTS M12 TO M16 (ECN-017)</text>
 </g>
 <g data-layer="REVISION">
-<path d="M180 140A3.7891 3.7891 0 0 0 186.4 140A3.7891 3.7891 0 0 0 192.8 140A3.7891 3.7891 0 0 0 199.2 140A3.7891 3.7891 0 0 0 205.6 140A3.7891 3.7891 0 0 0 212 140A3.7891 3.7891 0 0 0 212 146.4A3.7891 3.7891 0 0 0 212 152.8A3.7891 3.7891 0 0 0 212 159.2A3.7891 3.7891 0 0 0 212 165.6A3.7891 3.7891 0 0 0 212 172A3.7891 3.7891 0 0 0 205.6 172A3.7891 3.7891 0 0 0 199.2 172A3.7891 3.7891 0 0 0 192.8 172A3.7891 3.7891 0 0 0 186.4 172A3.7891 3.7891 0 0 0 180 172A3.7891 3.7891 0 0 0 180 165.6A3.7891 3.7891 0 0 0 180 159.2A3.7891 3.7891 0 0 0 180 152.8A3.7891 3.7891 0 0 0 180 146.4A3.7891 3.7891 0 0 0 180 140" stroke="#ff0000"/>
+<path d="M36 30A3.1576 3.1576 0 0 0 41.3333 30A3.1576 3.1576 0 0 0 46.6667 30A3.1576 3.1576 0 0 0 52 30A3.1576 3.1576 0 0 0 57.3333 30A3.1576 3.1576 0 0 0 62.6667 30A3.1576 3.1576 0 0 0 68 30A3.1576 3.1576 0 0 0 73.3333 30A3.1576 3.1576 0 0 0 78.6667 30A3.1576 3.1576 0 0 0 84 30A3.1576 3.1576 0 0 0 89.3333 30A3.1576 3.1576 0 0 0 94.6667 30A3.1576 3.1576 0 0 0 100 30A3.2562 3.2562 0 0 0 100 35.5A3.2562 3.2562 0 0 0 100 41A3.1576 3.1576 0 0 0 94.6667 41A3.1576 3.1576 0 0 0 89.3333 41A3.1576 3.1576 0 0 0 84 41A3.1576 3.1576 0 0 0 78.6667 41A3.1576 3.1576 0 0 0 73.3333 41A3.1576 3.1576 0 0 0 68 41A3.1576 3.1576 0 0 0 62.6667 41A3.1576 3.1576 0 0 0 57.3333 41A3.1576 3.1576 0 0 0 52 41A3.1576 3.1576 0 0 0 46.6667 41A3.1576 3.1576 0 0 0 41.3333 41A3.1576 3.1576 0 0 0 36 41A3.2562 3.2562 0 0 0 36 35.5A3.2562 3.2562 0 0 0 36 30" stroke="#ff0000"/>
+<path d="M104 31L114 31L109 40Z" stroke="#ff0000"/>
+<text transform="translate(109 34.5) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#ff0000" stroke="none">C</text>
 </g>
 </g>
 </svg>

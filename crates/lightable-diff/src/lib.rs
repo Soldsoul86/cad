@@ -767,7 +767,7 @@ impl<'a> PlaceDiff<'a> {
                 // The fill is drawn, the pattern itself is not.
                 details.push("patterns are not drawn yet".into());
             }
-            let headline = words::changed(
+            let words = words::changed(
                 tol,
                 x.entity,
                 &x.f().common,
@@ -777,6 +777,8 @@ impl<'a> PlaceDiff<'a> {
                 &y.f().shape,
                 out.units.as_deref(),
             );
+            details.extend(words.details);
+            let headline = words.headline;
             let markup = words::is_markup(x.entity) || words::is_markup(y.entity);
             out.changes.push(Change {
                 kind: ChangeKind::Changed,

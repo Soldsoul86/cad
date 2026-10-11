@@ -136,14 +136,21 @@ pub fn is_revision_cloud(e: &Entity) -> bool {
 }
 
 /// Revision markup rather than a design change: revision clouds, and
-/// anything on a layer whose name starts with TITLE, BORDER or REV (title
-/// blocks, borders, revision tables).
+/// anything on a layer named for revisions, the title block or the
+/// border: `REV` exactly, or a name starting with `REV-`, `REV_`,
+/// `REVISION`, `TITLE` or `BORDER` (ignoring case). Layers such as
+/// `REVIEW` or `REVOLVE` are not markup.
 pub fn is_markup(e: &Entity) -> bool {
-    let layer = e.layer.to_uppercase();
-    is_revision_cloud(e)
-        || ["TITLE", "BORDER", "REV"]
+    is_revision_cloud(e) || is_markup_layer(&e.layer)
+}
+
+/// The layer-name part of [`is_markup`].
+pub fn is_markup_layer(layer: &str) -> bool {
+    let l = layer.trim().to_uppercase();
+    l == "REV"
+        || ["REV-", "REV_", "REVISION", "TITLE", "BORDER"]
             .iter()
-            .any(|p| layer.starts_with(p))
+            .any(|p| l.starts_with(p))
 }
 
 /// Distance from `p` to the segment `a`–`b`, and whether its foot lies on
@@ -161,7 +168,12 @@ fn on_segment(p: [f64; 2], a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
 
 /// How a polyline's vertex list changed, when it can be said simply:
 /// "corner at (160, 100) chamfered 10 × 10 mm", "2 vertices added".
-fn vertex_phrase(a: &Entity, b: &Entity, tol: f64, units: Option<&str>) -> Option<String> {
+fn vertex_phrase(
+    a: &Entity,
+    b: &Entity,
+    tol: f64,
+    units: Option<&str>,
+) -> Option<(String, Option<String>)> {
     let ((va, closed), (vb, _)) = (vertices(a)?, vertices(b)?);
     let near = |p: [f64; 3], q: [f64; 3]| (p[0] - q[0]).abs() <= tol && (p[1] - q[1]).abs() <= tol;
     let removed: Vec<usize> = (0..va.len())
@@ -190,32 +202,29 @@ fn vertex_phrase(a: &Entity, b: &Entity, tol: f64, units: Option<&str>) -> Optio
         if on(p) && on(q) && one_each {
             let d = |x: [f64; 2]| (x[0] - v[0]).hypot(x[1] - v[1]);
             let corner = fmt_point([v[0], v[1], 0.0]);
+            // The headline names the change; where it is goes in the details.
             return Some(if straight {
-                format!(
-                    "corner at {corner} chamfered {} × {}",
-                    fmt_num(d(p)),
-                    length(d(q), units)
+                let size = format!("{} × {}", fmt_num(d(p)), length(d(q), units));
+                (
+                    format!("corner chamfered {size}"),
+                    Some(format!("corner at {corner} chamfered {size}")),
                 )
             } else {
-                format!("corner at {corner} rounded")
+                (
+                    "corner rounded".to_owned(),
+                    Some(format!("corner at {corner} rounded")),
+                )
             });
         }
     }
-    match (removed.len(), added.len()) {
-        (0, 0) => None,
-        (0, k) => Some(format!(
-            "{k} {} added",
-            if k == 1 { "vertex" } else { "vertices" }
-        )),
-        (k, 0) => Some(format!(
-            "{k} {} removed",
-            if k == 1 { "vertex" } else { "vertices" }
-        )),
-        (r, k) => Some(format!(
-            "{k} {} added and {r} removed",
-            if k == 1 { "vertex" } else { "vertices" }
-        )),
-    }
+    let plural = |k: usize| if k == 1 { "vertex" } else { "vertices" };
+    let phrase = match (removed.len(), added.len()) {
+        (0, 0) => return None,
+        (0, k) => format!("{k} {} added", plural(k)),
+        (k, 0) => format!("{k} {} removed", plural(k)),
+        (r, k) => format!("{k} {} added and {r} removed", plural(k)),
+    };
+    Some((phrase, None))
 }
 
 fn value_words(v: &Value, units: Option<&str>) -> String {
@@ -225,8 +234,16 @@ fn value_words(v: &Value, units: Option<&str>) -> String {
         Value::Num(n, NumKind::Length) => length(*n, units),
         Value::Num(n, NumKind::Angle) => format!("{}°", fmt_num(*n)),
         Value::Num(n, _) => fmt_num(*n),
-        Value::Pos(p) | Value::Dir(p) => fmt_point(*p),
+        // Coordinates belong in the details, not in a headline.
+        Value::Pos(_) | Value::Dir(_) => "elsewhere".into(),
     }
+}
+
+/// A changed entity in words: the headline, and detail lines the headline
+/// leaves out (where a corner is, for example).
+pub struct Changed {
+    pub headline: String,
+    pub details: Vec<String>,
 }
 
 /// The headline of a changed entity.
@@ -240,56 +257,87 @@ pub fn changed(
     b_common: &Fields,
     b_shape: &Fields,
     units: Option<&str>,
-) -> String {
-    let differs = |label: &str, x: &Fields, y: &Fields| {
-        let find = |f: &Fields| f.iter().find(|(l, _)| l == label).map(|(_, v)| v.clone());
-        match (find(x), find(y)) {
-            (Some(p), Some(q)) => !tol.value_equal(&p, &q),
-            (p, q) => p.is_some() != q.is_some(),
-        }
+) -> Changed {
+    let find = |f: &Fields, label: &str| f.iter().find(|(l, _)| l == label).map(|(_, v)| v.clone());
+    let differs = |label: &str, x: &Fields, y: &Fields| match (find(x, label), find(y, label)) {
+        (Some(p), Some(q)) => !tol.value_equal(&p, &q),
+        (p, q) => p.is_some() != q.is_some(),
     };
+    let mut details = Vec::new();
     let circle = matches!(a.kind, EntityKind::Circle(_));
+    let dimension = matches!(a.kind, EntityKind::Dimension(_));
     let text_changed = text_of(a).is_some() && differs("text", a_shape, b_shape);
     let radius_changed = differs("radius", a_shape, b_shape);
-    let plain = (circle && radius_changed) || text_changed || radius_changed;
+    // A dimension is described by the value it shows; its points are
+    // details.
+    if dimension && differs("measurement", a_shape, b_shape) {
+        let words =
+            |f: &Fields| find(f, "measurement").map_or("(none)".into(), |v| value_words(&v, units));
+        let mut phrases = vec![format!(
+            "changed from {} to {}",
+            words(a_shape),
+            words(b_shape)
+        )];
+        for (label, va) in a_common {
+            if let Some(vb) = find(b_common, label)
+                && !tol.value_equal(va, &vb)
+            {
+                phrases.push(format!(
+                    "{label} changed from {} to {}",
+                    value_words(va, units),
+                    value_words(&vb, units)
+                ));
+            }
+        }
+        return Changed {
+            headline: format!("Dimension {}", phrases.join("; ")),
+            details,
+        };
+    }
+    let plain = text_changed || radius_changed;
     let mut phrases: Vec<String> = Vec::new();
+    let mut vertex_headline = None;
     if let Some(d) = tol.moved_by(a_shape, b_shape) {
         phrases.push(format!("moved {}", displacement(d, tol.length, units)));
     } else {
         let mut vertex_words = None;
-        if differs("vertex count", a_shape, b_shape) || vertices(a).is_some() {
+        if vertices(a).is_some() {
             vertex_words = vertex_phrase(a, b, tol.length, units);
         }
         let mut seen_vertices = false;
         for (label, va) in a_shape {
-            let Some((_, vb)) = b_shape.iter().find(|(l, _)| l == label) else {
+            let Some(vb) = find(b_shape, label) else {
                 continue;
             };
-            if tol.value_equal(va, vb) || (label == "formatting" && text_changed) {
+            if tol.value_equal(va, &vb) || (label == "formatting" && text_changed) {
                 continue;
             }
             let is_vertex_field = label.starts_with("vertex")
                 || label.starts_with("bulge")
                 || label.starts_with("width ");
-            if is_vertex_field && vertex_words.is_some() {
+            if is_vertex_field && let Some((words, detail)) = &vertex_words {
                 if !seen_vertices {
-                    phrases.push(vertex_words.clone().unwrap_or_default());
+                    phrases.push(words.clone());
+                    details.extend(detail.clone());
+                    vertex_headline = Some(words.clone());
                     seen_vertices = true;
                 }
                 continue;
             }
             let label_s = label.as_ref();
-            phrases.push(match (label_s, va, vb) {
-                ("radius", Value::Num(x, _), Value::Num(y, _)) if circle => format!(
-                    "diameter changed from {} to {}",
-                    length(2.0 * x, units),
-                    length(2.0 * y, units)
-                ),
+            let phrase = match (label_s, va, &vb) {
+                ("radius", Value::Num(x, _), Value::Num(y, _)) if circle => {
+                    format!(
+                        "diameter changed from {} to {}",
+                        length(2.0 * x, units),
+                        length(2.0 * y, units)
+                    )
+                }
                 ("text", _, _) if text_changed => {
                     format!(
                         "changed from {} to {}",
                         value_words(va, units),
-                        value_words(vb, units)
+                        value_words(&vb, units)
                     )
                 }
                 (_, Value::Pos(x), Value::Pos(y)) => format!(
@@ -307,31 +355,55 @@ pub fn changed(
                 _ => format!(
                     "{label_s} changed from {} to {}",
                     value_words(va, units),
-                    value_words(vb, units)
+                    value_words(&vb, units)
                 ),
-            });
+            };
+            // What the entity is first (its size, its text), then where.
+            if label_s == "radius" || label_s == "text" {
+                phrases.insert(0, phrase);
+            } else {
+                phrases.push(phrase);
+            }
         }
-        if !seen_vertices && let Some(w) = vertex_words {
+        if !seen_vertices && let Some((w, detail)) = vertex_words {
+            details.extend(detail);
+            if phrases.is_empty() {
+                vertex_headline = Some(w.clone());
+            }
             phrases.insert(0, w);
         }
     }
     for (label, va) in a_common {
-        let Some((_, vb)) = b_common.iter().find(|(l, _)| l == label) else {
+        let Some(vb) = find(b_common, label) else {
             continue;
         };
-        if !tol.value_equal(va, vb) {
+        if !tol.value_equal(va, &vb) {
             phrases.push(format!(
                 "{label} changed from {} to {}",
                 value_words(va, units),
-                value_words(vb, units)
+                value_words(&vb, units)
             ));
         }
     }
     if phrases.is_empty() {
         phrases.push("changed".into());
     }
+    // A polyline whose only change is a chamfered or rounded corner:
+    // "Corner chamfered 10 × 10 mm".
+    if phrases.len() == 1
+        && let Some(w) = vertex_headline
+        && w.starts_with("corner")
+    {
+        return Changed {
+            headline: sentence(&w),
+            details,
+        };
+    }
     // "Text changed from M12 to M16": the subject already says what changed.
-    format!("{} {}", subject(a, plain), phrases.join("; "))
+    Changed {
+        headline: format!("{} {}", subject(a, plain), phrases.join("; ")),
+        details,
+    }
 }
 
 /// The headline of an added or deleted entity.
@@ -370,6 +442,28 @@ mod tests {
             displacement([0.0, -1.0, 0.0], 1e-9, Some("in")),
             "1 in down"
         );
+    }
+
+    #[test]
+    fn markup_layers_are_named_for_revisions_titles_or_borders() {
+        for yes in [
+            "REV",
+            "rev",
+            "REV-1",
+            "REV_TABLE",
+            "REVISION",
+            "Revisions",
+            "TITLE",
+            "TITLEBLOCK",
+            "BORDER",
+        ] {
+            assert!(is_markup_layer(yes), "{yes}");
+        }
+        for no in [
+            "REVIEW", "REVOLVE", "REVERSE", "PREV", "SUBTITLE", "0", "HOLES",
+        ] {
+            assert!(!is_markup_layer(no), "{no}");
+        }
     }
 
     #[test]
