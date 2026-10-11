@@ -3,6 +3,11 @@
 // (the data its developer tools show):
 //
 //   node tools/web_browser_test.mjs chrome|firefox URL OUTDIR [--click X,Y]... [--wait MS]
+//        [--drop FILE[,FILE]]
+//
+// --drop hands local files to the page through the debugging connection
+// (not over the network) and drops them on the app's canvas, as a user's
+// drag and drop would; requests made after that are reported separately.
 //
 // Chrome is driven over the Chrome DevTools Protocol, Firefox over WebDriver
 // BiDi; each runs in a fresh temporary profile. Clicks are real input
@@ -13,7 +18,7 @@
 // Development only.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -22,9 +27,11 @@ const out = resolve(outArg);
 mkdirSync(join(out, "downloads"), { recursive: true });
 const clicks = [];
 let wait = 12000;
+let drop = [];
 for (let i = 0; i < rest.length; i++) {
   if (rest[i] === "--click") clicks.push(rest[++i].split(",").map(Number));
   if (rest[i] === "--wait") wait = Number(rest[++i]);
+  if (rest[i] === "--drop") drop = rest[++i].split(",");
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const profile = mkdtempSync(join(tmpdir(), `cad-${browser}-`));
@@ -166,6 +173,27 @@ async function firefox() {
 const b = browser === "firefox" ? await firefox() : await chrome();
 try {
   await sleep(wait);
+  let afterDrop = requests.length;
+  if (drop.length) {
+    const files = drop.map((f) => ({ name: f.split("/").pop(), b64: readFileSync(f).toString("base64") }));
+    afterDrop = requests.length;
+    await b.eval(`(() => {
+      const files = ${JSON.stringify(files)}.map((f) => {
+        const bin = atob(f.b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new File([bytes], f.name);
+      });
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      const canvas = document.getElementById("cad_canvas");
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        canvas.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+      }
+      return files.length;
+    })()`);
+    await sleep(8000);
+  }
   await b.shot("shot-0.png");
   let n = 0;
   for (const [x, y] of clicks) {
@@ -183,7 +211,8 @@ try {
   const foreign = requests.filter((r) => !r.url.startsWith(origin) && !r.url.startsWith("blob:") && !r.url.startsWith("data:"));
   const sending = requests.filter((r) => r.method !== "GET" || r.body > 0);
   console.log(JSON.stringify({
-    browser, title, tabs, requests: requests.length, toOtherOrigins: foreign.map((r) => r.url),
+    browser, title, tabs, requests: requests.length,
+    requestsAfterDrop: drop.length ? requests.slice(afterDrop).map((r) => `${r.method} ${r.url}`) : "no drop", toOtherOrigins: foreign.map((r) => r.url),
     nonGetOrWithBody: sending.map((r) => `${r.method} ${r.url}`), report, console: consoleLog.slice(0, 20),
   }, null, 1));
 } finally {
