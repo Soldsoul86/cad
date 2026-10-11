@@ -4,7 +4,7 @@
 //
 //   node tools/web_browser_test.mjs chrome|firefox URL OUTDIR [--click X,Y]... [--wait MS]
 //        [--drop FILE[,FILE]] [--at MS[,MS]...] [--throttle] [--viewport W,H[,DPR[,mobile]]]
-//        [--key KEY]... [--tap X,Y]... [--pick FILE[,FILE]]...
+//        [--key KEY]... [--tap X,Y]... [--pick FILE[,FILE]]... [--step-wait MS]
 //
 // --click, --tap (touch), --key (Tab, Shift+Tab, Enter, Space, Escape,
 // ArrowUp/Down, or one character) and --pick run in the order given, each
@@ -39,6 +39,8 @@ const out = resolve(outArg);
 mkdirSync(join(out, "downloads"), { recursive: true });
 const actions = [];
 let viewport = null;
+// Pause after each action before its screenshot (ms); default per kind.
+let stepWait = null;
 let wait = 12000;
 let drop = [];
 let at = [];
@@ -56,6 +58,7 @@ for (let i = 0; i < rest.length; i++) {
   if (rest[i] === "--drop") drop = rest[++i].split(",");
   if (rest[i] === "--at") at = rest[++i].split(",").map(Number);
   if (rest[i] === "--throttle") throttle = true;
+  if (rest[i] === "--step-wait") stepWait = Number(rest[++i]);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const KEYS = {
@@ -126,6 +129,15 @@ async function connect(wsUrl) {
 
 async function chrome() {
   const port = 9333;
+  // A browser from an earlier run may still hold the port for a moment.
+  for (let i = 0; i < 40; i++) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/json/version`);
+      await sleep(250);
+    } catch {
+      break;
+    }
+  }
   const proc = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
     `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run",
     "--no-default-browser-check", "--window-size=1400,1000", "about:blank",
@@ -232,7 +244,13 @@ async function chrome() {
       await c.send("DOM.setFileInputFiles", { files, nodeId });
     },
     tabs: async () => (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).filter((t) => t.type === "page").map((t) => t.url),
-    close: () => proc.kill(),
+    close: async () => {
+      const exited = new Promise((r) => proc.once("exit", r));
+      // The browser exits before it can answer, so do not wait for one.
+      c.send("Browser.close").catch(() => {});
+      proc.kill();
+      await Promise.race([exited, sleep(5000)]);
+    },
   };
 }
 
@@ -346,7 +364,7 @@ try {
     if (kind === "tap") await b.tap(...arg);
     if (kind === "key") await b.key(arg);
     if (kind === "pick") await b.pick(arg);
-    await sleep(kind === "pick" ? 6000 : kind === "key" ? 800 : 3000);
+    await sleep(stepWait ?? (kind === "pick" ? 6000 : kind === "key" ? 800 : 3000));
     await b.shot(`shot-${++n}.png`);
   }
   const title = await b.eval("document.title");
@@ -364,5 +382,5 @@ try {
     nonGetOrWithBody: sending.map((r) => `${r.method} ${r.url}`), report, console: consoleLog.slice(0, 20),
   }, null, 1));
 } finally {
-  b.close();
+  await b.close();
 }
