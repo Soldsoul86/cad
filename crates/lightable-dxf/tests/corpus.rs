@@ -27,13 +27,33 @@ fn dxf_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Corpus files converted by ODA File Converter, or by LibreDWG from a DWG
+/// that ODA made, are not in the public repository; they are kept in
+/// `tests/corpus-private/converted/` and tested when present.
+fn converted_dir() -> PathBuf {
+    private_corpus_dir().join("converted")
+}
+
+fn have_converted() -> bool {
+    !dxf_files(&converted_dir()).is_empty()
+}
+
+/// The public corpus plus, when present, the converted files.
 fn corpus_files() -> Vec<PathBuf> {
-    dxf_files(&corpus_dir())
+    let mut files = dxf_files(&corpus_dir());
+    files.extend(dxf_files(&converted_dir()));
+    files.sort_by_key(|p| p.file_name().map(|n| n.to_owned()));
+    files
 }
 
 fn load(name: &str) -> (Drawing, Vec<Warning>) {
-    lightable_dxf::read_file(corpus_dir().join(name))
-        .unwrap_or_else(|e| panic!("{name} failed to load: {e}"))
+    let public = corpus_dir().join(name);
+    let path = if public.exists() {
+        public
+    } else {
+        converted_dir().join(name)
+    };
+    lightable_dxf::read_file(&path).unwrap_or_else(|e| panic!("{name} failed to load: {e}"))
 }
 
 fn kinds(d: &Drawing) -> Vec<&str> {
@@ -129,7 +149,10 @@ fn corpus_files_have_no_warnings() {
         }
         checked += 1;
     }
-    assert!(checked >= 196, "only {checked} files");
+    assert!(
+        checked >= if have_converted() { 196 } else { 61 },
+        "only {checked} files"
+    );
     assert!(
         problems.is_empty(),
         "{} warnings:\n{}",
@@ -170,13 +193,20 @@ fn special_characters_decode_the_same_in_every_file() {
         }
         checked += 1;
     }
-    assert!(checked >= 10, "only {checked} files");
+    assert!(
+        checked >= if have_converted() { 10 } else { 2 },
+        "only {checked} files"
+    );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 /// The known-bad list stays accurate: each listed file really has the defect.
 #[test]
 fn libredwg_duplicate_records_are_reported() {
+    if !have_converted() {
+        eprintln!("no converted corpus files; skipping");
+        return;
+    }
     for name in LIBREDWG_DUPLICATE_RECORDS {
         let (_, warnings) = load(name);
         assert!(

@@ -10,15 +10,31 @@ use std::path::PathBuf;
 
 use lightable_dxf::{Drawing, Entity, EntityKind, Version, read_bytes};
 
+/// The public corpus plus, when present, the files converted by ODA File
+/// Converter or LibreDWG, which are kept out of the public repository in
+/// `tests/corpus-private/converted/`.
 fn corpus_files() -> Vec<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "dxf"))
-        .collect();
-    files.sort();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests");
+    let mut files: Vec<PathBuf> = Vec::new();
+    for dir in [root.join("corpus"), root.join("corpus-private/converted")] {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        files.extend(
+            entries
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.extension().is_some_and(|e| e == "dxf")),
+        );
+    }
+    files.sort_by_key(|p| p.file_name().map(|n| n.to_owned()));
     files
+}
+
+/// 63 public files; 198 with the converted ones.
+fn expected_files() -> usize {
+    let converted =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus-private/converted");
+    if converted.exists() { 198 } else { 63 }
 }
 
 fn name(path: &std::path::Path) -> String {
@@ -36,7 +52,7 @@ fn every_corpus_file_saves_back_byte_for_byte() {
         assert!(warnings.is_empty(), "{}: {warnings:?}", name(&path));
         checked += 1;
     }
-    assert!(checked >= 198);
+    assert!(checked >= expected_files(), "only {checked} files");
 }
 
 /// What R2018 output must keep for each entity: everything but handles,

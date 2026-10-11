@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Re-saves each ezdxf source drawing through every installed DXF writer.
 #
-# Usage: tools/convert_corpus.sh SOURCE_DIR OUT_DIR
+# Usage: tools/convert_corpus.sh SOURCE_DIR OUT_DIR [PRIVATE_DIR]
 #
 # SOURCE_DIR holds <drawing>__ezdxf__R2018.dxf files (from gen_sources.py).
 # Outputs are written as OUT_DIR/<drawing>__<tool>__<version>.dxf, and a
 # tab-separated log of every conversion (ok or failed) to OUT_DIR/convert.log.
+# Files written by ODA File Converter, and by LibreDWG from an ODA-made DWG,
+# go to PRIVATE_DIR instead (default: tests/corpus-private/converted next to
+# OUT_DIR), which is git-ignored: they are not part of the public repository.
 #
 # Tools used when present:
 #   oda       ODA File Converter (~/Applications or /Applications)
@@ -15,10 +18,11 @@
 #             experimental), from a DWG 2018 made by ODA
 set -u
 
-SRC=${1:?usage: convert_corpus.sh SOURCE_DIR OUT_DIR}
-OUT=${2:?usage: convert_corpus.sh SOURCE_DIR OUT_DIR}
+SRC=${1:?usage: convert_corpus.sh SOURCE_DIR OUT_DIR [PRIVATE_DIR]}
+OUT=${2:?usage: convert_corpus.sh SOURCE_DIR OUT_DIR [PRIVATE_DIR]}
+PRIVATE=${3:-$(dirname "$OUT")/corpus-private/converted}
 HERE=$(cd "$(dirname "$0")" && pwd)
-mkdir -p "$OUT"
+mkdir -p "$OUT" "$PRIVATE"
 LOG="$OUT/convert.log"
 : > "$LOG"
 TMP=$(mktemp -d)
@@ -38,7 +42,9 @@ sections() { tr -d '\r' < "$1" | awk 'prev == "SECTION" && $1 == "2" { getline; 
 # Accept a converted file only if it is a complete ASCII DXF: starts with a
 # SECTION and ends with EOF (some writers silently stop part-way).
 accept() { # accept TMPFILE DRAWING TOOL VERSION
-    local f=$1 dest="$OUT/$2__$3__$4.dxf"
+    local f=$1 dir=$OUT
+    case $3 in oda | libredwg) dir=$PRIVATE ;; esac
+    local dest="$dir/$2__$3__$4.dxf"
     if [ ! -s "$f" ] || ! head -c 200 "$f" | grep -q 'SECTION'; then
         log "$2" "$3" "$4" "failed: no usable output"
     elif ! tail -c 64 "$f" | tr -d ' \r\n' | grep -q 'EOF$'; then

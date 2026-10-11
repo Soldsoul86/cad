@@ -2,6 +2,11 @@
 
 Usage: python3 tools/write_sources_md.py tests/corpus tests/corpus-private [CONVERT_LOG]
 
+Files converted by ODA File Converter, or by LibreDWG from a DWG that ODA
+made, are kept out of the public repository in tests/corpus-private/converted/;
+they are summarised by count only. Without CONVERT_LOG, the failed-conversion
+list already in SOURCES.md is kept.
+
 File names follow <drawing>__<tool>__<version>.dxf; anything else is a
 hand-written file from tools/gen_corpus.py. The $ACADVER actually in each
 file is read from its header. CONVERT_LOG (from convert_corpus.sh) adds the
@@ -57,7 +62,10 @@ def main():
         "Every drawing here was created for this project: hand-written files by",
         "`tools/gen_corpus.py`, the rest drawn by `tools/gen_sources.py` (ezdxf) and",
         "re-saved by other programs with `tools/convert_corpus.sh`. No third-party",
-        "drawings are included.",
+        "drawings are included. Files re-saved by ODA File Converter, or by LibreDWG",
+        "from a DWG that ODA made, are not in the public repository: they stay in the",
+        "git-ignored `tests/corpus-private/converted/` and the tests use them when",
+        "present.",
         "",
         "Writers:",
         "",
@@ -81,6 +89,25 @@ def main():
                 "```"]
     else:
         out.append("None.")
+    converted = sorted((private / "converted").glob("*.dxf"))
+    out += ["", "## tests/corpus-private/converted (git-ignored, not in the public repository)", ""]
+    if converted:
+        counts = {}
+        for path in converted:
+            parts = path.stem.split("__")
+            tool = parts[1] if len(parts) == 3 else "other"
+            counts[tool] = counts.get(tool, 0) + 1
+        out.append(f"{len(converted)} files, re-saved from the ezdxf sources above by "
+                   + ", ".join(f"{k} ({n})" for k, n in sorted(counts.items()))
+                   + "; regenerate with `tools/convert_corpus.sh`.")
+    else:
+        out.append("None on this machine; regenerate with `tools/convert_corpus.sh`.")
+    previous = corpus / "SOURCES.md"
+    kept = ""
+    if not (log and log.exists()) and previous.exists():
+        text = previous.read_text()
+        at = text.find("\n## Conversions that produced no file")
+        kept = "\n" + text[at:].rstrip("\n") if at >= 0 else ""
     if log and log.exists():
         failed = [l.split("\t") for l in log.read_text().splitlines()
                   if "\t" in l and not l.split("\t")[3].startswith("ok")]
@@ -88,7 +115,7 @@ def main():
             out += ["", "## Conversions that produced no file", "",
                     "| Drawing | Writer | Version | Reason |", "| --- | --- | --- | --- |"]
             out += [f"| {d} | {t} | {v} | {r.replace('|', '/')} |" for d, t, v, r in failed]
-    (corpus / "SOURCES.md").write_text("\n".join(out) + "\n")
+    (corpus / "SOURCES.md").write_text("\n".join(out) + kept + "\n")
 
 
 if __name__ == "__main__":

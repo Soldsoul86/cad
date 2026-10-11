@@ -14,7 +14,7 @@ Open-source 2D drafting app in Rust ([lightable.dev](https://lightable.dev)), bu
 
 ```sh
 cargo test --workspace
-cargo run --release -p lightable -- tests/corpus/floor_plan__oda__R2018.dxf   # viewer
+cargo run --release -p lightable -- tests/corpus/floor_plan__ezdxf__R2018.dxf   # viewer
 cargo run --release -p lightable -- info tests/corpus/ac1015_floor_plan.dxf    # summary
 ```
 
@@ -28,7 +28,7 @@ Browser version: `tools/build_web.sh` (needs `cargo install wasm-bindgen-cli --v
 
 Rendering snapshots live in `tests/snapshots/`; after an intended rendering change, accept new ones with `UPDATE_SNAPSHOTS=1 cargo test -p lightable-render --test snapshots`.
 
-The corpus in `tests/corpus/` is generated: hand-written files by `tools/gen_corpus.py`, the rest by `tools/gen_sources.py` (ezdxf) and re-saved by other CAD tools with `tools/convert_corpus.sh` — see [SOURCES.md](tests/corpus/SOURCES.md) and [COVERAGE.md](tests/corpus/COVERAGE.md). Put DXF files you can't redistribute in `tests/corpus-private/` (git-ignored); the tests load them too.
+The corpus in `tests/corpus/` is generated: hand-written files by `tools/gen_corpus.py`, the rest by `tools/gen_sources.py` (ezdxf) and re-saved by other CAD tools with `tools/convert_corpus.sh` — see [SOURCES.md](tests/corpus/SOURCES.md) and [COVERAGE.md](tests/corpus/COVERAGE.md). Put DXF files you can't redistribute in `tests/corpus-private/` (git-ignored); the tests load them too. Files re-saved by ODA File Converter (and LibreDWG's, made from an ODA DWG) live in `tests/corpus-private/converted/` and are not part of the public repository; `tools/convert_corpus.sh` writes them there.
 
 ## Licence
 
