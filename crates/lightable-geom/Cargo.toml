@@ -13,7 +13,7 @@ keywords = ["geometry", "cad", "nurbs", "transform", "triangulation"]
 categories = ["mathematics", "graphics"]
 # Only what users of the library need: the tests, benchmarks and fuzz
 # targets read the repository's test files and stay in the repository.
-include = ["src/**/*", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["/src/**/*", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 publish = true
 
 [dependencies]
