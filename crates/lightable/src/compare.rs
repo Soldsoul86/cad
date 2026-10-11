@@ -285,11 +285,30 @@ impl Compare {
         self.diff.changes.get(i).map_or("", |c| c.headline.as_str())
     }
 
-    /// Where the revision cloud is, if the changes include one.
+    /// Where the revision cloud is, if the changes include one, with the
+    /// revision markup right next to it (the revision triangle and its
+    /// letter), so a zoom shows the whole callout.
     pub fn cloud_bounds(&self) -> Option<Bounds> {
-        let c = self.diff.changes.iter().find(|c| c.revision_cloud)?;
+        let cloud = self.diff.changes.iter().find(|c| c.revision_cloud)?;
+        let mut b = cloud.bounds?;
+        let size = b.size();
+        let reach = 0.5 * size[0].max(size[1]);
+        let near = Bounds {
+            min: [b.min[0] - reach, b.min[1] - reach],
+            max: [b.max[0] + reach, b.max[1] + reach],
+        };
+        for c in &self.diff.changes {
+            if let Some(m) = c.bounds.filter(|_| c.markup && !c.revision_cloud) {
+                let centre = [(m.min[0] + m.max[0]) / 2.0, (m.min[1] + m.max[1]) / 2.0];
+                if (near.min[0]..=near.max[0]).contains(&centre[0])
+                    && (near.min[1]..=near.max[1]).contains(&centre[1])
+                {
+                    b.union(&m);
+                }
+            }
+        }
         // The cloud and a little around it.
-        Some(dview::zoom_box(c.bounds?, self.extent, 0.2))
+        Some(dview::zoom_box(b, self.extent, 0.2))
     }
 
     /// The built-in example's note on how it was drawn ("Example: the
@@ -1085,6 +1104,33 @@ mod tests {
         assert!(picks[0].starts_with("Circle diameter changed from 13.5 mm to 17.5 mm"));
         assert!(picks[1].starts_with("Dimension changed from"));
         assert_eq!(picks[2], "Text changed from 4x Ø13.5 THRU to 4x Ø17.5 THRU");
+    }
+
+    /// The cloud zoom takes in the revision triangle beside the cloud (the
+    /// 9:16 demo clipped it).
+    #[test]
+    fn the_cloud_zoom_includes_the_revision_triangle() {
+        let c = example("bracket");
+        let zoom = c.cloud_bounds().unwrap();
+        let triangle = c
+            .diff
+            .changes
+            .iter()
+            .filter(|x| x.markup && x.layer() == "REVISION" && !x.revision_cloud)
+            .filter_map(|x| x.bounds)
+            .collect::<Vec<_>>();
+        assert_eq!(triangle.len(), 2, "triangle and its letter");
+        for t in triangle {
+            assert!(
+                zoom.min[0] <= t.min[0]
+                    && zoom.max[0] >= t.max[0]
+                    && zoom.min[1] <= t.min[1]
+                    && zoom.max[1] >= t.max[1],
+                "{t:?} outside {zoom:?}"
+            );
+        }
+        // The title block is far away and stays out.
+        assert!(zoom.max[0] < 187.0, "{zoom:?}");
     }
 
     #[test]

@@ -133,7 +133,7 @@ demo timing 2; changed: plan headlines, cloud/no-coordinates checks).
 | U2 | Fixed | Portrait: list under the drawing (35 %), toolbar in rows, summary wraps | `after-phone-portrait.jpg`, `after-phone-portrait-next.jpg`, `after-phone-portrait-firefox.jpg` |
 | U3 | Fixed | A window says what the file is and what to do; reader message under "Details", cleaned | `after-error-dwg.jpg`, `after-error-pdf.jpg`, `after-error-not-a-drawing.jpg`, `after-error-empty.jpg` |
 | U4 | Fixed | Cut-off DXF refused with an explanation | `after-truncated-refused.jpg` |
-| U5 | Fixed | Earlier file first by date (then name); "Before: … → After: …" with Swap | `after-order-and-swap.jpg` (newer file chosen first, put second) |
+| U5 | Fixed | Revision markers in names first (Rev B, _C, r2, v3), then dates; if they disagree or say nothing, the user chooses; "Before: … → After: …" with Swap | `after-order-by-name.jpg` (part_C chosen first, put second), `after-order-ask.jpg` (no clue) |
 | U6 | Fixed | One file: name, "To compare, choose (or drop) the other revision."; statistics in a tooltip; the next file is compared with it | `after-one-file.jpg`, `after-one-file-then-other.jpg` |
 | U7 | Fixed | Picker reads "Examples" for the user's own files | `after-order-and-swap.jpg` |
 | U8 | Fixed | "You chose the same file twice (both files have identical content)…" | `after-same-file-twice.jpg` |
@@ -182,14 +182,14 @@ the comparison. Script: `docs/demo/demo-script.md`.
 - **Phone layout is usable, not designed for phones:** the drawing area in
   portrait is about a third of the screen; tooltips (which hold some
   secondary help) never show on touch; the list's resize handle is small.
-- **Ordering by date trusts file dates:** files copied or downloaded may all
-  carry the copy time; then the name decides. Swap is always one tap away.
+- **Ordering trusts names and dates:** markers are read from common
+  patterns only; copied or downloaded files may all carry the copy time.
+  When the clues disagree or are missing the user is asked; Swap is always
+  one tap away.
 - **Errors are detected from the first bytes and the reader's result**: a
   DWG renamed to .dxf is still recognised; a corrupt DXF that parses (but
   is wrong) is not.
 - **"Almost nothing in common"** is a threshold (fewer than 1 in 10 matched),
   not an understanding of the drawings.
-- **9:16 demo:** in the cloud step the half-width panes cut the revision
-  triangle at the right edge; the clouded note itself is visible.
 - **Safari not tested** (no automation access on this Mac); phone checks are
   emulated, not on real devices.

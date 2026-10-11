@@ -905,13 +905,17 @@ From the audit in `docs/ux/audit.md` (issues U1–U20, deferred D1–D4).
    (`files::listen`). Phones can now open files. The native app keeps drag
    and drop and the command line (a dialog would need a new dependency;
    deferred).
-2. **Which file is before.** Two files that arrive together (chosen or
-   dropped) are put in revision order: the earlier last-modified date
-   first; with no dates or equal dates, by name with numbers compared as
-   numbers ("rev 9" before "rev 10"). The command line keeps its order. The
-   summary shows "Before: a.dxf → After: b.dxf" with a Swap button for the
-   user's own files. One file opens on its own; the next single file is
-   compared with it.
+2. **Which file is before.** For two files that arrive together (chosen or
+   dropped): first the revision markers in the file names ("Rev B",
+   "RevC", "rev-c", "_B", "-C", "r2", "v3", "Rev 10"; letters compared as
+   letters, numbers as numbers), then the files' last-modified dates. If
+   the names and dates disagree, or neither says anything (no markers, or
+   markers of different kinds, and no or equal dates), the user chooses in
+   a window with two buttons ("a.dxf is Before" / "b.dxf is Before"). The
+   command line keeps its order. The summary shows "Before: a.dxf → After:
+   b.dxf" with a Swap button for the user's own files. One file opens on
+   its own; the next single file is compared with it. (Replaces ordering
+   by date, then by name.)
 3. **Files that cannot be used** get a window with a heading, what to do
    next in plain words, and the reader's own message under "Details",
    clipped and with control characters removed (`intake.rs`, tested): DWG
@@ -951,7 +955,9 @@ From the audit in `docs/ux/audit.md` (issues U1–U20, deferred D1–D4).
     the bottom of the drawing area. The selection frame is 2–6 points with
     a dark halo. `?demo&format=landscape` and `?demo&format=vertical` fix
     the canvas to 16:9 or 9:16 for recording (the layout follows: the
-    vertical frame stacks the list under the drawing).
+    vertical frame stacks the list under the drawing). The cloud zoom takes
+    in the revision markup next to the cloud (triangle and letter), so the
+    narrow 9:16 panes show the whole callout.
 
 ## Rules for M5 (decided before M5)
 

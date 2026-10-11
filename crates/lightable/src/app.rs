@@ -205,6 +205,14 @@ pub struct CadApp {
     to_read: Option<(Vec<crate::files::Arrived>, bool, u8)>,
     /// A file that could not be used, shown in its own window.
     problem: Option<crate::intake::Problem>,
+    /// Two files waiting for the user to say which is the earlier: the
+    /// files and whether their contents are identical.
+    #[allow(clippy::type_complexity)]
+    ask_order: Option<(
+        (String, Arc<lightable_dxf::Drawing>),
+        (String, Arc<lightable_dxf::Drawing>),
+        bool,
+    )>,
     compare: Option<Compare>,
     /// Start compare views side by side (`--side`).
     side_by_side: bool,
@@ -297,6 +305,7 @@ impl CadApp {
             incoming,
             to_read: None,
             problem: None,
+            ask_order: None,
             compare: None,
             side_by_side,
             report_and_quit,
@@ -415,6 +424,60 @@ impl CadApp {
         }
     }
 
+    /// Compares two files the user handed over, `a` as the earlier.
+    fn compare_files(
+        &mut self,
+        gl: Option<&Arc<glow::Context>>,
+        a: (String, Arc<lightable_dxf::Drawing>),
+        b: (String, Arc<lightable_dxf::Drawing>),
+        same: bool,
+    ) {
+        self.start_compare(gl, a, b, None, None);
+        if let Some(c) = &mut self.compare {
+            c.notes = crate::intake::notes(same, c.diff());
+        }
+    }
+
+    /// Two files whose names and dates do not say which came first: the
+    /// user picks the earlier one.
+    fn order_window(&mut self, ui: &mut egui::Ui, gl: Option<&Arc<glow::Context>>) {
+        let Some((a, b, same)) = self.ask_order.take() else {
+            return;
+        };
+        let (na, nb) = (
+            crate::intake::short(&a.0).to_owned(),
+            crate::intake::short(&b.0).to_owned(),
+        );
+        let mut choice = None;
+        let width = (ui.ctx().content_rect().width() - 32.0).clamp(240.0, 480.0);
+        let modal = egui::Modal::new(egui::Id::new("order")).show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            ui.heading("Which file is the earlier revision?");
+            ui.add_space(6.0);
+            ui.add(
+                egui::Label::new(
+                    "The file names and dates do not say clearly which came first. \
+                     Choose the one to compare from (Before); you can swap them later.",
+                )
+                .wrap(),
+            );
+            ui.add_space(10.0);
+            if ui.button(format!("{na} is Before")).clicked() {
+                choice = Some(true);
+            }
+            if ui.button(format!("{nb} is Before")).clicked() {
+                choice = Some(false);
+            }
+        });
+        match choice {
+            Some(true) => self.compare_files(gl, a, b, same),
+            Some(false) => self.compare_files(gl, b, a, same),
+            // Closing without a choice cancels; the open view stays.
+            None if modal.should_close() => {}
+            None => self.ask_order = Some((a, b, same)),
+        }
+    }
+
     /// Shows "Reading…" now and reads `files` a frame later, so the
     /// message is on screen while a big file is parsed.
     fn stage(&mut self, files: Vec<crate::files::Arrived>, reorder: bool) {
@@ -479,23 +542,19 @@ impl CadApp {
             }
         }
         if read.len() == 2 {
-            if reorder {
-                let mut order: Vec<(String, usize, Option<f64>)> = read
-                    .iter()
-                    .enumerate()
-                    .map(|(i, r)| (r.0.clone(), i, r.2))
-                    .collect();
-                if intake::earlier_first(&mut order) {
-                    read.swap(0, 1);
-                }
-            }
             let same = read[0].3 == read[1].3;
+            let order = if reorder {
+                intake::revision_order((&read[0].0, read[0].2), (&read[1].0, read[1].2))
+            } else {
+                intake::Order::AsGiven
+            };
             let b = read.pop().map(|r| (r.0, r.1));
             let a = read.pop().map(|r| (r.0, r.1));
             if let (Some(a), Some(b)) = (a, b) {
-                self.start_compare(gl, a, b, None, None);
-                if let Some(c) = &mut self.compare {
-                    c.notes = intake::notes(same, c.diff());
+                match order {
+                    intake::Order::AsGiven => self.compare_files(gl, a, b, same),
+                    intake::Order::Swapped => self.compare_files(gl, b, a, same),
+                    intake::Order::Ask => self.ask_order = Some((a, b, same)),
                 }
             }
             return;
@@ -1103,10 +1162,12 @@ impl eframe::App for CadApp {
         if let Some(c) = &self.compare
             && self.demo.is_none()
             && self.problem.is_none()
+            && self.ask_order.is_none()
         {
             c.hints(ui.ctx());
         }
         self.problem_window(ui, gl.as_ref());
+        self.order_window(ui, gl.as_ref());
         self.overlays(ui);
 
         #[cfg(not(target_arch = "wasm32"))]

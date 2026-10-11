@@ -3,7 +3,7 @@
 ## UX pass (unreleased)
 
 - Web: "Choose files…" opens the file dialog (phones can open files now); "Files are read in this browser, never uploaded." beside it.
-- The earlier file (by date, then name) is "before"; "Before: a.dxf → After: b.dxf" with Swap. One file opens on its own and the next is compared with it.
+- Which file is "before": revision markers in the names (Rev B, RevC, _B, -C, r2, v3), then file dates; when they disagree or say nothing, a two-button choice. "Before: a.dxf → After: b.dxf" with Swap. One file opens on its own and the next is compared with it.
 - Plain-language windows for files that cannot be used (DWG with how to save as DXF, PDF, pictures, ZIP, empty, binary DXF, not a DXF); cut-off DXF files are refused instead of compared; notes for the same file twice and for unrelated drawings; "Reading … (50 MB)…" while a big file is read.
 - Phones and narrow windows: list under the drawing in portrait, beside it in landscape, wrapping toolbar, summary and headlines; hints only where they fit.
 - Added changes are blue (colour-blind safe with red and yellow); bright keyboard focus outline; P for previous change.

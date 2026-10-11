@@ -122,47 +122,114 @@ pub fn incomplete(name: &str, warnings: &[Warning]) -> Option<Problem> {
     ))
 }
 
-/// Puts two files in revision order: the one changed earlier first; with
-/// no dates or equal dates, by name ("rev-a" before "rev-b"). Returns
-/// whether the order was changed.
-pub fn earlier_first<T>(files: &mut [(String, T, Option<f64>)]) -> bool {
-    if files.len() != 2 {
-        return false;
-    }
-    let swap = match (files[0].2, files[1].2) {
-        (Some(a), Some(b)) if a != b => a > b,
-        _ => natural_gt(short(&files[0].0), short(&files[1].0)),
-    };
-    if swap {
-        files.swap(0, 1);
-    }
-    swap
+/// A revision marker read from a file name: a letter revision ("Rev B",
+/// "RevC", "_B", "-C") or a numbered one ("r2", "v3", "Rev 10").
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Marker {
+    Letters(String),
+    Number(u32),
 }
 
-/// Name order with numbers compared as numbers ("rev 9" before "rev 10").
-fn natural_gt(a: &str, b: &str) -> bool {
-    fn key(s: &str) -> Vec<(u8, u64, String)> {
-        let mut out = Vec::new();
-        let mut chars = s.chars().peekable();
-        while let Some(&c) = chars.peek() {
-            let mut part = String::new();
-            let digits = c.is_ascii_digit();
-            while let Some(&d) = chars.peek() {
-                if d.is_ascii_digit() != digits {
-                    break;
-                }
-                part.push(d.to_ascii_lowercase());
-                chars.next();
+/// The revision marker at the end of a file name, if it has one:
+/// `rev`/`revision` followed by letters or a number ("Rev B", "RevC",
+/// "rev-c", "REV_02"), a single letter after a separator ("_B", "-C",
+/// " D"), or `r`/`v` with a number ("r2", "v3"). Case is ignored.
+pub fn marker(name: &str) -> Option<Marker> {
+    let file = short(name);
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    // Words split at separators and at letter/digit boundaries.
+    let mut tokens: Vec<String> = Vec::new();
+    for word in stem.split(['-', '_', ' ', '.']) {
+        let mut current = String::new();
+        for ch in word.chars() {
+            if !current.is_empty()
+                && current.chars().last().is_some_and(|l| l.is_ascii_digit()) != ch.is_ascii_digit()
+            {
+                tokens.push(std::mem::take(&mut current));
             }
-            if digits {
-                out.push((0, part.parse().unwrap_or(u64::MAX), String::new()));
-            } else {
-                out.push((1, 0, part));
+            current.push(ch.to_ascii_uppercase());
+        }
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+    }
+    let letters =
+        |t: &str| (1..=2).contains(&t.len()) && t.chars().all(|c| c.is_ascii_alphabetic());
+    let number = |t: &str| t.len() <= 4 && t.chars().all(|c| c.is_ascii_digit());
+    let as_marker = |t: &str| {
+        if number(t) {
+            t.parse().ok().map(Marker::Number)
+        } else if letters(t) {
+            Some(Marker::Letters(t.to_owned()))
+        } else {
+            None
+        }
+    };
+    let n = tokens.len();
+    // "REV B", "REVC", "REVISION 3": the last such pair wins.
+    for i in (0..n).rev() {
+        let t = tokens[i].as_str();
+        if let Some(rest) = t.strip_prefix("REVISION").or_else(|| t.strip_prefix("REV")) {
+            if !rest.is_empty() {
+                if let Some(m) = as_marker(rest) {
+                    return Some(m);
+                }
+            } else if let Some(m) = tokens.get(i + 1).and_then(|next| as_marker(next)) {
+                return Some(m);
             }
         }
-        out
     }
-    key(a) > key(b)
+    let last = tokens.last()?;
+    // "r2", "v3" (split into "R", "2").
+    if n >= 2 && number(last) && matches!(tokens[n - 2].as_str(), "R" | "V") {
+        return last.parse().ok().map(Marker::Number);
+    }
+    // "_B", "-C": a single letter after a separator, ending the name.
+    let separated = stem.len() > 1 && stem[..stem.len() - 1].ends_with(['-', '_', ' ']);
+    if n >= 2 && last.len() == 1 && letters(last) && separated {
+        return Some(Marker::Letters(last.clone()));
+    }
+    None
+}
+
+/// Which of two files (in the order given) is the earlier revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    /// The first file is the earlier.
+    AsGiven,
+    /// The second file is the earlier.
+    Swapped,
+    /// No clue, or the clues disagree: ask the user.
+    Ask,
+}
+
+/// Decides the revision order from the names' revision markers first and
+/// the files' dates second. When the two disagree, or neither says
+/// anything, the user is asked.
+pub fn revision_order(a: (&str, Option<f64>), b: (&str, Option<f64>)) -> Order {
+    let by_name = match (marker(a.0), marker(b.0)) {
+        (Some(x), Some(y))
+            if std::mem::discriminant(&x) == std::mem::discriminant(&y) && x != y =>
+        {
+            Some(x < y)
+        }
+        _ => None,
+    };
+    let by_date = match (a.1, b.1) {
+        (Some(x), Some(y)) if x != y => Some(x < y),
+        _ => None,
+    };
+    let first_is_earlier = match (by_name, by_date) {
+        (Some(n), Some(d)) if n != d => return Order::Ask,
+        (Some(n), _) => n,
+        (None, Some(d)) => d,
+        (None, None) => return Order::Ask,
+    };
+    if first_is_earlier {
+        Order::AsGiven
+    } else {
+        Order::Swapped
+    }
 }
 
 /// Notes on a comparison that is probably not what the user meant.
@@ -262,29 +329,80 @@ mod tests {
     }
 
     #[test]
-    fn the_earlier_revision_comes_first() {
-        let mut by_date = [
-            ("b.dxf".to_owned(), (), Some(5.0)),
-            ("a.dxf".to_owned(), (), Some(9.0)),
-        ];
-        assert!(!earlier_first(&mut by_date));
-        let mut newer_first = [
-            ("old.dxf".to_owned(), (), Some(9.0)),
-            ("new.dxf".to_owned(), (), Some(5.0)),
-        ];
-        assert!(earlier_first(&mut newer_first));
-        assert_eq!(newer_first[0].0, "new.dxf");
-        let mut by_name = [
-            ("x/rev 10.dxf".to_owned(), (), None),
-            ("x/rev 9.dxf".to_owned(), (), None),
-        ];
-        assert!(earlier_first(&mut by_name));
-        assert_eq!(by_name[0].0, "x/rev 9.dxf");
-        let mut same_date = [
-            ("Rev-B.dxf".to_owned(), (), Some(1.0)),
-            ("rev-a.dxf".to_owned(), (), Some(1.0)),
-        ];
-        assert!(earlier_first(&mut same_date));
+    fn revision_markers_in_file_names() {
+        let l = |s: &str| Some(Marker::Letters(s.into()));
+        let n = |v: u32| Some(Marker::Number(v));
+        for (name, want) in [
+            ("bracket Rev B.dxf", l("B")),
+            ("bracket RevC.dxf", l("C")),
+            ("bracket-rev-c.dxf", l("C")),
+            ("LT-0042_REV_AB.dxf", l("AB")),
+            ("plan REV 10.dxf", n(10)),
+            ("plan_rev02.dxf", n(2)),
+            ("Plan Revision 3.dxf", n(3)),
+            ("part_B.dxf", l("B")),
+            ("part-C.DXF", l("C")),
+            ("folder/part D.dxf", l("D")),
+            ("plan r2.dxf", n(2)),
+            ("plan_v3.dxf", n(3)),
+            ("plan-V12.dxf", n(12)),
+            ("plan_A3.dxf", None),
+            ("drawing.dxf", None),
+            ("old-rev.dxf", None),
+            ("part-2.dxf", None),
+            ("bracket.dxf", None),
+            ("A.dxf", None),
+            ("review.dxf", None),
+        ] {
+            assert_eq!(marker(name), want, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_name_decides_then_the_date_and_otherwise_the_user() {
+        use Order::*;
+        // Names say B before C, whatever the order given.
+        assert_eq!(
+            revision_order(("x Rev B.dxf", None), ("x Rev C.dxf", None)),
+            AsGiven
+        );
+        assert_eq!(
+            revision_order(("x_C.dxf", None), ("x_B.dxf", None)),
+            Swapped
+        );
+        assert_eq!(
+            revision_order(("p r10.dxf", None), ("p r9.dxf", None)),
+            Swapped
+        );
+        // Names and dates agree.
+        assert_eq!(
+            revision_order(("x-rev-b.dxf", Some(1.0)), ("x-rev-c.dxf", Some(2.0))),
+            AsGiven
+        );
+        // No markers: the dates decide.
+        assert_eq!(
+            revision_order(("new.dxf", Some(9.0)), ("old.dxf", Some(5.0))),
+            Swapped
+        );
+        // Names and dates disagree: ask.
+        assert_eq!(
+            revision_order(("x-rev-b.dxf", Some(9.0)), ("x-rev-c.dxf", Some(5.0))),
+            Ask
+        );
+        // Nothing to go on, or markers of different kinds: ask.
+        assert_eq!(revision_order(("one.dxf", None), ("two.dxf", None)), Ask);
+        assert_eq!(
+            revision_order(("one.dxf", Some(1.0)), ("two.dxf", Some(1.0))),
+            Ask
+        );
+        assert_eq!(
+            revision_order(("x Rev B.dxf", None), ("x r2.dxf", None)),
+            Ask
+        );
+        assert_eq!(
+            revision_order(("x Rev B.dxf", None), ("x Rev B (copy).dxf", None)),
+            Ask
+        );
     }
 
     #[test]
