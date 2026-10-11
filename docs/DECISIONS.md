@@ -689,6 +689,34 @@ Also settled:
    undocumented public items, mostly struct fields; the crate and module
    docs and README cover how to use it.
 
+## Public repository
+
+1. **`lightable-dxf` documents every public item** and enforces it with
+   `#![warn(missing_docs)]` (an error in CI, where warnings are errors);
+   docs build with `RUSTDOCFLAGS=-D warnings`.
+2. **No ODA output in the public repository.** The 89 corpus files re-saved
+   by ODA File Converter, and the 46 LibreDWG files (LibreDWG converted them
+   from a DWG that ODA made, so they derive from ODA output too), with
+   their 135 SVG snapshots, live in the git-ignored
+   `tests/corpus-private/converted/` (snapshots in `snapshots/` there).
+   The corpus, round-trip and snapshot tests always run the 63 public files
+   (hand-written, ezdxf and FreeCAD) and also the converted ones when
+   present, with the stronger counts (198 files) only then; CI runs without
+   them. `tools/convert_corpus.sh` writes ODA and LibreDWG output there,
+   and SOURCES.md lists the public files and only counts the converted
+   ones. The tests that check LibreDWG's duplicate records run only
+   locally now.
+3. **The public repository `lightable-dev/lightable` starts with a fresh
+   history:** one commit of the current tree, made from `git archive`
+   (tracked files only, so nothing git-ignored can slip in), with no
+   earlier commits, so no ODA file exists in any public commit.
+   `Soldsoul86/cad` stays the private full history. The commit uses the
+   GitHub no-reply address as author, so no personal email address is
+   published.
+4. **GitHub Pages:** `.github/workflows/pages.yml` builds the browser
+   version with `tools/build_web.sh` and deploys it, with a `CNAME` of
+   `lightable.dev`; it runs only in the public repository.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

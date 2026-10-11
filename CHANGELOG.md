@@ -1,5 +1,11 @@
 # Changelog
 
+## Public repository (unreleased)
+
+- `lightable-dxf`: every public item documented; `missing_docs` enforced.
+- ODA- and LibreDWG-converted corpus files moved out of the repository (to the git-ignored `tests/corpus-private/converted/`); tests and CI pass with the 63 public files.
+- GitHub Pages workflow for the browser version at lightable.dev.
+
 ## Rename to Lightable (unreleased)
 
 - Crates renamed to `lightable-dxf`, `lightable-geom`, `lightable-diff`, `lightable-render`, `lightable-core` and the app `lightable`; the app is called Lightable.
