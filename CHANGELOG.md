@@ -1,5 +1,15 @@
 # Changelog
 
+## Demo refinement (unreleased)
+
+- The bracket example is now one engineering change (bolts M12 → M16) with its real consequences: clearance holes Ø13.5 → Ø17.5 (ISO 273) moved 5 mm inward for edge distance (EN 1993-1-8), the hole callout, the bolt note and four dimensions. The revision cloud surrounds only the bolt note. An expected-change inventory, written before comparing, is checked by a test both ways.
+- Dimensions are compared by their measurement ("Dimension changed from 20 mm to 25 mm"), computed from the definition points when the file does not store it.
+- Revision-markup layers: exactly REV, or starting with REV-, REV_, REVISION, TITLE or BORDER (REVIEW, REVOLVE and the like no longer count).
+- Headlines contain no coordinates ("Corner chamfered 10 × 10 mm"); coordinates are in the details.
+- Demo script rewritten around a pre-release review; every number and headline in it is computed from the comparison (`docs/demo/`).
+- Web: an instant preview of the example overlay (`web/preview.svg`, made by the comparison) while the app loads; a size-optimised wasm build (`wasm-release` profile, wasm-opt).
+- `lightable diff A B --svg OUT` writes the overlay as SVG.
+
 ## First-run experience (unreleased)
 
 - The app opens on a comparison: a new default example, a steel bracket drawing Rev B → Rev C with exactly 4 design changes, a revision cloud and a title block; the floor plan stays as a second example in an example picker.

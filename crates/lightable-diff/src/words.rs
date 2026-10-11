@@ -239,6 +239,21 @@ fn value_words(v: &Value, units: Option<&str>) -> String {
     }
 }
 
+/// "color changed from 8 to 6"; a position or direction just "changed"
+/// (its coordinates are in the details).
+fn from_to(label: &str, a: &Value, b: &Value, units: Option<&str>) -> String {
+    match (a, b) {
+        (Value::Pos(_) | Value::Dir(_), _) | (_, Value::Pos(_) | Value::Dir(_)) => {
+            format!("{label} changed")
+        }
+        _ => format!(
+            "{label} changed from {} to {}",
+            value_words(a, units),
+            value_words(b, units)
+        ),
+    }
+}
+
 /// A changed entity in words: the headline, and detail lines the headline
 /// leaves out (where a corner is, for example).
 pub struct Changed {
@@ -282,11 +297,7 @@ pub fn changed(
             if let Some(vb) = find(b_common, label)
                 && !tol.value_equal(va, &vb)
             {
-                phrases.push(format!(
-                    "{label} changed from {} to {}",
-                    value_words(va, units),
-                    value_words(&vb, units)
-                ));
+                phrases.push(from_to(label, va, &vb, units));
             }
         }
         return Changed {
@@ -352,11 +363,7 @@ pub fn changed(
                 ) => {
                     format!("{label_s} changed")
                 }
-                _ => format!(
-                    "{label_s} changed from {} to {}",
-                    value_words(va, units),
-                    value_words(&vb, units)
-                ),
+                _ => from_to(label_s, va, &vb, units),
             };
             // What the entity is first (its size, its text), then where.
             if label_s == "radius" || label_s == "text" {
@@ -378,11 +385,7 @@ pub fn changed(
             continue;
         };
         if !tol.value_equal(va, &vb) {
-            phrases.push(format!(
-                "{label} changed from {} to {}",
-                value_words(va, units),
-                value_words(&vb, units)
-            ));
+            phrases.push(from_to(label, va, &vb, units));
         }
     }
     if phrases.is_empty() {

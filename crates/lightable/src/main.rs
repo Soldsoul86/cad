@@ -7,7 +7,8 @@
 //!     lightable convert IN.dxf OUT.dxf r12|r2018 write as R12 or R2018
 //!     lightable generate IN.dxf OUT.dxf r12|r2018 always regenerate (never reuse bytes)
 //!     lightable save IN.dxf OUT.dxf              save back (unchanged = identical)
-//!     lightable diff A.dxf B.dxf [--json OUT]    list changes from A to B
+//!     lightable diff A.dxf B.dxf [--json OUT | --svg OUT]  list changes from A to B
+//!                                                (--svg: the overlay as SVG)
 //!     lightable --diff A.dxf B.dxf [--side]      compare A and B in the viewer
 //!     lightable --example [bracket|plan] [--side]  compare a built-in example
 //!     lightable --demo                          play the 30-second demo
@@ -45,6 +46,13 @@ mod cli {
             lightable_dxf::read_file(path).map_err(|e| format!("{path}: {e}"))?;
         print_warnings(path, &warnings);
         Ok(drawing)
+    }
+
+    /// The overlay of two drawings as SVG, made by the comparison itself.
+    fn overlay_svg(a: &Drawing, b: &Drawing) -> String {
+        let diff = lightable_diff::diff(a, b, &lightable_diff::DiffOptions::default());
+        let (sa, sb) = (lightable_render::build(a), lightable_render::build(b));
+        lightable_render::svg::to_svg(&lightable_diff::view::overlay(&sa, &sb, &diff), None)
     }
 
     /// Runs a command-line command; `None` if `args` are not one.
@@ -101,6 +109,8 @@ mod cli {
                     [flag, out] if flag == "--json" => {
                         std::fs::write(out, diff.to_json(a, b)).map_err(|e| format!("{out}: {e}"))
                     }
+                    [flag, out] if flag == "--svg" => std::fs::write(out, overlay_svg(&da, &db))
+                        .map_err(|e| format!("{out}: {e}")),
                     [flag, _] => Err(format!("unknown option {flag}")),
                     _ => Ok(()),
                 }

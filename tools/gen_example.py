@@ -144,14 +144,14 @@ def bracket():
     text("B", 190, 47.5, 2.5, "TITLE")
     text("FIRST ISSUE", 200, 47.5, 2.5, "TITLE")
 
-    # The part.
-    msp.add_lwpolyline([(40, 60), (200, 60), (200, 160), (40, 160)], close=True, dxfattribs={"layer": "OUTLINE"})
+    # The part, clear of the title block and revision table.
+    msp.add_lwpolyline([(25, 80), (185, 80), (185, 180), (25, 180)], close=True, dxfattribs={"layer": "OUTLINE"})
     e["holes"] = [msp.add_circle(c, 6.75, dxfattribs={"layer": "HOLES"})
-                  for c in [(60, 80), (180, 80), (180, 140), (60, 140)]]
-    e["callout"] = text("4x Ø13.5 THRU", 72, 68, 3, "NOTES")
-    e["bolts"] = text("BOLTS: 4x M12 ISO 4017 - 8.8", 40, 34, 3, "NOTES")
-    text("GENERAL TOLERANCES ISO 2768-m", 40, 27, 2.5, "NOTES")
-    text("BREAK ALL SHARP EDGES", 40, 21, 2.5, "NOTES")
+                  for c in [(45, 100), (165, 100), (165, 160), (45, 160)]]
+    e["callout"] = text("4x Ø13.5 THRU", 57, 88, 3, "NOTES")
+    e["bolts"] = text("BOLTS: 4x M12 ISO 4017 - 8.8", 25, 34, 3, "NOTES")
+    text("GENERAL TOLERANCES ISO 2768-m", 25, 27, 2.5, "NOTES")
+    text("BREAK ALL SHARP EDGES", 25, 21, 2.5, "NOTES")
 
     # Dimensions: readable at 1:1 (3.5 mm text, 3 mm arrows), lengths as
     # drawn (the EZDXF style otherwise scales them by 100).
@@ -163,13 +163,13 @@ def bracket():
         d.render()
         return d.dimension
 
-    dim((40, 48), (40, 60), (200, 60))                 # overall width 160
-    dim((24, 60), (40, 60), (40, 160), angle=90)       # overall height 100
+    dim((25, 66), (25, 80), (185, 80))                 # overall width 160
+    dim((11, 80), (25, 80), (25, 180), angle=90)       # overall height 100
     e["dims"] = {
-        "top_edge": dim((40, 172), (40, 160), (60, 140)),             # 20
-        "top_pitch": dim((40, 172), (60, 140), (180, 140)),           # 120
-        "right_edge": dim((212, 60), (200, 160), (180, 140), angle=90),  # 20
-        "right_pitch": dim((212, 60), (180, 140), (180, 80), angle=90),  # 60
+        "top_edge": dim((25, 192), (25, 180), (45, 160)),             # 20
+        "top_pitch": dim((25, 192), (45, 160), (165, 160)),           # 120
+        "right_edge": dim((197, 80), (185, 180), (165, 160), angle=90),  # 20
+        "right_pitch": dim((197, 80), (165, 160), (165, 100), angle=90),  # 60
     }
     return doc, e
 
@@ -180,13 +180,13 @@ def bracket_rev_c(doc, e):
     1.2 d0 = 21 mm); callout, bolt note and dimensions follow. The drafter
     clouds only the bolt note. See bracket-rev-c-inventory.md."""
     msp = doc.modelspace()
-    for hole, c in zip(e["holes"], [(65, 85), (175, 85), (175, 135), (65, 135)]):
+    for hole, c in zip(e["holes"], [(50, 105), (160, 105), (160, 155), (50, 155)]):
         hole.dxf.center = c
         hole.dxf.radius = 8.75
     e["callout"].dxf.text = "4x Ø17.5 THRU"
     e["bolts"].dxf.text = "BOLTS: 4x M16 ISO 4017 - 8.8"
-    for key, p1, p2 in [("top_edge", (40, 160), (65, 135)), ("top_pitch", (65, 135), (175, 135)),
-                        ("right_edge", (200, 160), (175, 135)), ("right_pitch", (175, 135), (175, 85))]:
+    for key, p1, p2 in [("top_edge", (25, 180), (50, 155)), ("top_pitch", (50, 155), (160, 155)),
+                        ("right_edge", (185, 180), (160, 155)), ("right_pitch", (160, 155), (160, 105))]:
         d = e["dims"][key]
         d.dxf.defpoint2 = p1
         d.dxf.defpoint3 = p2
@@ -201,7 +201,7 @@ def bracket_rev_c(doc, e):
         t = msp.add_text(s, height=2.5, dxfattribs=title)
         t.set_placement((x, 61.5), align=TextEntityAlignment.LEFT)
     # Revision cloud (a closed polyline of arcs) around the bolt note only.
-    x0, y0, x1, y1 = 36, 30, 100, 41
+    x0, y0, x1, y1 = 21, 30, 85, 41
     step = 5.5
     pts = []
     for (ax, ay), (bx, by) in [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)),
@@ -211,9 +211,9 @@ def bracket_rev_c(doc, e):
             pts.append((ax + (bx - ax) * k / n, ay + (by - ay) * k / n, -0.55))
     msp.add_lwpolyline(pts, format="xyb", close=True, dxfattribs={"layer": "REVISION"})
     # Revision triangle "C" next to the cloud.
-    msp.add_lwpolyline([(104, 31), (114, 31), (109, 40)], close=True, dxfattribs={"layer": "REVISION"})
+    msp.add_lwpolyline([(89, 31), (99, 31), (94, 40)], close=True, dxfattribs={"layer": "REVISION"})
     t = msp.add_text("C", height=3, dxfattribs={"layer": "REVISION"})
-    t.set_placement((109, 34.5), align=TextEntityAlignment.MIDDLE_CENTER)
+    t.set_placement((94, 34.5), align=TextEntityAlignment.MIDDLE_CENTER)
 
 
 def main():

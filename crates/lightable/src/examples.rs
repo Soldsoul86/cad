@@ -58,4 +58,15 @@ mod tests {
             assert!(lightable_dxf::read_bytes(e.b).is_ok(), "{}", e.b_name);
         }
     }
+
+    /// The web build lists the default example's changes under the same
+    /// names the app uses.
+    #[test]
+    fn the_web_build_names_the_default_example_as_the_app_does() {
+        let script = include_str!("../../../tools/build_web.sh");
+        let e = find("");
+        for s in [e.a_name, e.b_name, e.a_label, e.b_label, e.title] {
+            assert!(script.contains(s), "tools/build_web.sh does not say {s:?}");
+        }
+    }
 }

@@ -3,7 +3,11 @@
 // (the data its developer tools show):
 //
 //   node tools/web_browser_test.mjs chrome|firefox URL OUTDIR [--click X,Y]... [--wait MS]
-//        [--drop FILE[,FILE]] [--at MS[,MS]...]
+//        [--drop FILE[,FILE]] [--at MS[,MS]...] [--throttle]
+//
+// --throttle (Chrome only) loads the page over DevTools' "Fast 3G" network
+// (562.5 ms latency, 180 kB/s down; "Slow 4G" in newer versions) and
+// reports when the preview image and the app appeared (OUTDIR/timing.json).
 //
 // --drop hands local files to the page through the debugging connection
 // (not over the network) and drops them on the app's canvas, as a user's
@@ -29,11 +33,13 @@ const clicks = [];
 let wait = 12000;
 let drop = [];
 let at = [];
+let throttle = false;
 for (let i = 0; i < rest.length; i++) {
   if (rest[i] === "--click") clicks.push(rest[++i].split(",").map(Number));
   if (rest[i] === "--wait") wait = Number(rest[++i]);
   if (rest[i] === "--drop") drop = rest[++i].split(",");
   if (rest[i] === "--at") at = rest[++i].split(",").map(Number);
+  if (rest[i] === "--throttle") throttle = true;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const profile = mkdtempSync(join(tmpdir(), `cad-${browser}-`));
@@ -108,7 +114,48 @@ async function chrome() {
   await c.send("Runtime.enable");
   await c.send("Page.enable");
   await c.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: join(out, "downloads") });
+  if (throttle) {
+    await c.send("Network.setCacheDisabled", { cacheDisabled: true });
+    await c.send("Network.emulateNetworkConditions", {
+      offline: false, latency: 562.5, downloadThroughput: 180000, uploadThroughput: 84375,
+    });
+    // Which WebAssembly call the page makes (streaming compile or not).
+    await c.send("Page.addScriptToEvaluateOnNewDocument", { source: `
+      window.__wasm = [];
+      for (const name of ["instantiateStreaming", "compileStreaming", "instantiate", "compile"]) {
+        const f = WebAssembly[name];
+        if (f) WebAssembly[name] = function (...args) { window.__wasm.push(name); return f.apply(this, args); };
+      }` });
+  }
   await c.send("Page.navigate", { url });
+  if (throttle) {
+    // Times in ms from the start of navigation (the page's time origin).
+    const timing = {};
+    const evaluate = async (e) => (await c.send("Runtime.evaluate", { expression: e, returnByValue: true })).result.value;
+    for (let i = 0; i < 1200 && !timing.app; i++) {
+      const s = await evaluate(`[performance.now(), !!document.getElementById("preview")?.complete && document.getElementById("preview")?.naturalWidth > 0, document.readyState !== "loading" && !document.getElementById("loading"), document.getElementById("status")?.textContent, document.querySelectorAll("#changes li").length]`).catch(() => null);
+      if (s) {
+        if (s[1] && !timing.preview) timing.preview = Math.round(s[0]);
+        if (s[4] && !timing.list) timing.list = [Math.round(s[0]), s[4]];
+        if (s[2]) timing.app = Math.round(s[0]);
+        if (!timing.shot && / [3-9]\d %/.test(s[3] || "")) {
+          // The loading screen, a third of the way through.
+          writeFileSync(join(out, "loading.png"), Buffer.from((await c.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+          timing.shot = Math.round(s[0]);
+        }
+        const last = timing.progress?.at(-1);
+        if (s[3] && s[3] !== last?.[1] && (!last || s[0] - last[0] > 1000 || !/%/.test(s[3]))) {
+          (timing.progress ??= []).push([Math.round(s[0]), s[3]]);
+        }
+      }
+      await sleep(50);
+    }
+    timing.wasmCalls = await evaluate("window.__wasm");
+    timing.resources = await evaluate(`performance.getEntriesByType("resource").map((r) => [r.name.split("/").pop(), r.transferSize, r.decodedBodySize, Math.round(r.responseEnd)])`);
+    timing.document = await evaluate(`(() => { const n = performance.getEntriesByType("navigation")[0]; return [n.transferSize, Math.round(n.responseEnd)]; })()`);
+    writeFileSync(join(out, "timing.json"), JSON.stringify(timing, null, 1));
+    consoleLog.push("timing " + JSON.stringify(timing));
+  }
   await sleep(1000);
   const size = (await c.send("Runtime.evaluate", { expression: "[innerWidth, innerHeight, devicePixelRatio].join(' ')", returnByValue: true })).result.value;
   consoleLog.push("viewport " + size);

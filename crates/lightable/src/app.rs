@@ -170,7 +170,7 @@ struct Demo {
 }
 
 /// Start time of each demo step; the end card stays after the last.
-const DEMO_STEPS: [f64; 10] = [0.0, 3.5, 7.0, 11.0, 14.0, 17.0, 20.0, 23.0, 26.5, 30.0];
+const DEMO_STEPS: [f64; 10] = [0.0, 3.5, 7.0, 10.5, 13.5, 16.5, 19.5, 23.0, 26.5, 30.0];
 
 /// A file read in the background: name and bytes.
 type FileSlot = Arc<Mutex<Vec<(usize, String, Vec<u8>)>>>;
@@ -205,9 +205,36 @@ pub struct CadApp {
     end_card: bool,
 }
 
+/// egui's two text fonts without its emoji fonts (about 740 kB of the web
+/// download). Nothing in the app needs them: every character the app and
+/// the egui widgets it uses draw is in Ubuntu-Light or Hack. Symbols only
+/// the emoji fonts had (☑ ✔ ★ ⚠ …) now draw as egui's replacement glyph.
+fn fonts() -> egui::FontDefinitions {
+    use egui::{FontData, FontFamily};
+    let mut f = egui::FontDefinitions::empty();
+    for (name, data) in [
+        ("Ubuntu-Light", epaint_default_fonts::UBUNTU_LIGHT),
+        ("Hack", epaint_default_fonts::HACK_REGULAR),
+    ] {
+        f.font_data
+            .insert(name.to_owned(), Arc::new(FontData::from_static(data)));
+    }
+    // Hack as a fallback: it has the ◀ ▶ of the Previous / Next buttons.
+    f.families.insert(
+        FontFamily::Proportional,
+        vec!["Ubuntu-Light".to_owned(), "Hack".to_owned()],
+    );
+    f.families.insert(
+        FontFamily::Monospace,
+        vec!["Hack".to_owned(), "Ubuntu-Light".to_owned()],
+    );
+    f
+}
+
 impl CadApp {
     pub fn new(cc: &eframe::CreationContext<'_>, start: Start) -> Self {
         cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
+        cc.egui_ctx.set_fonts(fonts());
         let Start {
             files,
             example,
@@ -890,40 +917,55 @@ impl CadApp {
         demo.step = step;
         let Some(c) = &mut self.compare else { return };
         let extent = c.bounds();
+        let picks = c.demo_picks();
+        let changes = |n: usize| match n {
+            1 => "1 change".to_owned(),
+            n => format!("{n} changes"),
+        };
         let mut zoom: Option<(lightable_render::Bounds, f64)> = None;
+        // Every number and headline below comes from the comparison.
         self.caption = Some(match step {
             0 => {
-                c.side_by_side = false;
+                c.side_by_side = true;
+                c.details = false;
                 c.preview_report(false);
                 zoom = extent.map(|e| (e, 0.03));
-                format!("Lightable compares two revisions of a drawing: {a} and {b}.")
+                format!("Before and after: {a} on the left, {b} on the right.")
             }
-            1 => {
-                c.side_by_side = true;
-                zoom = extent.map(|e| (e, 0.03));
-                format!("Side by side: {a} on the left, {b} on the right.")
-            }
+            1 => match c.cloud_bounds() {
+                Some(cloud) => {
+                    zoom = Some((cloud, 0.1));
+                    format!("The revision cloud marks {}.", changes(c.clouded_count()))
+                }
+                None => format!("{b} has no revision cloud."),
+            },
             2 => {
-                zoom = c.cloud_bounds().map(|b| (b, 0.1));
-                "The revision cloud marks one of the changes.".to_owned()
-            }
-            3 => {
                 c.side_by_side = false;
                 zoom = extent.map(|e| (e, 0.03));
-                "Overlay: green added, red deleted, yellow changed.".to_owned()
+                format!("Lightable found {}.", changes(c.design_count()))
             }
-            4..=6 => {
-                let i = step - 4;
-                zoom = c.select(i).map(|b| (b, 0.15));
-                c.headline(i).to_owned()
+            3..=5 => match picks.get(step - 3) {
+                Some(&i) => {
+                    zoom = c.select(i).map(|b| (b, 0.15));
+                    c.headline(i).to_owned()
+                }
+                None => String::new(),
+            },
+            6 => {
+                c.details = true;
+                zoom = extent.map(|e| (e, 0.03));
+                "Details: the technical data, and what was not compared.".to_owned()
             }
             7 => {
+                c.details = false;
                 c.preview_report(true);
-                zoom = extent.map(|e| (e, 0.03));
-                "Export the changes as a PNG or JSON report.".to_owned()
+                "Download the review report as PNG or JSON.".to_owned()
+            }
+            8 => {
+                c.preview_report(false);
+                "Lightable shows what changed. Whether it is right is still your call.".to_owned()
             }
             _ => {
-                c.preview_report(false);
                 self.end_card = true;
                 String::new()
             }
@@ -1045,4 +1087,51 @@ fn report(bench: &Bench, doc: Option<&Doc>) {
         p95 * 1000.0,
         worst * 1000.0
     );
+}
+
+#[cfg(test)]
+mod font_tests {
+    use skrifa::MetadataProvider as _;
+
+    /// Every character the app writes (outside comments) has a glyph in the
+    /// fonts it installs: no replacement boxes after dropping egui's emoji
+    /// fonts.
+    #[test]
+    fn every_character_the_app_writes_has_a_glyph() {
+        let sources = [
+            include_str!("app.rs"),
+            include_str!("compare.rs"),
+            include_str!("main.rs"),
+            include_str!("feedback.rs"),
+            include_str!("files.rs"),
+            include_str!("examples.rs"),
+            include_str!("../../lightable-diff/src/words.rs"),
+            include_str!("../../lightable-diff/src/lib.rs"),
+        ];
+        let chars: std::collections::BTreeSet<char> = sources
+            .iter()
+            .flat_map(|s| s.lines())
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(|l| l.chars())
+            .filter(|c| !c.is_ascii())
+            .collect();
+        assert!(chars.contains(&'▶') && chars.contains(&'Ø'));
+        // Checked against the fonts' character maps (egui's own
+        // `has_glyph` misreports characters of its replacement-glyph font).
+        let fonts = super::fonts();
+        for (family, names) in &fonts.families {
+            let maps: Vec<skrifa::FontRef<'_>> = names
+                .iter()
+                .map(|n| skrifa::FontRef::new(&fonts.font_data[n].font).unwrap())
+                .collect();
+            let missing: String = chars
+                .iter()
+                .filter(|c| !maps.iter().any(|m| m.charmap().map(**c).is_some()))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{family:?} has no glyph for {missing:?}"
+            );
+        }
+    }
 }

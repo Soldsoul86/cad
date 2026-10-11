@@ -28,7 +28,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # The version must match wasm-bindgen in Cargo.lock.
       - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
-      - run: tools/build_web.sh
+      # wasm-opt (binaryen) makes the download smaller; required here so a
+      # deploy never ships the larger file by accident.
+      - run: sudo apt-get update && sudo apt-get install -y binaryen
+      - run: WASM_OPT_REQUIRED=1 tools/build_web.sh
       # Custom domain for GitHub Pages.
       - run: echo lightable.dev > target/web/CNAME
       - uses: actions/upload-pages-artifact@v3

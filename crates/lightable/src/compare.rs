@@ -253,7 +253,73 @@ impl Compare {
         Some(dview::zoom_box(c.bounds?, self.extent, 0.2))
     }
 
-    /// "4 changes found between Rev B and Rev C".
+    /// How many design changes (not revision markup) were found.
+    pub fn design_count(&self) -> usize {
+        self.diff.design_changes().count()
+    }
+
+    /// Design changes whose centre is inside an added revision cloud. For
+    /// the demo's narration only: the product does not judge what a cloud
+    /// is meant to cover.
+    fn clouded(&self) -> Vec<usize> {
+        let clouds: Vec<Bounds> = self
+            .diff
+            .changes
+            .iter()
+            .filter(|c| c.headline.starts_with("Revision cloud"))
+            .filter_map(|c| c.bounds)
+            .collect();
+        let inside = |b: &Bounds| {
+            let (x, y) = ((b.min[0] + b.max[0]) / 2.0, (b.min[1] + b.max[1]) / 2.0);
+            clouds
+                .iter()
+                .any(|k| (k.min[0]..=k.max[0]).contains(&x) && (k.min[1]..=k.max[1]).contains(&y))
+        };
+        (0..self.diff.changes.len())
+            .filter(|&i| {
+                let c = &self.diff.changes[i];
+                !c.markup && c.bounds.as_ref().is_some_and(inside)
+            })
+            .collect()
+    }
+
+    /// How many design changes the revision cloud surrounds (demo only).
+    pub fn clouded_count(&self) -> usize {
+        self.clouded().len()
+    }
+
+    /// Up to three design changes outside the clouds for the demo to click:
+    /// a different kind each where it can (circle, dimension, text), then
+    /// whatever comes next.
+    pub fn demo_picks(&self) -> Vec<usize> {
+        let clouded = self.clouded();
+        let open: Vec<usize> = (0..self.diff.changes.len())
+            .filter(|&i| {
+                let c = &self.diff.changes[i];
+                !c.markup && zoomable(c) && !clouded.contains(&i)
+            })
+            .collect();
+        let mut picks: Vec<usize> = ["CIRCLE", "DIMENSION", "TEXT"]
+            .iter()
+            .filter_map(|t| {
+                open.iter()
+                    .copied()
+                    .find(|&i| self.diff.changes[i].entity_type == *t)
+            })
+            .collect();
+        for i in open {
+            if picks.len() >= 3 {
+                break;
+            }
+            if !picks.contains(&i) {
+                picks.push(i);
+            }
+        }
+        picks.truncate(3);
+        picks
+    }
+
+    /// "10 changes found between Rev B and Rev C".
     pub fn summary(&self) -> String {
         let n = self.diff.design_changes().count();
         let what = match n {
@@ -775,5 +841,44 @@ impl Compare {
             );
             ui.painter().rect_filled(gap, 0.0, Color32::from_gray(60));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn example(id: &str) -> Compare {
+        let e = crate::examples::find(id);
+        let read = |b: &[u8]| Arc::new(lightable_dxf::read_bytes(b).unwrap().0);
+        Compare::new(
+            None,
+            (e.a_name.into(), read(e.a)),
+            (e.b_name.into(), read(e.b)),
+            Some((e.a_label.into(), e.b_label.into())),
+            Some(e.id),
+        )
+        .unwrap()
+    }
+
+    /// The demo's captions for the bracket, from the comparison itself.
+    #[test]
+    fn the_demo_narrates_the_bracket_from_real_results() {
+        let c = example("bracket");
+        assert_eq!(c.design_count(), 10);
+        assert_eq!(c.clouded_count(), 1);
+        let picks: Vec<&str> = c.demo_picks().iter().map(|&i| c.headline(i)).collect();
+        assert_eq!(picks.len(), 3);
+        assert!(picks[0].starts_with("Circle diameter changed from 13.5 mm to 17.5 mm"));
+        assert!(picks[1].starts_with("Dimension changed from"));
+        assert_eq!(picks[2], "Text changed from 4x Ø13.5 THRU to 4x Ø17.5 THRU");
+    }
+
+    #[test]
+    fn the_plan_has_no_cloud_and_still_has_picks() {
+        let c = example("plan");
+        assert!(c.cloud_bounds().is_none());
+        assert_eq!(c.clouded_count(), 0);
+        assert_eq!(c.demo_picks().len(), 3);
     }
 }

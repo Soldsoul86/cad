@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16.548 -216.148 319.696 222.296" width="800" height="556">
-<rect x="-16.548" y="-216.148" width="319.696" height="222.296" fill="#212121"/>
-<g transform="scale(1 -1)" fill="none" stroke-width="0.2131" stroke-linecap="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-31.848 -216.448 335.296 222.896" width="800" height="532">
+<rect x="-31.848" y="-216.448" width="335.296" height="222.896" fill="#212121"/>
+<g transform="scale(1 -1)" fill="none" stroke-width="0.2235" stroke-linecap="round">
 <g data-layer="BORDER">
 <path d="M0 0L297 0L297 210L0 210Z" stroke="#808080"/>
 </g>
@@ -24,97 +24,97 @@
 <text transform="translate(200 47.5) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#808080" stroke="none">FIRST ISSUE</text>
 </g>
 <g data-layer="OUTLINE">
-<path d="M40 60L200 60L200 160L40 160Z" stroke="#ffffff"/>
+<path d="M25 80L185 80L185 180L25 180Z" stroke="#ffffff"/>
 </g>
 <g data-layer="HOLES">
-<path d="M66.75 80A6.75 6.75 0 0 1 53.25 80A6.75 6.75 0 0 1 66.75 80" stroke="#00ffff"/>
-<path d="M186.75 80A6.75 6.75 0 0 1 173.25 80A6.75 6.75 0 0 1 186.75 80" stroke="#00ffff"/>
-<path d="M186.75 140A6.75 6.75 0 0 1 173.25 140A6.75 6.75 0 0 1 186.75 140" stroke="#00ffff"/>
-<path d="M66.75 140A6.75 6.75 0 0 1 53.25 140A6.75 6.75 0 0 1 66.75 140" stroke="#00ffff"/>
+<path d="M51.75 100A6.75 6.75 0 0 1 38.25 100A6.75 6.75 0 0 1 51.75 100" stroke="#00ffff"/>
+<path d="M171.75 100A6.75 6.75 0 0 1 158.25 100A6.75 6.75 0 0 1 171.75 100" stroke="#00ffff"/>
+<path d="M171.75 160A6.75 6.75 0 0 1 158.25 160A6.75 6.75 0 0 1 171.75 160" stroke="#00ffff"/>
+<path d="M51.75 160A6.75 6.75 0 0 1 38.25 160A6.75 6.75 0 0 1 51.75 160" stroke="#00ffff"/>
 </g>
 <g data-layer="NOTES">
-<text transform="translate(72 68) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">4x Ø13.5 THRU</text>
-<text transform="translate(40 34) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BOLTS: 4x M12 ISO 4017 - 8.8</text>
-<text transform="translate(40 27) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">GENERAL TOLERANCES ISO 2768-m</text>
-<text transform="translate(40 21) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BREAK ALL SHARP EDGES</text>
+<text transform="translate(57 88) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">4x Ø13.5 THRU</text>
+<text transform="translate(25 34) rotate(0) scale(1 -1) skewX(0)" font-size="3" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BOLTS: 4x M12 ISO 4017 - 8.8</text>
+<text transform="translate(25 27) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">GENERAL TOLERANCES ISO 2768-m</text>
+<text transform="translate(25 21) rotate(0) scale(1 -1) skewX(0)" font-size="2.5" font-family="sans-serif" text-anchor="start" dominant-baseline="alphabetic" fill="#ffff00" stroke="none">BREAK ALL SHARP EDGES</text>
 </g>
 <g data-layer="DIMS">
-<path d="M40 58L40 46" stroke="#00ff00"/>
-<path d="M200 58L200 46" stroke="#00ff00"/>
-<path d="M41.5 49.5L38.5 46.5" stroke="#00ff00"/>
-<path d="M198.5 46.5L201.5 49.5" stroke="#00ff00"/>
-<path d="M40 48L200 48" stroke="#00ff00"/>
-<text transform="translate(120 49) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">160</text>
+<path d="M25 78L25 64" stroke="#00ff00"/>
+<path d="M185 78L185 64" stroke="#00ff00"/>
+<path d="M26.5 67.5L23.5 64.5" stroke="#00ff00"/>
+<path d="M183.5 64.5L186.5 67.5" stroke="#00ff00"/>
+<path d="M25 66L185 66" stroke="#00ff00"/>
+<text transform="translate(105 67) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">160</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="40" cy="48" r="0.3197" fill="#ffffff"/>
-<circle cx="40" cy="60" r="0.3197" fill="#ffffff"/>
-<circle cx="200" cy="60" r="0.3197" fill="#ffffff"/>
+<circle cx="25" cy="66" r="0.3353" fill="#ffffff"/>
+<circle cx="25" cy="80" r="0.3353" fill="#ffffff"/>
+<circle cx="185" cy="80" r="0.3353" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M38 60L22 60" stroke="#00ff00"/>
-<path d="M38 160L22 160" stroke="#00ff00"/>
-<path d="M22.5 61.5L25.5 58.5" stroke="#00ff00"/>
-<path d="M25.5 158.5L22.5 161.5" stroke="#00ff00"/>
-<path d="M24 60L24 160" stroke="#00ff00"/>
-<text transform="translate(23 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">100</text>
+<path d="M23 80L9 80" stroke="#00ff00"/>
+<path d="M23 180L9 180" stroke="#00ff00"/>
+<path d="M9.5 81.5L12.5 78.5" stroke="#00ff00"/>
+<path d="M12.5 178.5L9.5 181.5" stroke="#00ff00"/>
+<path d="M11 80L11 180" stroke="#00ff00"/>
+<text transform="translate(10 130) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">100</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="24" cy="60" r="0.3197" fill="#ffffff"/>
-<circle cx="40" cy="60" r="0.3197" fill="#ffffff"/>
-<circle cx="40" cy="160" r="0.3197" fill="#ffffff"/>
+<circle cx="11" cy="80" r="0.3353" fill="#ffffff"/>
+<circle cx="25" cy="80" r="0.3353" fill="#ffffff"/>
+<circle cx="25" cy="180" r="0.3353" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M40 162L40 174" stroke="#00ff00"/>
-<path d="M60 142L60 174" stroke="#00ff00"/>
-<path d="M41.5 173.5L38.5 170.5" stroke="#00ff00"/>
-<path d="M58.5 170.5L61.5 173.5" stroke="#00ff00"/>
-<path d="M40 172L60 172" stroke="#00ff00"/>
-<text transform="translate(50 173) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">20</text>
+<path d="M25 182L25 194" stroke="#00ff00"/>
+<path d="M45 162L45 194" stroke="#00ff00"/>
+<path d="M26.5 193.5L23.5 190.5" stroke="#00ff00"/>
+<path d="M43.5 190.5L46.5 193.5" stroke="#00ff00"/>
+<path d="M25 192L45 192" stroke="#00ff00"/>
+<text transform="translate(35 193) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">20</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="40" cy="172" r="0.3197" fill="#ffffff"/>
-<circle cx="40" cy="160" r="0.3197" fill="#ffffff"/>
-<circle cx="60" cy="140" r="0.3197" fill="#ffffff"/>
+<circle cx="25" cy="192" r="0.3353" fill="#ffffff"/>
+<circle cx="25" cy="180" r="0.3353" fill="#ffffff"/>
+<circle cx="45" cy="160" r="0.3353" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M60 142L60 174" stroke="#00ff00"/>
-<path d="M180 142L180 174" stroke="#00ff00"/>
-<path d="M61.5 173.5L58.5 170.5" stroke="#00ff00"/>
-<path d="M178.5 170.5L181.5 173.5" stroke="#00ff00"/>
-<path d="M60 172L180 172" stroke="#00ff00"/>
-<text transform="translate(120 173) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">120</text>
+<path d="M45 162L45 194" stroke="#00ff00"/>
+<path d="M165 162L165 194" stroke="#00ff00"/>
+<path d="M46.5 193.5L43.5 190.5" stroke="#00ff00"/>
+<path d="M163.5 190.5L166.5 193.5" stroke="#00ff00"/>
+<path d="M45 192L165 192" stroke="#00ff00"/>
+<text transform="translate(105 193) rotate(0) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">120</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="60" cy="172" r="0.3197" fill="#ffffff"/>
-<circle cx="60" cy="140" r="0.3197" fill="#ffffff"/>
-<circle cx="180" cy="140" r="0.3197" fill="#ffffff"/>
+<circle cx="45" cy="192" r="0.3353" fill="#ffffff"/>
+<circle cx="45" cy="160" r="0.3353" fill="#ffffff"/>
+<circle cx="165" cy="160" r="0.3353" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M202 160L214 160" stroke="#00ff00"/>
-<path d="M182 140L214 140" stroke="#00ff00"/>
-<path d="M210.5 161.5L213.5 158.5" stroke="#00ff00"/>
-<path d="M213.5 138.5L210.5 141.5" stroke="#00ff00"/>
-<path d="M212 160L212 140" stroke="#00ff00"/>
-<text transform="translate(216.5 150) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">20</text>
+<path d="M187 180L199 180" stroke="#00ff00"/>
+<path d="M167 160L199 160" stroke="#00ff00"/>
+<path d="M195.5 181.5L198.5 178.5" stroke="#00ff00"/>
+<path d="M198.5 158.5L195.5 161.5" stroke="#00ff00"/>
+<path d="M197 180L197 160" stroke="#00ff00"/>
+<text transform="translate(201.5 170) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">20</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="212" cy="160" r="0.3197" fill="#ffffff"/>
-<circle cx="200" cy="160" r="0.3197" fill="#ffffff"/>
-<circle cx="180" cy="140" r="0.3197" fill="#ffffff"/>
+<circle cx="197" cy="180" r="0.3353" fill="#ffffff"/>
+<circle cx="185" cy="180" r="0.3353" fill="#ffffff"/>
+<circle cx="165" cy="160" r="0.3353" fill="#ffffff"/>
 </g>
 <g data-layer="DIMS">
-<path d="M182 140L214 140" stroke="#00ff00"/>
-<path d="M182 80L214 80" stroke="#00ff00"/>
-<path d="M210.5 141.5L213.5 138.5" stroke="#00ff00"/>
-<path d="M213.5 78.5L210.5 81.5" stroke="#00ff00"/>
-<path d="M212 140L212 80" stroke="#00ff00"/>
-<text transform="translate(216.5 110) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">60</text>
+<path d="M167 160L199 160" stroke="#00ff00"/>
+<path d="M167 100L199 100" stroke="#00ff00"/>
+<path d="M195.5 161.5L198.5 158.5" stroke="#00ff00"/>
+<path d="M198.5 98.5L195.5 101.5" stroke="#00ff00"/>
+<path d="M197 160L197 100" stroke="#00ff00"/>
+<text transform="translate(201.5 130) rotate(90) scale(1 -1) skewX(0)" font-size="3.5" font-family="sans-serif" text-anchor="middle" dominant-baseline="alphabetic" fill="#00ff00" stroke="none">60</text>
 </g>
 <g data-layer="Defpoints">
-<circle cx="212" cy="140" r="0.3197" fill="#ffffff"/>
-<circle cx="180" cy="140" r="0.3197" fill="#ffffff"/>
-<circle cx="180" cy="80" r="0.3197" fill="#ffffff"/>
+<circle cx="197" cy="160" r="0.3353" fill="#ffffff"/>
+<circle cx="165" cy="160" r="0.3353" fill="#ffffff"/>
+<circle cx="165" cy="100" r="0.3353" fill="#ffffff"/>
 </g>
 </g>
 </svg>

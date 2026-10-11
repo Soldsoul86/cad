@@ -786,6 +786,87 @@ Also settled:
 9. **Snapshots** now also cover the four example drawings
    (`tests/snapshots/examples/`).
 
+## Demo refinement
+
+Replaces First-run decisions 2, 4 (the layer rule), 7 and part of 3.
+
+1. **The bracket example is one engineering change with its real
+   consequences** (`tools/gen_example.py`). ECN-017: bolts M12 → M16
+   (ISO 4017, property class 8.8) through clearance holes in a 160 × 100 ×
+   10 mm S235JR plate (EN 10025-2). Holes Ø13.5 → Ø17.5 (ISO 273 medium
+   series); edge distance 20 → 25 mm because EN 1993-1-8 Table 3.3 asks for
+   at least 1.2 d₀ = 21 mm with d₀ = 17.5; so the hole pattern goes
+   120 × 60 → 110 × 50 (spacing still above 2.4 d₀ = 42 mm); the callout,
+   bolt note and four dimensions follow. Clearance holes, not tapped ones.
+   The drafter's cloud and revision triangle surround only the bolt note;
+   the title block gets REV C and a revision-table row. The part sits clear
+   of the title block and revision table. The previous example (unrelated
+   changes, a cloud on a chamfer, M12 holes of Ø12, tapped holes) did not
+   hold up to a manufacturing review.
+2. **Expected changes written first.** `bracket-rev-c-inventory.md` (for
+   people) and `.json` (for the test) list the 10 design-content and 4
+   markup items, written from the ECN before comparing.
+   `bracket_rev_c_matches_the_expected_change_inventory` checks both ways:
+   every item found, nothing unexplained. Counts are not forced: one
+   intention, 10 design differences, 8 markup entities.
+3. **Dimensions compare their measurement**, the stored one (group 42) or,
+   when a writer leaves it out, the one computed from the definition
+   points (linear along the dimension's angle, aligned, diameter, radius;
+   angular in degrees). The headline says "Dimension changed from 20 mm to
+   25 mm" instead of listing moved points.
+4. **Revision-markup layers** are named exactly REV, or start with REV-,
+   REV_, REVISION, TITLE or BORDER (case ignored). REVIEW, REVOLVE,
+   REVERSE, PREV and SUBTITLE are not markup layers. Revision clouds count
+   on any layer.
+5. **Headlines carry no coordinates.** Moves are said as distances and
+   directions ("Line end moved 10 mm up"), corners by what happened to them
+   ("Corner chamfered 10 × 10 mm"), and other changed positions or
+   directions as "changed"; the coordinates are in the details ("corner at
+   (100, 50) chamfered 10 × 10 mm"). Tested over the examples and every
+   `tests/diff` pair.
+6. **Demo script** (`docs/demo/demo-script.md`): before and after, the
+   cloud zoom ("The revision cloud marks 1 change."), the overlay
+   ("Lightable found 10 changes."), three clicks on uncloudded changes
+   (circle, dimension, text) with their headlines, Details with "Not
+   compared yet", the report, a scope line ("Lightable shows what changed.
+   Whether it is right is still your call."), the end card. Every number
+   and headline is computed from the comparison when the demo runs. The
+   cloud count (centre of a design change inside an added cloud) exists for
+   the demo's narration only; the product makes no claim about what clouds
+   cover, and none about manufacturing readiness or safety.
+7. **Instant preview on the web.** While the wasm loads, the page shows
+   the default example's overlay and, next to it, its change list: the
+   summary line, the design-change headlines and the revision markup. Both
+   are made when the page is built (`tools/build_web.sh` runs
+   `crates/lightable-diff/examples/web_preview.rs`): the SVG from the
+   comparison's overlay scene, the list from the JSON diff report the app
+   exports. Nothing is checked in, so they cannot go stale; a test keeps
+   the example's names in the build script the same as in the app. The
+   preview is hidden when `?example=` names another example, and removed
+   when the app starts.
+8. **Download progress.** `web/main.js` fetches the wasm itself and passes
+   the response on through a byte-counting stream, so
+   `WebAssembly.instantiateStreaming` still compiles while it downloads
+   (the browser tests record that call). The bytes counted are unpacked,
+   so the percentage is against the unpacked size the build writes into
+   the page; with a compressed response the Content-Length is the packed
+   size and would overshoot.
+9. **No emoji fonts.** egui's `default_fonts` feature is off; the app
+   installs only Ubuntu-Light (text) and Hack (monospace) from
+   `epaint_default_fonts`, dropping Noto Emoji and the emoji icon font
+   (743 kB). Hack is also the fallback of the proportional family: it
+   has the ◀ ▶ of Previous / Next, which Ubuntu-Light lacks. A test reads
+   the fonts' character maps and fails if any character the app writes
+   has no glyph (egui's own `has_glyph` misreports characters of its
+   replacement-glyph font, so the test does not use it). egui uses
+   emoji-font glyphs only in widgets the app does not use (submenu arrows,
+   key names, inspection panels).
+   Drawing text with ☑ ✔ ★ ⚠ or similar now shows egui's replacement
+   glyph. The fonts are under the Ubuntu Font Licence 1.0 and the Hack
+   licence (MIT with Bitstream Vera); both were shipped before through
+   `default_fonts`, and neither is on CLAUDE.md's licence list, which
+   names code licences: recorded here as an existing exception for fonts.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every
