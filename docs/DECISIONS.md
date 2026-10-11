@@ -867,6 +867,23 @@ Replaces First-run decisions 2, 4 (the layer rule), 7 and part of 3.
    `default_fonts`, and neither is on CLAUDE.md's licence list, which
    names code licences: recorded here as an existing exception for fonts.
 
+10. **Smaller web download.** `tools/build_web.sh` builds with the
+    `wasm-release` profile (opt-level "s", LTO, one codegen unit, no debug
+    info; "z" came out larger, 6.68 MB against 5.57 MB) and runs
+    `wasm-opt -Oz` (binaryen; required in the Pages workflow). Measured in
+    Chrome with DevTools' "Fast 3G" conditions (562.5 ms, 180 kB/s), from a
+    server that compresses like GitHub Pages:
+
+    | Build | wasm | gzip | First content | App ready |
+    |---|---|---|---|---|
+    | lightable.dev before | 6.62 MB | 2.41 MB | "Loading…" only | 16.2 s |
+    | + size profile | 5.57 MB | 2.15 MB | | 15.8–17.0 s |
+    | + no emoji fonts | 4.82 MB | 1.69 MB | | 12.4–13.3 s |
+    | + wasm-opt -Oz (now) | 3.92 MB | 1.59 MB | list 0.7 s, preview 1.25 s | 11.6–12.0 s |
+
+    `node tools/web_browser_test.mjs chrome URL OUT --throttle` repeats the
+    measurement (OUT/timing.json).
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

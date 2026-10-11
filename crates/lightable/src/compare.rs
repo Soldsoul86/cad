@@ -55,6 +55,8 @@ pub struct Compare {
     report: Report,
     /// Layers 4–5 shown.
     pub details: bool,
+    /// Scroll the change list to "Not compared yet" on the next frame.
+    pub reveal_not_compared: bool,
     /// Which hints have been acted on: clicking a change, side by side,
     /// details.
     used: [bool; 3],
@@ -190,6 +192,7 @@ impl Compare {
             gap: 4.0,
             report: Report::Off,
             details: false,
+            reveal_not_compared: false,
             used: [false; 3],
             anchors: [None; 3],
         })
@@ -599,7 +602,9 @@ impl Compare {
                 if c.markup {
                     t = t.color(Color32::from_gray(170));
                 }
-                ui.label(t);
+                // Wrapped to the report's column, so long headlines are not
+                // cut off.
+                ui.add(egui::Label::new(t).wrap());
             });
             if let Some(text) = block_refs(c) {
                 ui.indent((i, "refs"), |ui| {
@@ -735,7 +740,7 @@ impl Compare {
                     d.count(ChangeKind::Changed)
                 ));
                 if !d.not_compared.is_empty() {
-                    egui::CollapsingHeader::new(egui::RichText::new("Not compared yet").strong())
+                    let shown = egui::CollapsingHeader::new(egui::RichText::new("Not compared yet").strong())
                         .default_open(true)
                         .show(ui, |ui| {
                             ui.small("These parts of the files are not compared, so differences there are not listed above:");
@@ -743,6 +748,10 @@ impl Compare {
                                 ui.small(format!("• {n}"));
                             }
                         });
+                    // The demo scrolls here once when it opens Details.
+                    if std::mem::take(&mut self.reveal_not_compared) {
+                        shown.header_response.scroll_to_me(Some(egui::Align::TOP));
+                    }
                 }
                 if !d.redrawn.is_empty() {
                     egui::CollapsingHeader::new(format!("Same drawing, other entities ({})", d.redrawn.len()))

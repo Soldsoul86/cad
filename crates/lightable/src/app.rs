@@ -198,6 +198,9 @@ pub struct CadApp {
     /// An example to open on the next frame.
     example_pending: Option<String>,
     anim: Option<Anim>,
+    /// A demo zoom to start once this frame's pane size is known (a demo
+    /// step can switch side by side or Details, which resizes the panes).
+    demo_zoom: Option<(lightable_render::Bounds, f64)>,
     demo: Option<Demo>,
     /// The demo caption shown now.
     caption: Option<String>,
@@ -266,6 +269,7 @@ impl CadApp {
             report_and_quit,
             example_pending: example,
             anim: None,
+            demo_zoom: None,
             demo: demo.then_some(Demo {
                 start: None,
                 step: usize::MAX,
@@ -561,6 +565,10 @@ impl CadApp {
         };
         let pane = panes[0];
         self.view.size = [f64::from(pane.width()), f64::from(pane.height())];
+        if let Some((b, margin)) = self.demo_zoom.take() {
+            let now = ui.input(|i| i.time);
+            self.animate_to(&b, margin, now, 1.2);
+        }
         let has_content = self.doc.is_some() || self.compare.is_some();
         if self.fit_pending && has_content && rect.width() > 0.0 {
             self.fit();
@@ -953,6 +961,7 @@ impl CadApp {
             },
             6 => {
                 c.details = true;
+                c.reveal_not_compared = true;
                 zoom = extent.map(|e| (e, 0.03));
                 "Details: the technical data, and what was not compared.".to_owned()
             }
@@ -971,7 +980,7 @@ impl CadApp {
             }
         });
         if let Some((b, margin)) = zoom {
-            self.animate_to(&b, margin, now, 1.2);
+            self.demo_zoom = Some((b, margin));
         }
     }
 

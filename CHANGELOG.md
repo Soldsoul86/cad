@@ -7,7 +7,8 @@
 - Revision-markup layers: exactly REV, or starting with REV-, REV_, REVISION, TITLE or BORDER (REVIEW, REVOLVE and the like no longer count).
 - Headlines contain no coordinates ("Corner chamfered 10 × 10 mm"); coordinates are in the details.
 - Demo script rewritten around a pre-release review; every number and headline in it is computed from the comparison (`docs/demo/`).
-- Web: an instant preview of the example overlay (`web/preview.svg`, made by the comparison) while the app loads; a size-optimised wasm build (`wasm-release` profile, wasm-opt).
+- Web: while the app loads, the example's overlay and change list (made by the comparison at build time) and a download progress line; the app is 3.92 MB (1.59 MB compressed, was 6.62 / 2.41 MB) through a size profile, wasm-opt and dropping egui's emoji fonts; ready in about 12 s on "Fast 3G" (was 16 s), with the change list visible after 0.7 s.
+- Fixed: demo zooms fitted to the previous pane size when a step switched side by side or Details; long headlines in the PNG report were cut off.
 - `lightable diff A B --svg OUT` writes the overlay as SVG.
 
 ## First-run experience (unreleased)
