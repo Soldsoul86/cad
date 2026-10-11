@@ -20,6 +20,8 @@
 //! # Ok::<(), lightable_dxf::DxfError>(())
 //! ```
 
+#![warn(missing_docs)]
+
 mod encoding;
 mod entity;
 mod error;

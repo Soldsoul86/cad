@@ -25,50 +25,75 @@ pub struct Hatch {
     pub paths: Vec<BoundaryPath>,
 }
 
+/// One boundary loop of a hatch.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoundaryPath {
     /// Polyline path (path flag 2): points with optional bulges.
     Polyline {
+        /// Vertices (groups 10/20).
         points: Vec<[f64; 2]>,
+        /// Bulge of the segment after each vertex (group 42); 0 for straight.
         bulges: Vec<f64>,
+        /// Group 73. Hatch boundaries are treated as closed either way.
         closed: bool,
     },
     /// A loop of edges.
     Edges(Vec<Edge>),
 }
 
+/// One edge of an edge-defined boundary path.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edge {
+    /// A straight edge.
     Line {
+        /// Start point.
         start: [f64; 2],
+        /// End point.
         end: [f64; 2],
     },
     /// Angles in degrees as written in the file. For clockwise arcs
     /// (`ccw == false`) the file stores the angles mirrored: the arc runs
     /// clockwise from `-start_angle` to `-end_angle`.
     Arc {
+        /// Center.
         center: [f64; 2],
+        /// Radius.
         radius: f64,
+        /// Start angle in degrees (mirrored when clockwise).
         start_angle: f64,
+        /// End angle in degrees (mirrored when clockwise).
         end_angle: f64,
+        /// True for counter-clockwise (group 73).
         ccw: bool,
     },
     /// `major` is the end of the major axis relative to `center`; angles
     /// are ellipse parameters in degrees, mirrored like arcs when
     /// clockwise.
     Ellipse {
+        /// Center.
         center: [f64; 2],
+        /// End of the major axis, relative to the center.
         major: [f64; 2],
+        /// Minor axis length as a fraction of the major axis.
         ratio: f64,
+        /// Start parameter in degrees (mirrored when clockwise).
         start_angle: f64,
+        /// End parameter in degrees (mirrored when clockwise).
         end_angle: f64,
+        /// True for counter-clockwise (group 73).
         ccw: bool,
     },
+    /// A NURBS edge.
     Spline {
+        /// Degree (group 94).
         degree: usize,
+        /// Knot values (group 40).
         knots: Vec<f64>,
+        /// Control points (groups 10/20).
         control: Vec<[f64; 2]>,
+        /// Weights (group 42); empty when all are 1.
         weights: Vec<f64>,
+        /// Fit points (groups 11/21), if any.
         fit: Vec<[f64; 2]>,
     },
 }

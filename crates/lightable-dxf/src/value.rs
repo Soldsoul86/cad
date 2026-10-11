@@ -6,22 +6,31 @@
 /// so converting never loses data.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// Text (and values that did not parse as their code's type).
     Str(String),
+    /// A floating-point value.
     Double(f64),
+    /// An integer value.
     Int(i64),
+    /// A boolean (0 or 1).
     Bool(bool),
 }
 
 /// The value type the DXF reference assigns to a group code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueKind {
+    /// Text.
     Str,
+    /// Floating point.
     Double,
+    /// Integer.
     Int,
+    /// Boolean.
     Bool,
 }
 
 impl ValueKind {
+    /// The value type of group code `code`.
     pub fn of(code: i16) -> Self {
         match code {
             10..=59 | 110..=149 | 210..=239 | 460..=469 | 1010..=1059 => Self::Double,

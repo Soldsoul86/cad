@@ -12,12 +12,16 @@ use crate::value::{parse_f64, parse_int};
 /// A point or vector in drawing units.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Point3 {
+    /// X coordinate.
     pub x: f64,
+    /// Y coordinate.
     pub y: f64,
+    /// Z coordinate.
     pub z: f64,
 }
 
 impl Point3 {
+    /// A point from its coordinates.
     pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
@@ -31,6 +35,7 @@ pub const Z_AXIS: Point3 = Point3::new(0.0, 0.0, 1.0);
 pub struct Handle(pub u64);
 
 impl Handle {
+    /// Parses a hexadecimal handle; `None` if it is not one.
     pub fn parse(raw: &str) -> Option<Self> {
         let text = raw.trim();
         if text.is_empty() || text.len() > 16 {
@@ -49,14 +54,23 @@ impl fmt::Display for Handle {
 /// DXF file format versions this library targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Version {
+    /// Release 12 file format (`AC1009`).
     R12,
+    /// Release 13 format (`AC1012`).
     R13,
+    /// Release 14 format (`AC1014`).
     R14,
+    /// 2000 format (`AC1015`).
     R2000,
+    /// 2004 format (`AC1018`).
     R2004,
+    /// 2007 format (`AC1021`).
     R2007,
+    /// 2010 format (`AC1024`).
     R2010,
+    /// 2013 format (`AC1027`).
     R2013,
+    /// 2018 format (`AC1032`).
     R2018,
 }
 
@@ -77,6 +91,7 @@ impl Version {
         })
     }
 
+    /// The `$ACADVER` string for this version, e.g. `AC1032`.
     pub fn acadver(self) -> &'static str {
         match self {
             Self::R12 => "AC1009",
@@ -95,7 +110,9 @@ impl Version {
 /// An entity or layer colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Color {
+    /// Colour 0: take the colour of the block reference.
     ByBlock,
+    /// Colour 256: take the layer's colour.
     #[default]
     ByLayer,
     /// ACI colour index, 1–255.
@@ -190,14 +207,18 @@ fn hsv(hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {
 /// Line weight (group 370).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineWeight {
+    /// Take the layer's line weight (-1).
     ByLayer,
+    /// Take the block reference's line weight (-2).
     ByBlock,
+    /// The program's default line weight (-3).
     Default,
     /// Hundredths of a millimetre (0–211).
     Hundredths(u16),
 }
 
 impl LineWeight {
+    /// Reads a group 370 value; `None` if it is not a valid line weight.
     pub fn from_code(value: i64) -> Option<Self> {
         match value {
             -1 => Some(Self::ByLayer),
@@ -212,7 +233,9 @@ impl LineWeight {
 /// One `$NAME` header variable and its pairs, as read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderVariable {
+    /// Variable name including the `$`, e.g. `$INSUNITS`.
     pub name: String,
+    /// The variable's value pairs, as in the file.
     pub pairs: Vec<Pair>,
 }
 
@@ -222,6 +245,7 @@ pub struct HeaderVariable {
 /// accessors read from there, so there is a single source of truth.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Header {
+    /// Every variable, in file order.
     pub variables: Vec<HeaderVariable>,
 }
 
@@ -275,10 +299,12 @@ impl Header {
         i16::try_from(value).ok()
     }
 
+    /// The drawing's lower-left extent (`$EXTMIN`), if set.
     pub fn extmin(&self) -> Option<Point3> {
         self.point("$EXTMIN")
     }
 
+    /// The drawing's upper-right extent (`$EXTMAX`), if set.
     pub fn extmax(&self) -> Option<Point3> {
         self.point("$EXTMAX")
     }
@@ -302,6 +328,7 @@ impl Header {
 /// A section this library does not parse, kept verbatim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawSection {
+    /// Section name (group 2), e.g. `THUMBNAILIMAGE`.
     pub name: String,
     /// Everything between `2 <name>` and `0 ENDSEC`.
     pub pairs: Vec<Pair>,
@@ -310,17 +337,23 @@ pub struct RawSection {
 /// A block definition from the `BLOCKS` section.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
+    /// Block name (group 2).
     pub name: String,
+    /// Handle of the record (group 5), if it has one.
     pub handle: Option<Handle>,
+    /// Handle of the owner (group 330): the block record, table or object that holds it.
     pub owner: Option<Handle>,
+    /// Layer of the block definition (group 8).
     pub layer: String,
     /// Group 70: 1 = anonymous, 2 = has attribute definitions, 4 = xref, ...
     pub flags: i16,
+    /// Base point (groups 10/20/30): the point placed at a reference's insertion point.
     pub base_point: Point3,
     /// Xref path (group 1), empty if none.
     pub xref_path: String,
     /// Description (group 4), empty if none.
     pub description: String,
+    /// The entities of the block, in order.
     pub entities: Vec<Entity>,
     /// The pairs of the closing `ENDBLK` record (handle, owner, layer, ...).
     pub end: Vec<Pair>,
@@ -329,6 +362,7 @@ pub struct Block {
 }
 
 impl Block {
+    /// An empty block called `name`.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -363,6 +397,7 @@ pub struct StrayRecord {
     /// How many items came before it in that place: sections (outside any
     /// section), header variables, tables, blocks, or entities.
     pub index: usize,
+    /// The record's pairs, starting with its `0` pair.
     pub pairs: Vec<Pair>,
 }
 
@@ -375,6 +410,7 @@ pub struct StrayRecord {
 pub struct Source(Option<Arc<[u8]>>);
 
 impl Source {
+    /// Keeps a copy of the bytes a drawing was read from.
     pub fn new(bytes: &[u8]) -> Self {
         Self(Some(Arc::from(bytes)))
     }
@@ -405,13 +441,16 @@ impl fmt::Debug for Source {
 pub struct Drawing {
     /// How the file's bytes were decoded; a writer uses it to save back.
     pub encoding: FileEncoding,
+    /// Header variables.
     pub header: Header,
     /// The `CLASSES` section, verbatim.
     pub classes: Vec<Pair>,
+    /// Symbol tables (layers, linetypes, styles, ...).
     pub tables: Tables,
     /// Block definitions, keyed by case-insensitive name. Definitions that
     /// could not be parsed are kept verbatim in `blocks.unparsed`.
     pub blocks: Table<Block>,
+    /// Model and paper space entities, in file order.
     pub entities: Vec<Entity>,
     /// The `OBJECTS` section, verbatim.
     pub objects: Vec<Pair>,

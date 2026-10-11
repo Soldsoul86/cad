@@ -10,11 +10,14 @@ pub const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF";
 /// (minus the line ending).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pair {
+    /// Group code.
     pub code: i16,
+    /// The value exactly as in the file, minus the line ending.
     pub raw: String,
 }
 
 impl Pair {
+    /// A pair from a group code and its value.
     pub fn new(code: i16, raw: impl Into<String>) -> Self {
         Self {
             code,
@@ -31,9 +34,11 @@ impl Pair {
 /// A pair borrowed from the input, plus the 1-based line of its group code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token<'a> {
+    /// Group code.
     pub code: i16,
     /// The value exactly as in the input, minus the line ending.
     pub raw: &'a str,
+    /// 1-based line of the group code in the input.
     pub line: usize,
 }
 
@@ -59,6 +64,7 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+    /// A tokenizer over `text`.
     pub fn new(text: &'a str) -> Self {
         Self {
             lines: text.lines().enumerate(),

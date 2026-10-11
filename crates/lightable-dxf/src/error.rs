@@ -12,9 +12,17 @@ pub enum DxfError {
     /// The input does not look like a DXF file at all.
     NotDxf,
     /// A group code line could not be parsed.
-    Syntax { line: usize, message: String },
+    Syntax {
+        /// 1-based line of the group code.
+        line: usize,
+        /// What is wrong with it.
+        message: String,
+    },
     /// The input ended after a group code, before its value.
-    UnexpectedEof { line: usize },
+    UnexpectedEof {
+        /// 1-based line of the last group code.
+        line: usize,
+    },
     /// Writing is supported for R12 and R2018 only.
     UnsupportedVersion(crate::model::Version),
 }
@@ -73,10 +81,12 @@ impl From<std::io::Error> for DxfError {
 pub struct Warning {
     /// 1-based line of the group code where the problem starts, if known.
     pub line: Option<usize>,
+    /// What went wrong, in plain words.
     pub message: String,
 }
 
 impl Warning {
+    /// A warning at `line` (1-based), if known.
     pub fn new(line: Option<usize>, message: impl Into<String>) -> Self {
         Self {
             line,
