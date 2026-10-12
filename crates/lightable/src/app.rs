@@ -165,9 +165,11 @@ struct Anim {
     seconds: f64,
 }
 
-/// The demo sequence (`?demo`): about 30 seconds with captions, then an end
+/// The demo sequence (`?demo`): about 40 seconds with captions, then an end
 /// card. Times in seconds from the start.
 struct Demo {
+    /// The built-in example whose files are dropped in.
+    example: String,
     /// Voice-over timing (`?demo&narration`).
     narration: bool,
     /// Recording: demo time is the frame number the recorder sets, at 30
@@ -179,6 +181,55 @@ struct Demo {
     done: usize,
     /// Zooms are instant (`?demo&cut`).
     cut: bool,
+    /// Playing live (no recorder): the app performs the gestures itself,
+    /// through its own input.
+    live: Live,
+}
+
+/// The live demo's gestures, fed to egui's input like a person's.
+#[derive(Default)]
+struct Live {
+    /// The gesture under way (index into the plan's gestures).
+    next: usize,
+    /// Where the pointer moves from and to (points), and for a pinch the
+    /// zoom factor, once the gesture has started.
+    path: Option<(Pos2, Pos2, f64)>,
+    /// Where the pointer is.
+    pos: Option<Pos2>,
+    /// The pinch progress applied so far (0 to 1).
+    zoomed: f64,
+    /// A click pressed, to release next frame.
+    release: bool,
+    /// When the pointer started moving to the current target.
+    moving_from: f64,
+    /// Where the row being scrolled into view was last frame (scrolling
+    /// stops when it no longer moves).
+    scrolled: Option<f32>,
+}
+
+/// A file the live demo drops: the example's bytes.
+#[derive(Debug)]
+struct ExampleFile {
+    path: std::path::PathBuf,
+    bytes: &'static [u8],
+}
+
+impl egui::DroppedFile for ExampleFile {
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        Ok(self.bytes.to_vec())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn bytes_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>> + '_>> {
+        Box::pin(std::future::ready(Ok(self.bytes.to_vec())))
+    }
 }
 
 /// The recorder's side of `?demo&record` (`tools/demo.mjs`): it
@@ -211,7 +262,10 @@ mod record {
         }
     }
 
-    pub fn rendered(frame: f64) {
+    /// Frame `frame` is drawn, the `draws`-th draw (the recorder waits for
+    /// each input event's draw).
+    pub fn rendered(frame: f64, draws: u64) {
+        set("__lightableDraws", draws as f64);
         set("__lightableRendered", frame.round());
     }
 
@@ -226,9 +280,49 @@ mod record {
         }
     }
 
-    /// The demo's steps as JSON: `[{"at": seconds, "desc": "..."}]`.
-    pub fn publish_shots(json: &str) {
-        set_text("__lightableDemoShots", json);
+    /// The demo's plan for the recorder: its length, the steps
+    /// (`__lightableDemoShots`: `[{"at": seconds, "desc": "..."}]`), the
+    /// gestures to perform (`__lightableDemoGestures`: `[{"from", "at",
+    /// "until", "target"}]`) and the files to drop (`__lightableDemoFiles`).
+    pub fn publish_plan(plan: &crate::demo::Plan, example: &crate::examples::Example) {
+        publish_length(plan.length);
+        let shots: Vec<String> = plan
+            .shots
+            .iter()
+            .map(|s| {
+                format!(
+                    "{{\"at\":{},\"desc\":{}}}",
+                    s.at,
+                    json_string(&format!("{s:?}"))
+                )
+            })
+            .collect();
+        set_text("__lightableDemoShots", &format!("[{}]", shots.join(",")));
+        let gestures: Vec<String> = plan
+            .gestures
+            .iter()
+            .map(|g| {
+                format!(
+                    "{{\"from\":{},\"at\":{},\"until\":{},\"target\":{}}}",
+                    g.from,
+                    g.at,
+                    g.until,
+                    json_string(&g.target.name())
+                )
+            })
+            .collect();
+        set_text(
+            "__lightableDemoGestures",
+            &format!("[{}]", gestures.join(",")),
+        );
+        set_text(
+            "__lightableDemoFiles",
+            &format!(
+                "[{},{}]",
+                json_string(example.a_name),
+                json_string(example.b_name)
+            ),
+        );
     }
 
     /// What is on screen this frame, as JSON (for the recorder's checks and
@@ -331,6 +425,31 @@ pub struct CadApp {
     demo_focus: Option<lightable_render::Bounds>,
     /// The caption drawn last: text size, box and number of lines.
     caption_box: std::cell::Cell<Option<(f32, Rect, usize)>>,
+    /// The previous frame's time: a recording draws some frames twice, and
+    /// frame-counted waits count frames, not draws.
+    prev_now: f64,
+    /// Draws so far (the recorder waits for each input event's draw).
+    draws: u64,
+    /// The demo shows the pointer (from the first gesture to the phone).
+    pointer_shown: bool,
+    /// When the primary button was last pressed (demo time), for the tap
+    /// ripple.
+    last_press: Option<f64>,
+    /// Where files are being dragged over the page (web; CSS pixels).
+    drag_pos: crate::files::DragPos,
+    /// The comparison open now came from files dropped on the page.
+    dropped: bool,
+    /// The colour legend is highlighted from, until (demo time).
+    legend_highlight: Option<(f64, f64)>,
+    /// The demo's phone scene: the layout in a phone outline.
+    phone: bool,
+    /// Where the demo's gesture targets are on screen (points), from the
+    /// last frame, and the pinch onto the revision cloud: the point to zoom
+    /// at and the factor.
+    targets: Vec<(String, Rect)>,
+    pinch: Option<(Pos2, f64)>,
+    /// The window (points), this frame.
+    screen: Rect,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -380,16 +499,21 @@ impl CadApp {
             record,
             cut,
         } = start;
+        // The demo opens its example's Rev C on its own and has the two
+        // files dropped in.
+        let demo_example = if demo { example.clone() } else { None };
+        let example = if demo { None } else { example };
         // First run, nothing to open: show the default example at once, so
         // the first thing on screen is a comparison.
-        let example = if files.is_empty() && (example.is_some() || bench.is_none() || demo) {
+        let example = if files.is_empty() && !demo && (example.is_some() || bench.is_none()) {
             Some(example.unwrap_or_default())
         } else {
             example
         };
         let incoming = crate::files::FileSlot::default();
+        let drag_pos = crate::files::DragPos::default();
         #[cfg(target_arch = "wasm32")]
-        if let Err(e) = crate::files::listen(&incoming, &cc.egui_ctx) {
+        if let Err(e) = crate::files::listen(&incoming, &drag_pos, &cc.egui_ctx) {
             eprintln!("file dialog: {e}");
         }
         Self {
@@ -411,12 +535,14 @@ impl CadApp {
             anim: None,
             demo_zoom: None,
             auto_fit: false,
-            demo: demo.then_some(Demo {
+            demo: demo.then(|| Demo {
+                example: demo_example.unwrap_or_default(),
                 narration,
                 record,
                 plan: None,
                 done: 0,
                 cut,
+                live: Live::default(),
             }),
             now: 0.0,
             zoom_pending: false,
@@ -425,6 +551,17 @@ impl CadApp {
             canvas_rect: None,
             caption: None,
             end_card: false,
+            prev_now: f64::NAN,
+            draws: 0,
+            pointer_shown: false,
+            last_press: None,
+            drag_pos,
+            dropped: false,
+            legend_highlight: None,
+            phone: false,
+            targets: Vec::new(),
+            pinch: None,
+            screen: Rect::ZERO,
         }
     }
 
@@ -671,6 +808,7 @@ impl CadApp {
             } else {
                 intake::Order::AsGiven
             };
+            let bytes = (read[0].3.clone(), read[1].3.clone());
             let b = read.pop().map(|r| (r.0, r.1));
             let a = read.pop().map(|r| (r.0, r.1));
             if let (Some(a), Some(b)) = (a, b) {
@@ -679,6 +817,18 @@ impl CadApp {
                     intake::Order::Swapped => self.compare_files(gl, b, a, same),
                     intake::Order::Ask => self.ask_order = Some((a, b, same)),
                 }
+            }
+            // A built-in example's own files: its note too.
+            if order != intake::Order::Ask
+                && let Some(c) = &mut self.compare
+            {
+                c.files_of = crate::examples::EXAMPLES
+                    .iter()
+                    .find(|e| {
+                        (e.a, e.b) == (bytes.0.as_slice(), bytes.1.as_slice())
+                            || (e.b, e.a) == (bytes.0.as_slice(), bytes.1.as_slice())
+                    })
+                    .map(|e| e.id);
             }
             return;
         }
@@ -702,21 +852,29 @@ impl CadApp {
 
     fn fit(&mut self) {
         self.auto_fit = true;
-        if let Some(c) = &self.compare {
-            if let Some(b) = c.bounds() {
-                self.view.fit(&b, 0.03);
-            }
-            return;
-        }
-        if let Some(doc) = &self.doc
-            && let Some(b) = doc.scene.bounds(Some(&doc.visible))
+        // The demo keeps its caption's band clear (not in the report, which
+        // is exported as it looks, nor in the phone, captioned below).
+        let band = if self.captions_possible()
+            && !self.phone
+            && !self.compare.as_ref().is_some_and(|c| c.reporting())
         {
-            self.view.fit(&b, 0.03);
+            f64::from(caption_size(self.screen.height()) * 3.3)
+        } else {
+            0.0
+        };
+        let bounds = match (&self.compare, &self.doc) {
+            (Some(c), _) => c.bounds(),
+            (None, Some(doc)) => doc.scene.bounds(Some(&doc.visible)),
+            (None, None) => None,
+        };
+        if let Some(b) = bounds {
+            self.view.fit_above(&b, 0.03, band);
         }
     }
 
     /// Opens the file dialog (web). Chosen files arrive in `incoming`.
     fn choose_files(&mut self, ctx: &egui::Context) {
+        self.dropped = false;
         #[cfg(target_arch = "wasm32")]
         if let Err(e) = crate::files::choose() {
             self.message = Some(format!("Could not open the file dialog: {e}"));
@@ -765,6 +923,19 @@ impl CadApp {
                 self.choose_files(ui.ctx());
             }
             self.act(&action, gl);
+            return;
+        }
+        // Recording: the drawing's name and how to compare it, as usual.
+        if self.recording() {
+            if let Some(doc) = &self.doc {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(crate::intake::short(&doc.name));
+                    ui.label(
+                        egui::RichText::new("To compare, choose (or drop) the other revision.")
+                            .color(Color32::from_rgb(0xf5, 0xd0, 0x2a)),
+                    );
+                });
+            }
             return;
         }
         let mut example = false;
@@ -1076,7 +1247,23 @@ pub fn is_short(height: f32) -> bool {
 }
 
 impl eframe::App for CadApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.live_gestures(raw);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.draws += 1;
+        // Recording: the recorder's frame clock; otherwise the app's.
+        let now = match &self.demo {
+            Some(d) if d.record => record::frame().map_or(-1.0, |f| f / RECORD_FPS),
+            _ => ui.input(|i| i.time),
+        };
+        // A recording draws some frames more than once: waits count frames.
+        let new_frame = !self.recording() || now != self.prev_now;
+        self.prev_now = now;
+        if ui.input(|i| i.pointer.primary_pressed()) {
+            self.last_press = Some(now);
+        }
         let dt = ui.input(|i| f64::from(i.unstable_dt));
         self.frame_times.push(dt);
         if self.frame_times.len() > 60 {
@@ -1098,6 +1285,9 @@ impl eframe::App for CadApp {
             self.stage(files, false);
         }
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
+        if !dropped.is_empty() {
+            self.dropped = true;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if !dropped.is_empty() {
             let files = dropped
@@ -1159,7 +1349,7 @@ impl eframe::App for CadApp {
         // Read staged files once "Reading…" has been drawn.
         if let Some((files, reorder, wait)) = self.to_read.take() {
             if wait > 0 {
-                self.to_read = Some((files, reorder, wait - 1));
+                self.to_read = Some((files, reorder, wait - u8::from(new_frame)));
                 ui.ctx().request_repaint();
             } else {
                 self.receive(frame.gl(), files, reorder);
@@ -1180,12 +1370,8 @@ impl eframe::App for CadApp {
                 c.side_by_side = true;
             }
         }
-        // Recording: the recorder's frame clock; otherwise the app's.
-        let now = match &self.demo {
-            Some(d) if d.record => record::frame().map_or(-1.0, |f| f / RECORD_FPS),
-            _ => ui.input(|i| i.time),
-        };
         self.now = now;
+        self.screen = ui.ctx().content_rect();
         if self.step_anim(now) && !self.recording() {
             ui.ctx().request_repaint();
         }
@@ -1209,27 +1395,33 @@ impl eframe::App for CadApp {
                 self.fit_pending = true;
             }
         }
-        // Recording a video for phones: everything larger (1.75x in 16:9,
-        // 2x in 9:16).
+        // Recording a video for phones: everything 1.75x larger.
         // The report layout stays at normal scale: it shows the document as
-        // exported.
+        // exported. The phone scene: a phone's width (320 points) in the
+        // outline.
         self.zoom_pending = false;
         if self.recording() {
-            // egui's own animations (fades, list scrolling) run on the wall
-            // clock: off while recording, so every frame depends only on the
-            // demo clock.
+            // egui's own animations (fades, list scrolling) and tooltips run
+            // on the wall clock: off while recording, so every frame depends
+            // only on the demo clock.
             if ui.ctx().global_style().animation_time > 0.0 {
                 ui.ctx().all_styles_mut(|style| {
                     style.animation_time = 0.0;
                     style.scroll_animation = egui::style::ScrollAnimation::none();
+                    style.interaction.tooltip_delay = f32::INFINITY;
+                    style.interaction.show_tooltips_only_when_still = true;
                 });
             }
             let r = ui.ctx().content_rect();
             let reporting = self.compare.as_ref().is_some_and(|c| c.reporting());
             let zoom = if reporting {
                 1.0
-            } else if r.height() > r.width() * 1.2 {
-                2.0
+            } else if self.phone {
+                let css_height = r.height() * ui.ctx().zoom_factor();
+                phone_rects(Rect::from_min_size(Pos2::ZERO, egui::vec2(1.0, css_height)))
+                    .1
+                    .width()
+                    / 320.0
             } else {
                 1.75
             };
@@ -1239,137 +1431,52 @@ impl eframe::App for CadApp {
                 self.zoom_pending = true;
             }
         }
+        if let Some(c) = &mut self.compare {
+            c.row_rects.clear();
+            c.legend_rect = None;
+            c.list_rect = None;
+        }
         if self.compare.as_ref().is_some_and(|c| c.reporting()) {
-            self.report(ui);
-            self.overlays(ui);
-            if self.recording() {
-                self.publish_frame_info(ui);
-                record::rendered(self.now * RECORD_FPS);
-            }
-            return;
-        }
-        // Narrow or portrait screens (phones): the change list goes under
-        // the drawing and rows wrap.
-        let screen = ui.ctx().content_rect();
-        let narrow = is_narrow(screen.width(), screen.height());
-        let recording = self.recording();
-        if let Some(c) = &mut self.compare {
-            c.narrow = narrow;
-            c.short = is_short(screen.height());
-            c.record = recording;
-        }
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui, gl.as_ref()));
-        // Details: the comparison's toggle; always for a single drawing;
-        // nothing to detail when nothing is open.
-        let details = self
-            .compare
-            .as_ref()
-            .map_or(self.doc.is_some(), |c| c.details);
-        if let Some(c) = &mut self.compare {
-            let mut zoom = None;
-            let mut action = crate::compare::Action::default();
-            // In a 9:16 recording the caption carries the summary.
-            if c.show_summary && !(c.record && narrow) {
-                egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
-            }
-            let show_list = c.show_list;
-            let limited = c.list_limit.is_some();
-            let list = |ui: &mut egui::Ui| c.change_list(ui);
-            // The demo uses fixed shares of the screen, whatever the panel
-            // was before.
-            let demo = self.demo.is_some();
-            let picked = if !show_list {
-                None
-            } else if narrow {
-                let panel = egui::Panel::bottom("changes-below");
-                let panel = if demo {
-                    // Four one-line rows at the "found" step; more room
-                    // otherwise.
-                    let share = if limited { 0.33 } else { 0.45 };
-                    panel.exact_size(screen.height() * share)
-                } else {
-                    panel.resizable(true).default_size(screen.height() * 0.35)
-                };
-                panel.show(ui, list).inner
-            } else {
-                let panel = egui::Panel::right("changes");
-                let panel = if demo {
-                    // Half the frame at the "found" step, so its four
-                    // lines and the count of the rest show in full.
-                    panel.exact_size(screen.width() * if limited { 0.5 } else { 0.36 })
-                } else {
-                    panel
-                        .resizable(true)
-                        .default_size(520.0_f32.min(screen.width() * 0.4))
-                };
-                panel.show(ui, list).inner
-            };
-            if let Some(b) = picked.or(zoom) {
-                self.animate_to(&b, 0.15, now, 0.6);
-            }
-            self.act(&action, gl.as_ref());
-        }
-        // The status bar is a detail, except to report an export or that a
-        // file is being read.
-        if (details || self.message.is_some()) && !self.recording() {
-            egui::Panel::bottom("status").show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    if let Some(m) = &self.message {
-                        ui.label(egui::RichText::new(m).color(Color32::WHITE));
-                    }
-                    if !details {
-                        return;
-                    }
-                    if let Some(c) = &self.compare {
-                        ui.label(c.status());
-                    } else if let Some(doc) = &self.doc
-                        && !doc.scene.skipped.is_empty()
-                    {
-                        let skipped: Vec<String> = doc
-                            .scene
-                            .skipped
-                            .iter()
-                            .map(|(k, n)| format!("{n} {k}"))
-                            .collect();
-                        ui.label(format!("not drawn: {}", skipped.join(", ")));
-                    }
-                    if let Some(p) = ui.input(|i| i.pointer.hover_pos())
-                        && (self.doc.is_some() || self.compare.is_some())
-                    {
-                        let w = self.view.to_world([f64::from(p.x), f64::from(p.y)]);
-                        ui.label(format!("{:.4}, {:.4}", w[0], w[1]));
-                    }
-                });
+            self.report(ui, new_frame);
+        } else if self.phone {
+            // The same comparison, laid out in a phone outline as on a phone.
+            let screen = ui.ctx().content_rect();
+            let (body, inner) = phone_rects(screen);
+            let painter = ui.painter();
+            painter.rect_filled(screen, 0.0, Color32::from_rgb(14, 14, 18));
+            let round = body.width() * 0.13;
+            painter.rect_filled(body, round, Color32::from_gray(40));
+            painter.rect_stroke(
+                body,
+                round,
+                egui::Stroke::new(2.0, Color32::from_gray(120)),
+                egui::StrokeKind::Inside,
+            );
+            painter.rect_filled(inner, 0.0, BACKGROUND);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+                ui.set_clip_rect(inner);
+                self.layout(ui, gl.as_ref(), now, inner);
             });
-        }
-        if details && (self.doc.is_some() || self.compare.is_some()) && !narrow {
-            egui::Panel::left("layers")
-                .resizable(true)
-                .default_size(200.0)
-                .show(ui, |ui| {
-                    ui.heading("Layers");
-                    self.layer_panel(ui);
-                });
-        }
-        if self.doc.is_none() && self.compare.is_none() {
-            egui::CentralPanel::default().show(ui, |ui| self.welcome(ui, gl.as_ref()));
-        }
-        if self.doc.is_some() || self.compare.is_some() {
-            egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
-        }
-        if let Some(c) = &self.compare
-            && self.demo.is_none()
-            && self.problem.is_none()
-            && self.ask_order.is_none()
-        {
-            c.hints(ui.ctx());
+        } else {
+            let screen = ui.ctx().content_rect();
+            self.layout(ui, gl.as_ref(), now, screen);
         }
         self.problem_window(ui, gl.as_ref());
         self.order_window(ui, gl.as_ref());
-        self.overlays(ui);
-        if self.demo.as_ref().is_some_and(|d| d.record) {
+        // Nothing over the report while it is captured for the PNG.
+        if !self
+            .compare
+            .as_ref()
+            .is_some_and(|c| c.waiting_for_capture())
+        {
+            self.overlays(ui);
+        }
+        if self.demo.is_some() {
+            self.find_targets(ui);
+        }
+        if self.recording() {
             self.publish_frame_info(ui);
-            record::rendered(self.now * RECORD_FPS);
+            record::rendered(self.now * RECORD_FPS, self.draws);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1433,38 +1540,189 @@ impl eframe::App for CadApp {
 }
 
 impl CadApp {
-    /// Plays the demo: each step sets up the view once when its time
-    /// comes; captions say what is on screen.
+    /// The app's layout in `screen` (the window, or the phone outline's
+    /// screen in the demo): toolbar, summary, change list, status bar,
+    /// layers and the drawing.
+    fn layout(
+        &mut self,
+        ui: &mut egui::Ui,
+        gl: Option<&Arc<glow::Context>>,
+        now: f64,
+        screen: Rect,
+    ) {
+        let gl = gl.cloned();
+        // Narrow or portrait screens (phones): the change list goes under
+        // the drawing and rows wrap.
+        let narrow = is_narrow(screen.width(), screen.height());
+        let recording = self.recording();
+        if let Some(c) = &mut self.compare {
+            c.narrow = narrow;
+            c.short = is_short(screen.height());
+            c.record = recording;
+        }
+        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui, gl.as_ref()));
+        // Details: the comparison's toggle; always for a single drawing;
+        // nothing to detail when nothing is open.
+        let details = self
+            .compare
+            .as_ref()
+            .map_or(self.doc.is_some(), |c| c.details);
+        if let Some(c) = &mut self.compare {
+            let mut zoom = None;
+            let mut action = crate::compare::Action::default();
+            if c.show_summary {
+                egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
+            }
+            let show_list = c.show_list;
+            let limited = c.list_limit.is_some();
+            let list = |ui: &mut egui::Ui| c.change_list(ui);
+            // The demo uses fixed shares of the screen, whatever the panel
+            // was before.
+            let demo = self.demo.is_some();
+            let picked = if !show_list {
+                None
+            } else if narrow {
+                let panel = egui::Panel::bottom("changes-below");
+                let panel = if demo {
+                    // One-line rows; the drawing keeps most of the frame.
+                    let share = if limited { 0.33 } else { 0.18 };
+                    panel.exact_size(screen.height() * share)
+                } else {
+                    panel.resizable(true).default_size(screen.height() * 0.35)
+                };
+                panel.show(ui, list).inner
+            } else {
+                let panel = egui::Panel::right("changes");
+                let panel = if demo {
+                    // Half the frame at the "found" step, so its four
+                    // lines and the count of the rest show in full.
+                    panel.exact_size(screen.width() * if limited { 0.5 } else { 0.36 })
+                } else {
+                    panel
+                        .resizable(true)
+                        .default_size(520.0_f32.min(screen.width() * 0.4))
+                };
+                panel.show(ui, list).inner
+            };
+            if let Some(b) = picked.or(zoom) {
+                // Cut drafts: no animation. The demo keeps its caption's
+                // band clear.
+                let seconds = if self.demo.as_ref().is_some_and(|d| d.cut) {
+                    0.0
+                } else {
+                    0.6
+                };
+                let band = if self.captions_possible() && !self.phone {
+                    f64::from(caption_size(self.screen.height()) * 3.3)
+                } else {
+                    0.0
+                };
+                self.animate_to_above(&b, 0.15, now, seconds, band);
+            }
+            self.act(&action, gl.as_ref());
+        }
+        // The status bar is a detail, except to report an export or that a
+        // file is being read.
+        if (details || self.message.is_some()) && !self.recording() {
+            egui::Panel::bottom("status").show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(m) = &self.message {
+                        ui.label(egui::RichText::new(m).color(Color32::WHITE));
+                    }
+                    if !details {
+                        return;
+                    }
+                    if let Some(c) = &self.compare {
+                        ui.label(c.status());
+                    } else if let Some(doc) = &self.doc
+                        && !doc.scene.skipped.is_empty()
+                    {
+                        let skipped: Vec<String> = doc
+                            .scene
+                            .skipped
+                            .iter()
+                            .map(|(k, n)| format!("{n} {k}"))
+                            .collect();
+                        ui.label(format!("not drawn: {}", skipped.join(", ")));
+                    }
+                    if let Some(p) = ui.input(|i| i.pointer.hover_pos())
+                        && (self.doc.is_some() || self.compare.is_some())
+                    {
+                        let w = self.view.to_world([f64::from(p.x), f64::from(p.y)]);
+                        ui.label(format!("{:.4}, {:.4}", w[0], w[1]));
+                    }
+                });
+            });
+        }
+        if details && (self.doc.is_some() || self.compare.is_some()) && !narrow && !recording {
+            egui::Panel::left("layers")
+                .resizable(true)
+                .default_size(200.0)
+                .show(ui, |ui| {
+                    ui.heading("Layers");
+                    self.layer_panel(ui);
+                });
+        }
+        if self.doc.is_none() && self.compare.is_none() {
+            egui::CentralPanel::default().show(ui, |ui| self.welcome(ui, gl.as_ref()));
+        }
+        if self.doc.is_some() || self.compare.is_some() {
+            egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+        }
+        if let Some(c) = &self.compare
+            && self.demo.is_none()
+            && self.problem.is_none()
+            && self.ask_order.is_none()
+        {
+            c.hints(ui.ctx());
+        }
+    }
+
+    /// Plays the demo: Rev C opens on its own, then each step sets the
+    /// scene when its time comes and captions say what is on screen.
+    /// Everything a person does is a gesture through the app's normal input:
+    /// browser events from the recorder, or, live, `live_gestures`.
     fn run_demo(&mut self, ui: &mut egui::Ui, now: f64, gl: Option<&Arc<glow::Context>>) {
         // Live, the demo draws continuously; recorded, a frame is drawn when
-        // the recorder asks for it (it taps a key after setting the frame).
+        // the recorder asks for it.
         if !self.recording() {
             ui.ctx().request_repaint();
         }
-        let Some(c) = &self.compare else { return };
         let Some(demo) = &mut self.demo else { return };
         // A recording waits for its first frame.
         if demo.record && now < 0.0 {
             return;
         }
         if demo.plan.is_none() {
-            let plan = crate::demo::plan(c, demo.narration);
-            record::publish_length(plan.length);
-            let shots: Vec<String> = plan
-                .shots
-                .iter()
-                .map(|s| {
-                    format!(
-                        "{{\"at\":{},\"desc\":{}}}",
-                        s.at,
-                        record::json_string(&format!("{:?}", s))
-                    )
-                })
-                .collect();
-            record::publish_shots(&format!("[{}]", shots.join(",")));
+            let e = crate::examples::find(&demo.example);
+            let read = |name: &str, bytes: &[u8]| {
+                lightable_dxf::read_bytes(bytes)
+                    .map(|(d, _)| (name.to_owned(), Arc::new(d)))
+                    .map_err(|err| format!("{name}: {err}"))
+            };
+            // The plan comes from comparing the example's two files: the
+            // files the demo then drops in.
+            let compared = read(e.a_name, e.a).and_then(|a| {
+                let b = read(e.b_name, e.b)?;
+                let labels = Some((e.a_label.to_owned(), e.b_label.to_owned()));
+                Ok((Compare::new(None, a, b.clone(), labels, Some(e.id))?, b))
+            });
+            let (c, b) = match compared {
+                Ok(x) => x,
+                Err(err) => {
+                    self.message = Some(err);
+                    self.demo = None;
+                    return;
+                }
+            };
+            let plan = crate::demo::plan(&c, demo.narration);
+            record::publish_plan(&plan, e);
             // Live, a second's pause first; recorded, from the first frame.
             let start = if demo.record { now } else { now + 1.0 };
             demo.plan = Some((plan, start));
+            // Rev C on its own, as it came in.
+            self.load(gl, b.0, b.1, 0);
+            return;
         }
         let Some((plan, start)) = &demo.plan else {
             return;
@@ -1478,9 +1736,251 @@ impl CadApp {
         let narration = plan.narration;
         let start = *start;
         for shot in due {
-            let at = start + shot.at;
-            self.play(shot, narration, gl, at);
+            self.play(shot, narration, start);
         }
+    }
+
+    /// Applies one demo moment (`start`: when the demo started). It only
+    /// sets the scene; what a person does is a gesture.
+    fn play(&mut self, shot: crate::demo::Shot, narration: bool, start: f64) {
+        use crate::demo::Act;
+        let at = start + shot.at;
+        match shot.act {
+            Act::Opening => self.pointer_shown = false,
+            Act::Drop => self.pointer_shown = true,
+            Act::Overlay => self.legend_highlight = Some((at + 0.3, at + 3.0)),
+            Act::Phone => {
+                self.phone = true;
+                self.pointer_shown = false;
+                if let Some(c) = &mut self.compare {
+                    c.preview_report(false);
+                    c.side_by_side = false;
+                    c.details = false;
+                    c.clear_selection();
+                }
+                self.anim = None;
+                self.fit_pending = true;
+            }
+            Act::EndCard => {
+                self.end_card = true;
+                self.pointer_shown = false;
+            }
+            Act::Cloud | Act::Tap(_) | Act::SideBySide | Act::Report | Act::Nothing => {}
+        }
+        // Narration: the voice carries the words.
+        if let Some(caption) = shot.caption {
+            self.caption = Some(caption).filter(|t| !t.is_empty() && !narration);
+        }
+        // What the step is about, for the recorder's checks.
+        let c = self.compare.as_ref();
+        self.demo_focus = match shot.act {
+            Act::Overlay => c.and_then(|c| c.bounds()),
+            Act::Cloud => c.and_then(|c| c.cloud_bounds_tight()),
+            Act::Tap(i) => c.and_then(|c| c.change_bounds(i)),
+            Act::SideBySide | Act::Nothing => self.demo_focus,
+            Act::Opening | Act::Drop | Act::Report | Act::Phone | Act::EndCard => None,
+        };
+    }
+
+    /// The live demo's gestures (no recorder): the same pointer moves,
+    /// clicks, drop and pinch the recorder makes, fed to egui's input.
+    fn live_gestures(&mut self, raw: &mut egui::RawInput) {
+        use crate::demo::Target;
+        use egui::Event;
+        let Some(demo) = &mut self.demo else { return };
+        let (Some((plan, start)), Some(time)) = (&demo.plan, raw.time) else {
+            return;
+        };
+        if demo.record {
+            return;
+        }
+        let t = time - start;
+        let live = &mut demo.live;
+        let button = |pos: Pos2, pressed: bool| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        if live.release {
+            live.release = false;
+            if let Some(pos) = live.pos {
+                raw.events.push(button(pos, false));
+            }
+        }
+        let Some(g) = plan.gestures.get(live.next).copied() else {
+            return;
+        };
+        if t < g.from {
+            return;
+        }
+        let find = |name: &str| {
+            self.targets
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, r)| *r)
+        };
+        // A row outside the list's view: scroll the list first (small wheel
+        // steps over the list).
+        if live.path.is_none()
+            && let Target::Row(_) = g.target
+            && let (Some(row), Some(list)) = (find(&g.target.name()), find("list"))
+            && !list.expand(1.0).contains_rect(row)
+            && live.scrolled != Some(row.min.y)
+        {
+            live.scrolled = Some(row.min.y);
+            let over = list.center();
+            live.pos = Some(over);
+            raw.events.push(Event::PointerMoved(over));
+            let down = if row.max.y > list.max.y { -7.0 } else { 7.0 };
+            raw.events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, down),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::default(),
+            });
+            return;
+        }
+        if live.path.is_none() {
+            // Where the target is now (last frame).
+            let name = g.target.name();
+            let to = if g.target == Target::Pinch {
+                self.pinch
+            } else {
+                self.targets
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, r)| (r.center(), 1.0))
+            };
+            let Some((to, factor)) = to else {
+                // Not on screen: skip it.
+                live.next += 1;
+                return;
+            };
+            // The first gesture comes in from the right-hand edge.
+            let s = self.screen;
+            let from = live
+                .pos
+                .unwrap_or(egui::pos2(s.max.x - 2.0, s.center().y + s.height() * 0.1));
+            live.path = Some((from, to, factor));
+            // Clicks: the pointer takes at most 0.8 s to get there.
+            live.moving_from = if g.target == Target::Drop || g.target == Target::Pinch {
+                g.from
+            } else {
+                t.max(g.at - 0.8)
+            };
+        }
+        let Some((p0, p1, factor)) = live.path else {
+            return;
+        };
+        if t < g.at {
+            let m = live.moving_from;
+            let k = ((t - m) / (g.at - 0.1 - m).max(1e-3)).clamp(0.0, 1.0);
+            let k = (k * k * (3.0 - 2.0 * k)) as f32;
+            let pos = p0 + (p1 - p0) * k;
+            live.pos = Some(pos);
+            raw.events.push(Event::PointerMoved(pos));
+            if g.target == Target::Drop {
+                raw.hovered_files = vec![egui::HoveredFile::default(); 2];
+            }
+            return;
+        }
+        live.pos = Some(p1);
+        raw.events.push(Event::PointerMoved(p1));
+        match g.target {
+            Target::Drop => {
+                let e = crate::examples::find(&demo.example);
+                raw.hovered_files.clear();
+                raw.dropped_files = [(e.a_name, e.a), (e.b_name, e.b)]
+                    .into_iter()
+                    .map(|(name, bytes)| {
+                        Arc::new(ExampleFile {
+                            path: name.into(),
+                            bytes,
+                        }) as egui::DroppedFileHandle
+                    })
+                    .collect();
+            }
+            Target::Pinch => {
+                let p = if g.until > g.at {
+                    ((t - g.at) / (g.until - g.at)).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                raw.events
+                    .push(Event::Zoom(factor.powf(p - live.zoomed) as f32));
+                live.zoomed = p;
+                if p < 1.0 {
+                    return;
+                }
+                live.zoomed = 0.0;
+            }
+            _ => {
+                raw.events.push(button(p1, true));
+                live.release = true;
+            }
+        }
+        live.next += 1;
+        live.path = None;
+    }
+
+    /// Where the demo's gesture targets are this frame (points), and the
+    /// pinch that fits the revision cloud on screen.
+    fn find_targets(&mut self, ui: &egui::Ui) {
+        let mut targets = Vec::new();
+        if let Some(canvas) = self.canvas_rect {
+            targets.push(("drop".to_owned(), canvas));
+        }
+        self.pinch = None;
+        if let Some(c) = self.compare.as_ref().filter(|c| !c.reporting()) {
+            let [_, side, details] = c.anchors();
+            for (name, rect) in [
+                ("legend", c.legend_rect),
+                ("side_by_side", side),
+                ("details", details),
+                ("export_png", c.export_rect),
+            ] {
+                if let Some(rect) = rect.filter(|r| self.screen.contains_rect(*r)) {
+                    targets.push((name.to_owned(), rect));
+                }
+            }
+            // Every row, in view or not (outside the list's view it is
+            // scrolled in first).
+            for (i, rect) in &c.row_rects {
+                targets.push((format!("row:{i}"), *rect));
+            }
+            if let Some(list) = c.list_rect.filter(|_| c.show_list) {
+                targets.push(("list".to_owned(), list));
+            }
+            // The pinch: zooming about one fixed point turns the current
+            // view into the one that fits the cloud above the caption.
+            if let (Some(cloud), Some(canvas)) = (c.cloud_bounds_tight(), self.canvas_rect)
+                && !c.side_by_side
+            {
+                let pane = c.panes(canvas)[0];
+                let band = if self.captions_possible() {
+                    f64::from(caption_size(ui.ctx().content_rect().height()) * 3.3)
+                } else {
+                    0.0
+                };
+                let from = self.view;
+                let mut to = from;
+                to.fit_above(&cloud, 0.06, band);
+                let (s1, s2) = (from.scale, to.scale);
+                if (s2 / s1 - 1.0).abs() > 1e-6 {
+                    let fixed = [
+                        (to.center[0] * s2 - from.center[0] * s1) / (s2 - s1),
+                        (to.center[1] * s2 - from.center[1] * s1) / (s2 - s1),
+                    ];
+                    let p = from.to_screen(fixed);
+                    let at = egui::pos2(pane.min.x + p[0] as f32, pane.min.y + p[1] as f32);
+                    if pane.contains(at) {
+                        self.pinch = Some((at, s2 / s1));
+                    }
+                }
+            }
+        }
+        self.targets = targets;
     }
 
     /// Publishes what is on screen this frame (points; `zoom` converts to
@@ -1510,21 +2010,34 @@ impl CadApp {
             .map_or("null".to_owned(), |(size, rect, rows)| {
                 format!("{{\"size\":{size},\"rect\":{},\"rows\":{rows}}}", r(rect))
             });
+        // The next moment something happens: a step, or a gesture starting.
         let (step, next) = self.demo.as_ref().map_or((0, None), |d| {
-            let next = d
-                .plan
-                .as_ref()
-                .and_then(|(p, _)| p.shots.get(d.done))
-                .map(|s| s.at);
+            let next = d.plan.as_ref().and_then(|(p, start)| {
+                let t = self.now - start;
+                let shot = p.shots.get(d.done).map(|s| s.at);
+                let gesture = p.gestures.iter().map(|g| g.from).find(|&f| f > t);
+                match (shot, gesture) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                }
+            });
             (d.done, next)
         });
+        let busy = self.busy();
         let still = self.anim.is_none()
             && self.demo_zoom.is_none()
             && !self.zoom_pending
-            && self.to_read.is_none();
+            && self.to_read.is_none()
+            && !busy
+            && ui.input(|i| i.raw.hovered_files.is_empty());
         let c = self.compare.as_ref();
+        let targets: Vec<String> = self
+            .targets
+            .iter()
+            .map(|(n, rect)| format!("{}:{}", record::json_string(n), r(*rect)))
+            .collect();
         let json = format!(
-            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{}}}",
+            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{}}}",
             ui.ctx().zoom_factor(),
             r(screen),
             canvas.map_or("null".to_owned(), r),
@@ -1537,8 +2050,57 @@ impl CadApp {
                 .list_tail_visible
                 .filter(|_| c.show_list && c.list_limit.is_some()))
                 .map_or("null".to_owned(), |v| v.to_string()),
+            self.draws,
+            self.pointer_pos(ui)
+                .map_or("null".to_owned(), |p| format!("[{},{}]", p.x, p.y)),
+            targets.join(","),
+            self.pinch
+                .map_or("null".to_owned(), |(p, f)| format!("[{},{},{f}]", p.x, p.y)),
+            self.dropped && c.is_some(),
+            c.is_some_and(|c| c.files_of.is_some()),
+            self.phone,
+            self.legend_lit(),
+            self.message
+                .as_deref()
+                .map_or("null".to_owned(), record::json_string),
         );
         record::publish_frame_info(&json);
+    }
+
+    /// Something is under way outside the frame clock: files being read
+    /// by the browser, or the report being captured. The recorder draws the
+    /// same frame again until it is done.
+    fn busy(&self) -> bool {
+        self.incoming.lock().is_ok_and(|s| s.expected > 0)
+            || self
+                .compare
+                .as_ref()
+                .is_some_and(|c| c.waiting_for_capture())
+    }
+
+    /// Where the demo's pointer is (points), when it is shown: dragged
+    /// files, or the mouse.
+    fn pointer_pos(&self, ui: &egui::Ui) -> Option<Pos2> {
+        if !self.pointer_shown || self.phone || self.end_card {
+            return None;
+        }
+        let dragging = ui.input(|i| !i.raw.hovered_files.is_empty());
+        let drag = self.drag_pos.lock().ok().and_then(|d| *d).map(|(x, y)| {
+            let z = ui.ctx().zoom_factor();
+            egui::pos2(x / z, y / z)
+        });
+        let mouse = ui.input(|i| i.pointer.latest_pos());
+        if dragging {
+            drag.or(mouse)
+        } else {
+            mouse.or(drag)
+        }
+    }
+
+    /// The colour legend is highlighted now.
+    fn legend_lit(&self) -> bool {
+        self.legend_highlight
+            .is_some_and(|(a, b)| self.now >= a && self.now < b)
     }
 
     /// Recording the demo frame by frame (`?demo&record`).
@@ -1546,123 +2108,16 @@ impl CadApp {
         self.demo.as_ref().is_some_and(|d| d.record)
     }
 
-    /// Applies one demo moment. Every number and headline comes from the
-    /// comparison (`demo::plan`).
-    fn play(
-        &mut self,
-        shot: crate::demo::Shot,
-        narration: bool,
-        gl: Option<&Arc<glow::Context>>,
-        at: f64,
-    ) {
-        use crate::demo::Act;
-        let Some(c) = &mut self.compare else { return };
-        let extent = c.bounds();
-        let narrow = c.narrow;
-        let mut zoom: Option<(lightable_render::Bounds, f64)> = None;
-        // Tight fits: the drawing fills its frame or pane.
-        let whole = |m: f64| extent.map(|e| (e, m));
-        match shot.act {
-            Act::Opening => {
-                c.ensure_plain_b(gl);
-                c.solo_b = true;
-                c.side_by_side = false;
-                c.show_list = false;
-                c.show_summary = false;
-                c.details = false;
-                c.preview_report(false);
-                c.clear_selection();
-                zoom = whole(0.02);
-            }
-            Act::SideBySide => {
-                c.solo_b = false;
-                c.side_by_side = true;
-                c.show_list = false;
-                c.show_summary = false;
-                c.clear_selection();
-                zoom = whole(0.02);
-            }
-            Act::Cloud => {
-                c.solo_b = false;
-                c.side_by_side = true;
-                c.show_list = false;
-                c.show_summary = false;
-                // Close enough to read the clouded text.
-                zoom = c.cloud_bounds_tight().map(|b| (b, 0.06));
-            }
-            Act::Found => {
-                c.solo_b = false;
-                c.side_by_side = false;
-                c.show_list = true;
-                c.list_limit = Some(4);
-                c.show_summary = true;
-                c.clear_selection();
-                zoom = whole(0.03);
-            }
-            Act::Select(i) => {
-                c.preview_report(false);
-                c.list_limit = None;
-                // On a narrow screen the caption shows the change instead
-                // of the list.
-                if narrow {
-                    c.show_list = false;
-                }
-                zoom = c.select(i).map(|b| (b, 0.15));
-            }
-            Act::Overview => {
-                c.side_by_side = false;
-                c.list_limit = None;
-                c.clear_selection();
-                if narrow {
-                    c.show_list = false;
-                }
-                zoom = whole(0.03);
-            }
-            Act::Report => {
-                c.details = false;
-                c.preview_report(true);
-                // The report shows the whole sheet.
-                zoom = whole(0.03);
-            }
-            Act::Scope => {
-                c.preview_report(false);
-                zoom = whole(0.03);
-            }
-            Act::EndCard => {
-                c.preview_report(false);
-                self.end_card = true;
-            }
-            Act::Nothing => {}
-        }
-        // Narration: the voice carries the words; captions only show the
-        // change where the list is hidden.
-        let show = !narration || (shot.change && narrow);
-        if shot.caption.is_some() || narration {
-            self.caption = shot.caption.filter(|t| show && !t.is_empty());
-        }
-        self.demo_focus = match shot.act {
-            Act::Select(i) => self.compare.as_ref().and_then(|c| c.change_bounds(i)),
-            Act::Cloud => self.compare.as_ref().and_then(|c| c.cloud_bounds_tight()),
-            Act::Opening | Act::SideBySide | Act::Found | Act::Overview => extent,
-            Act::Nothing => self.demo_focus,
-            Act::Report | Act::Scope | Act::EndCard => None,
-        };
-        if let Some((b, margin)) = zoom {
-            self.demo_zoom = Some((b, margin, at));
-        }
-    }
-
-    /// Captions can be on screen: the demo, except in narration mode on a
-    /// wide screen (where the voice carries the words).
+    /// Captions can be on screen: the demo, except with voice-over timing
+    /// (the voice carries the words).
     fn captions_possible(&self) -> bool {
-        let narrow = self.compare.as_ref().is_some_and(|c| c.narrow);
-        self.demo.as_ref().is_some_and(|d| {
-            let narration = d.plan.as_ref().map_or(d.narration, |(p, _)| p.narration);
-            !narration || narrow
-        })
+        self.demo
+            .as_ref()
+            .is_some_and(|d| !d.plan.as_ref().map_or(d.narration, |(p, _)| p.narration))
     }
 
-    /// Demo captions and the end card, over everything.
+    /// Demo captions, the pointer and the end card, over everything; and,
+    /// for everyone, the drop target while files are dragged over the page.
     fn overlays(&self, ui: &mut egui::Ui) {
         self.caption_box.set(None);
         let screen = ui.ctx().content_rect();
@@ -1670,6 +2125,43 @@ impl CadApp {
             egui::Order::Foreground,
             egui::Id::new("demo"),
         ));
+        let m = screen.width().min(screen.height());
+        let blue = Color32::from_rgb(0x6f, 0x9b, 0xff);
+        // Files dragged over the page: where to drop them.
+        let hovered = ui.input(|i| i.raw.hovered_files.len());
+        if hovered > 0 {
+            painter.rect_filled(
+                screen,
+                0.0,
+                Color32::from_rgba_unmultiplied(30, 60, 130, 90),
+            );
+            painter.rect_stroke(
+                screen.shrink(m * 0.02),
+                m * 0.02,
+                egui::Stroke::new(m * 0.008, blue),
+                egui::StrokeKind::Inside,
+            );
+            let galley = painter.layout(
+                "Drop two DXF files to compare them".to_owned(),
+                FontId::proportional(m * 0.055),
+                Color32::WHITE,
+                screen.width() * 0.8,
+            );
+            let rect = Rect::from_center_size(
+                screen.center(),
+                galley.size() + egui::vec2(m * 0.06, m * 0.04),
+            );
+            painter.rect_filled(
+                rect,
+                m * 0.02,
+                Color32::from_rgba_unmultiplied(0, 0, 0, 200),
+            );
+            painter.galley(
+                rect.min + egui::vec2(m * 0.03, m * 0.02),
+                galley,
+                Color32::WHITE,
+            );
+        }
         // Reading files (a big one can take seconds): say so in the middle.
         if self.to_read.is_some()
             && let Some(text) = &self.message
@@ -1685,7 +2177,6 @@ impl CadApp {
             painter.rect_filled(rect, 10.0, Color32::from_rgba_unmultiplied(0, 0, 0, 225));
             painter.galley(rect.min + egui::vec2(20.0, 14.0), galley, Color32::WHITE);
         }
-        let m = screen.width().min(screen.height());
         if self.end_card {
             painter.rect_filled(
                 screen,
@@ -1710,20 +2201,33 @@ impl CadApp {
                 m / 20.0,
                 Color32::from_gray(220),
             );
-            line(
-                m * 0.12,
-                "lightable.dev",
-                m / 17.0,
-                Color32::from_rgb(0x6f, 0x9b, 0xff),
-            );
+            line(m * 0.12, "lightable.dev", m / 17.0, blue);
             return;
         }
+        // The colour legend, briefly highlighted.
+        if self.legend_lit()
+            && let Some(legend) = self.compare.as_ref().and_then(|c| c.legend_rect)
+        {
+            let rect = legend.expand(5.0);
+            painter.rect_filled(rect, 6.0, Color32::from_rgba_unmultiplied(255, 224, 96, 28));
+            painter.rect_stroke(
+                rect,
+                6.0,
+                egui::Stroke::new(2.5, Color32::from_rgb(0xff, 0xe0, 0x60)),
+                egui::StrokeKind::Outside,
+            );
+        }
         if let Some(text) = self.caption.as_deref().filter(|t| !t.is_empty()) {
-            let area = self.canvas_rect.unwrap_or(screen);
+            // Under the drawing; in the phone scene, under the phone.
+            let area = if self.phone {
+                screen
+            } else {
+                self.canvas_rect.unwrap_or(screen)
+            };
             // Two lines at most: smaller only if it does not fit.
             let mut size = caption_size(screen.height());
             let layout = |size: f32| {
-                let pad = egui::vec2(size * 0.45, size * 0.35);
+                let pad = egui::vec2(size * 0.35, size * 0.3);
                 let galley = painter.layout(
                     text.to_owned(),
                     FontId::proportional(size),
@@ -1740,7 +2244,7 @@ impl CadApp {
             }
             let boxed = galley.size() + 2.0 * pad;
             // At the bottom of the drawing, under the band the demo's zooms
-            // keep clear (`caption_band`).
+            // keep clear.
             let rect = Rect::from_center_size(
                 egui::pos2(area.center().x, area.max.y - boxed.y / 2.0 - size * 0.4),
                 boxed,
@@ -1754,16 +2258,99 @@ impl CadApp {
             painter.galley(rect.min + pad, galley, Color32::WHITE);
             self.caption_box.set(Some((size, rect, rows)));
         }
+        // The pointer: an arrow in 16:9, a fingertip in 9:16.
+        if let Some(pos) = self.pointer_pos(ui) {
+            let pressed = ui.input(|i| i.pointer.primary_down());
+            let since = self.last_press.map_or(f64::INFINITY, |t| self.now - t);
+            if screen.height() > screen.width() * 1.2 {
+                let radius = m * 0.055;
+                let tap = pressed || since < 0.2;
+                if (0.0..0.4).contains(&since) {
+                    // The tap's ripple.
+                    let k = (since / 0.4) as f32;
+                    painter.circle_stroke(
+                        pos,
+                        radius * (1.0 + k),
+                        egui::Stroke::new(
+                            3.0,
+                            Color32::from_white_alpha((200.0 * (1.0 - k)) as u8),
+                        ),
+                    );
+                }
+                let r = if tap { radius * 0.8 } else { radius };
+                painter.circle_filled(
+                    pos,
+                    r,
+                    Color32::from_white_alpha(if tap { 150 } else { 90 }),
+                );
+                painter.circle_stroke(pos, r, egui::Stroke::new(2.5, Color32::WHITE));
+            } else {
+                let s = m * 0.045 / 20.0;
+                let shape: Vec<Pos2> = [
+                    (0.0, 0.0),
+                    (0.0, 17.0),
+                    (4.2, 13.2),
+                    (7.0, 19.6),
+                    (9.6, 18.5),
+                    (6.9, 12.2),
+                    (12.4, 12.2),
+                ]
+                .iter()
+                .map(|&(x, y)| pos + egui::vec2(x, y) * s)
+                .collect();
+                if (0.0..0.4).contains(&since) {
+                    let k = (since / 0.4) as f32;
+                    painter.circle_stroke(
+                        pos,
+                        s * (6.0 + 14.0 * k),
+                        egui::Stroke::new(
+                            2.5,
+                            Color32::from_rgba_unmultiplied(
+                                0x6f,
+                                0x9b,
+                                0xff,
+                                (230.0 * (1.0 - k)) as u8,
+                            ),
+                        ),
+                    );
+                }
+                painter.add(egui::Shape::convex_polygon(
+                    shape,
+                    Color32::WHITE,
+                    egui::Stroke::new(s * 1.3, Color32::BLACK),
+                ));
+            }
+            // Files being dragged: how many.
+            if hovered > 0 {
+                let galley = painter.layout_no_wrap(
+                    format!("{hovered} DXF files"),
+                    FontId::proportional(m * 0.035),
+                    Color32::WHITE,
+                );
+                let at = pos + egui::vec2(m * 0.04, m * 0.05);
+                let rect = Rect::from_min_size(at, galley.size() + egui::vec2(m * 0.03, m * 0.016));
+                painter.rect_filled(rect, m * 0.01, blue);
+                painter.galley(
+                    at + egui::vec2(m * 0.015, m * 0.008),
+                    galley,
+                    Color32::WHITE,
+                );
+            }
+        }
     }
 
     /// The PNG report layout: header, overlay, change list and footer,
-    /// shown for a few frames and then captured.
-    fn report(&mut self, ui: &mut egui::Ui) {
+    /// shown for a few frames and then captured. In the demo the exported
+    /// report stays on screen until the next step.
+    fn report(&mut self, ui: &mut egui::Ui, new_frame: bool) {
         if !self.recording() {
             ui.ctx().request_repaint();
         }
+        let demo = self.demo.is_some();
+        // The live demo does not download files onto a viewer's computer;
+        // a recording saves into the recorder's folder.
+        let save = !demo || self.recording();
         let Some(c) = &mut self.compare else { return };
-        let capture = c.report_frame();
         let image = ui.input(|i| {
             i.raw.events.iter().find_map(|e| match e {
                 egui::Event::Screenshot { image, .. } => Some(image.clone()),
@@ -1773,9 +2360,13 @@ impl CadApp {
         if let Some(image) = image
             && c.waiting_for_capture()
         {
-            self.message = Some(c.finish_report(&image));
-            return;
+            self.message = Some(c.finish_report(&image, save));
+            if !demo {
+                return;
+            }
+            c.preview_report(true);
         }
+        let capture = c.report_frame(new_frame);
         egui::Panel::top("report-header").show(ui, |ui| c.report_header(ui));
         egui::Panel::bottom("report-footer").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1804,6 +2395,22 @@ impl CadApp {
                 .send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
     }
+}
+
+/// The demo's phone outline in `screen`: the body and its screen, about
+/// 9 by 19.5, upright in the middle, above the caption.
+fn phone_rects(screen: Rect) -> (Rect, Rect) {
+    let h = screen.height();
+    let inner_h = h * 0.74;
+    let inner = Rect::from_center_size(
+        egui::pos2(screen.center().x, screen.min.y + h * 0.065 + inner_h / 2.0),
+        egui::vec2(inner_h * 9.0 / 19.5, inner_h),
+    );
+    let body = Rect::from_min_max(
+        inner.min - egui::vec2(h * 0.014, h * 0.03),
+        inner.max + egui::vec2(h * 0.014, h * 0.03),
+    );
+    (body, inner)
 }
 
 fn report(bench: &Bench, doc: Option<&Doc>) {

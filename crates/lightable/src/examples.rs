@@ -18,6 +18,11 @@ pub struct Example {
     /// A line on how the example was drawn, shown under the summary. It
     /// describes our example file, not something the comparison found.
     pub note: Option<&'static str>,
+    /// The revision cloud was drawn around one change on purpose and the
+    /// other changes left unclouded, so the demo may say "the other N
+    /// weren't clouded". A fact about how the example was made; Lightable
+    /// never judges what a cloud is meant to cover.
+    pub cloud_by_design: bool,
 }
 
 pub static EXAMPLES: [Example; 2] = [
@@ -31,6 +36,7 @@ pub static EXAMPLES: [Example; 2] = [
         a: include_bytes!("../assets/bracket-rev-b.dxf"),
         b: include_bytes!("../assets/bracket-rev-c.dxf"),
         note: Some("Example: the drafter clouded only the bolt note."),
+        cloud_by_design: true,
     },
     Example {
         id: "plan",
@@ -42,6 +48,7 @@ pub static EXAMPLES: [Example; 2] = [
         a: include_bytes!("../assets/plan-rev-a.dxf"),
         b: include_bytes!("../assets/plan-rev-b.dxf"),
         note: None,
+        cloud_by_design: false,
     },
 ];
 

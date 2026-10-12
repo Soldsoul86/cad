@@ -16,8 +16,12 @@
 // by tools/web_test_server.py), --no-review (do not publish).
 //
 // The app plays the demo on a frame clock the tool sets (`?demo&record`):
-// demo time = frame / 30, and every zoom starts at its step's scheduled
-// time, so any frame looks the same however it is reached. Stills jump
+// demo time = frame / 30, and every zoom starts at its scheduled time. The
+// tool performs the person's gestures (the plan's `__lightableDemoGestures`)
+// as browser input events: the example files dragged and dropped, mouse
+// moves and clicks, ctrl + wheel to pinch, wheel steps to scroll the list.
+// Frames a gesture needs are always drawn in order, so any frame looks the
+// same however it is reached. Stills jump
 // straight to the moments that matter (each step settled, and mid-zoom), so
 // a still set takes seconds. Videos are cut into segments at the demo's
 // steps. A segment is cached under a hash of its timeline and settings (the
@@ -42,7 +46,8 @@ import { basename, join, resolve } from "node:path";
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const OUT = join(ROOT, "out", "demo");
 const REVIEW = join(ROOT, "out", "review");
-const TOOL_VERSION = 3;
+const ASSETS = join(ROOT, "crates", "lightable", "assets");
+const TOOL_VERSION = 4;
 const CLOCK = 30; // the app's frame clock
 
 const args = process.argv.slice(2);
@@ -68,8 +73,8 @@ if (command === "approve") {
     const src = join(OUT, `demo-${format}${suffix}.mp4`);
     if (!existsSync(src)) throw new Error(`no final video ${src}: run \`node tools/demo.mjs final\` first`);
     copyFileSync(src, join(web, `demo-${format}.mp4`));
-    // Poster: the "found N changes" moment, a still from the video itself.
-    spawnSync("ffmpeg", ["-v", "error", "-y", "-ss", mode === "narration" ? "19" : "11", "-i", src, "-frames:v", "1", "-q:v", "3",
+    // Poster: the overlay and the change list, a still from the video itself.
+    spawnSync("ffmpeg", ["-v", "error", "-y", "-ss", mode === "narration" ? "16" : "10", "-i", src, "-frames:v", "1", "-q:v", "3",
       join(web, `poster-${format}.jpg`)]);
   }
   copyFileSync(join(OUT, mode === "narration" ? "demo-narration.vtt" : "demo.vtt"), join(web, "demo.vtt"));
@@ -106,12 +111,15 @@ const QUALITY = {
   // seconds.
   // Mostly held frames in short segments: x264 "ultrafast" starts quicker
   // than a VideoToolbox session per segment.
+  // Drafts render at 2x like finals (on a high-density screen Chrome
+  // reports 2x device pixels to the app even when 1x is emulated, which
+  // laid 1x pages out at half scale) and are captured scaled to half.
   cut: {
-    dpr: 1, fps: 15, cut: true,
+    dpr: 2, shrink: 0.5, fps: 15, cut: true,
     encode: ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p"],
   },
   draft: {
-    dpr: 1, fps: 15,
+    dpr: 2, shrink: 0.5, fps: 15,
     encode: hasVideoToolbox
       ? ["-c:v", "h264_videotoolbox", "-b:v", "3M", "-profile:v", "high", "-vf", "format=yuv420p"]
       : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
@@ -152,6 +160,8 @@ function sharedBrowser() {
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows", "about:blank",
     ], { stdio: "ignore" });
+    // Never left running, even when the run fails.
+    process.on("exit", () => proc.kill());
     let version;
     for (let i = 0; i < 120 && !version; i++) {
       try {
@@ -163,11 +173,19 @@ function sharedBrowser() {
     await new Promise((r) => ws.addEventListener("open", r));
     let id = 0;
     const pending = new Map();
+    // Downloads (the demo's exported report), by the page that made them.
+    const downloads = new Map();
     ws.addEventListener("message", (m) => {
       const d = JSON.parse(m.data);
       if (pending.has(d.id)) {
         pending.get(d.id)(d.result ?? { error: d.error });
         pending.delete(d.id);
+      }
+      if (d.method === "Browser.downloadWillBegin") {
+        downloads.set(d.params.guid, { frame: d.params.frameId, name: d.params.suggestedFilename, state: "started" });
+      }
+      if (d.method === "Browser.downloadProgress" && downloads.has(d.params.guid)) {
+        downloads.get(d.params.guid).state = d.params.state;
       }
     });
     const send = (method, params = {}) => new Promise((r) => {
@@ -175,7 +193,10 @@ function sharedBrowser() {
       pending.set(n, r);
       ws.send(JSON.stringify({ id: n, method, params }));
     });
-    return { port, proc, send };
+    // Saved under their download id in one folder for the run.
+    const folder = mkdtempSync(join(tmpdir(), "demo-export-"));
+    await send("Browser.setDownloadBehavior", { behavior: "allowAndName", downloadPath: folder, eventsEnabled: true });
+    return { port, proc, send, downloads, folder };
   })();
   return browser;
 }
@@ -232,6 +253,18 @@ async function openDemo(format, mode, dpr, cut = false) {
     await sleep(100);
   }
   const tLoaded = Date.now();
+  // A window on a high-density screen can report its own pixel density
+  // before the emulated one, and the app keeps the canvas size it saw: a
+  // resize makes it measure again (1x pages were laid out at half scale).
+  const remeasure = async () => {
+    await send("Emulation.setDeviceMetricsOverride", { width: w + 2, height: h, deviceScaleFactor: dpr, mobile: false });
+    await sleep(200);
+    await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: false });
+    await sleep(200);
+  };
+  await remeasure();
+  // Browser (CSS) pixels across the page: input events are given in them.
+  const cssWidth = await evaluate("innerWidth");
   await evaluate("window.__lightableFrame = 0");
   let length;
   for (let i = 0; i < 600 && !length; i++) {
@@ -240,34 +273,219 @@ async function openDemo(format, mode, dpr, cut = false) {
     if (!length) await sleep(100);
   }
   if (!length) throw new Error(`the demo did not start: ${url} ${errors.join(" | ")}`);
+  // The app's width in points times its zoom must be the page's width, or
+  // the pointer would land beside what it aims at.
+  for (let i = 0; ; i++) {
+    for (let k = 0; k < 3; k++) {
+      await nudge();
+      await sleep(60);
+    }
+    const now = JSON.parse(await evaluate("window.__lightableFrameInfo"));
+    const ratio = cssWidth / (now.screen[2] - now.screen[0]);
+    if (Math.abs(ratio - now.zoom) < 0.01) break;
+    if (i >= 10) throw new Error(`the page is drawn at the wrong scale (${ratio} CSS pixels a point, zoom ${now.zoom})`);
+    await remeasure();
+  }
   const shots = JSON.parse(await evaluate("window.__lightableDemoShots"));
+  const gestures = JSON.parse(await evaluate("window.__lightableDemoGestures"));
+  const files = JSON.parse(await evaluate("window.__lightableDemoFiles")).map((f) => join(ASSETS, f));
+  // The report the demo exports is really saved (the browser reports it).
+  const exports = () => [...shared.downloads.entries()]
+    .filter(([, d]) => d.frame === targetId && d.state === "completed")
+    .map(([guid, d]) => ({ name: d.name, file: join(shared.folder, guid) }));
   PROFILE.launch = (PROFILE.launch ?? 0) + (tLaunched - tOpen);
   PROFILE.load = (PROFILE.load ?? 0) + (tLoaded - tLaunched);
   PROFILE.start = (PROFILE.start ?? 0) + (Date.now() - tLoaded);
   let last = -1;
+  const draws = async () => (await evaluate("window.__lightableDraws")) ?? 0;
+  const info = async () => JSON.parse(await evaluate("window.__lightableFrameInfo"));
+  // Waits for the app to draw after `before` draws; nudges if it does not.
+  const drawn = async (before) => {
+    for (let i = 0; i < 4000; i++) {
+      // Only a fallback: an extra nudge can mean an extra draw, so wait
+      // long enough for a busy machine.
+      if (i > 0 && i % 600 === 0) await nudge();
+      if ((await draws()) > before) return;
+      await sleep(5);
+    }
+    const state = await evaluate("JSON.stringify({frame: window.__lightableFrame, rendered: window.__lightableRendered, draws: window.__lightableDraws})");
+    writeFileSync(join(tmpdir(), "demo-stall.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    throw new Error(`the app stopped drawing (${state}): ${errors.join(" | ")}`);
+  };
+  // --- The person: pointer, clicks, drop and pinch, as browser input -----
+  // Frames a gesture needs drawn in order (the pointer's path, the click,
+  // each step of the pinch, and a few frames after): never skipped.
+  const busyFrames = (step) => gestures.map((g) => [
+    Math.floor((g.from * CLOCK) / step) * step - step,
+    Math.ceil((g.until * CLOCK) / step) * step + 3 * step,
+  ]);
+  const driver = { next: 0, path: null, pos: null, zoomed: 0, dragging: false };
+  let latest = null; // the last frame's info
+  // The input events for frame f (CSS pixels), from the plan's gestures and
+  // where their targets were on the last frame.
+  function eventsFor(f, cut) {
+    const t = f / CLOCK;
+    const events = [];
+    for (;;) {
+      const g = gestures[driver.next];
+      if (!g || t < (cut ? g.at : g.from)) return events;
+      // CSS pixels per app point (the app's zoom; measured, as 1x pages
+      // scale differently).
+      const z = cssWidth / (latest.screen[2] - latest.screen[0]);
+      const click = !["drop", "pinch"].includes(g.target);
+      // A row outside the list's view: the pointer goes to the list and
+      // scrolls it (small wheel steps, which egui applies at once) first.
+      const row = latest.targets[g.target];
+      const list = latest.targets.list;
+      // In view (a point of slack), or no longer moving as the list scrolls.
+      const stuck = driver.scroll?.last && row && driver.scroll.last === row[1];
+      const inside = (r, o) => stuck || (r[1] >= o[1] - 1 && r[3] <= o[3] + 1);
+      if (!driver.path && !cut && g.target.startsWith("row:") && row && list && !inside(row, list)) {
+        const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
+        driver.scroll ??= { start: t, from: driver.pos ?? centre };
+        const k = Math.min(1, (t - driver.scroll.start) / 0.3);
+        const e = k * k * (3 - 2 * k);
+        const pos = [driver.scroll.from[0] + (centre[0] - driver.scroll.from[0]) * e, driver.scroll.from[1] + (centre[1] - driver.scroll.from[1]) * e];
+        events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: pos[0], y: pos[1], button: "none" }]);
+        driver.pos = pos;
+        if (k >= 1) {
+          driver.scroll.last = row[1];
+          const down = row[3] > list[3] ? 7 : -7;
+          for (let n = 0; n < 3; n++) {
+            events.push(["Input.dispatchMouseEvent", { type: "mouseWheel", x: pos[0], y: pos[1], deltaX: 0, deltaY: down }]);
+          }
+        }
+        return events;
+      }
+      if (cut && g.target.startsWith("row:") && row && list && !inside(row, list)) {
+        // Cut drafts: scroll at once (still for real), then click.
+        const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
+        const down = row[3] > list[3] ? 7 : -7;
+        for (let n = 0; n < 3; n++) {
+          events.push(["Input.dispatchMouseEvent", { type: "mouseWheel", x: centre[0], y: centre[1], deltaX: 0, deltaY: down }]);
+        }
+        driver.pos = centre;
+        return events;
+      }
+      driver.scroll = null;
+      if (!driver.path) {
+        let to;
+        let factor = 1;
+        if (g.target === "pinch") {
+          if (!latest.pinch) throw new Error(`frame ${f}: no revision cloud to pinch`);
+          to = [latest.pinch[0] * z, latest.pinch[1] * z];
+          factor = latest.pinch[2];
+        } else {
+          const r = latest.targets[g.target];
+          if (!r) throw new Error(`frame ${f}: "${g.target}" is not on screen (on screen: ${Object.keys(latest.targets).join(", ")}; list ${latest.list}, dropped ${latest.dropped})`);
+          to = [((r[0] + r[2]) / 2) * z, ((r[1] + r[3]) / 2) * z];
+        }
+        // The first gesture comes in from the right-hand edge.
+        const [w, h] = [latest.screen[2] * z, latest.screen[3] * z];
+        // Clicks: the pointer takes at most 0.8 s to get there.
+        driver.path = { from: driver.pos ?? [w - 2, h * 0.6], to, factor, start: click ? Math.max(t, g.at - 0.8) : g.from };
+      }
+      const { from, to, factor, start } = driver.path;
+      const drag = g.target === "drop";
+      const data = { items: [], files, dragOperationsMask: 1 };
+      if (t < g.at) {
+        let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, g.at - 0.1 - start)));
+        k = k * k * (3 - 2 * k);
+        const pos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
+        if (drag) {
+          events.push(["Input.dispatchDragEvent", { type: driver.dragging ? "dragOver" : "dragEnter", x: pos[0], y: pos[1], data }]);
+          driver.dragging = true;
+        } else if (!driver.pos || pos[0] !== driver.pos[0] || pos[1] !== driver.pos[1]) {
+          events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: pos[0], y: pos[1], button: "none" }]);
+        }
+        driver.pos = pos;
+        return events;
+      }
+      const [x, y] = to;
+      if (drag) {
+        if (!driver.dragging) events.push(["Input.dispatchDragEvent", { type: "dragEnter", x, y, data }]);
+        events.push(["Input.dispatchDragEvent", { type: "dragOver", x, y, data }]);
+        events.push(["Input.dispatchDragEvent", { type: "drop", x, y, data }]);
+        driver.dragging = false;
+      } else {
+        if (!driver.pos || x !== driver.pos[0] || y !== driver.pos[1]) {
+          events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" }]);
+        }
+        if (g.target === "pinch") {
+          // Ctrl + wheel, as a trackpad pinch sends it: the browser's
+          // factor is exp(-deltaY / 100).
+          const p = cut || g.until <= g.at ? 1 : Math.min(1, (t - g.at) / (g.until - g.at));
+          const step = factor ** (p - driver.zoomed);
+          driver.zoomed = p;
+          events.push(["Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: -100 * Math.log(step), modifiers: 2 }]);
+          if (p < 1) {
+            driver.pos = to;
+            return events;
+          }
+          driver.zoomed = 0;
+        } else {
+          events.push(["Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 }]);
+          events.push(["Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 }]);
+        }
+      }
+      driver.pos = to;
+      driver.path = null;
+      driver.next++;
+    }
+  }
+  // Draws frame f: its input events first (each drawn), or a nudge; then
+  // again while the app is busy (files being read, the report captured).
+  async function draw(f, cut) {
+    await evaluate(`window.__lightableFrame = ${f}`);
+    const events = latest ? eventsFor(f, cut) : [];
+    if (events.length === 0) {
+      const before = await draws();
+      await nudge();
+      await drawn(before);
+    }
+    for (const [method, params] of events) {
+      const before = await draws();
+      await send(method, params);
+      await drawn(before);
+    }
+    for (let i = 0; i < 6000; i++) {
+      if ((await evaluate("window.__lightableRendered")) === f) break;
+      await sleep(5);
+    }
+    let now = await info();
+    if (process.env.DEMO_DEBUG) console.error(f, JSON.stringify(events.map(([m, p]) => [p.type, Math.round(p.x), Math.round(p.y)])), now.pointer);
+    for (let i = 0; now.busy; i++) {
+      if (i > 400) throw new Error(`frame ${f}: the app stayed busy: ${errors.join(" | ")}`);
+      await sleep(20);
+      const before = await draws();
+      await nudge();
+      await drawn(before);
+      now = await info();
+    }
+    latest = now;
+    last = f;
+    return now;
+  }
   return {
-    url, length, shots, requests, errors,
+    url, length, shots, gestures, requests, errors, exports,
     get last() {
       return last;
     },
-    // Draws frame `f` (frames must go forward) and returns what is on screen.
-    async render(f) {
-      await evaluate(`window.__lightableFrame = ${f}`);
-      // One nudge per frame: repeated nudges under load made the app draw
-      // some frames twice, which can change text pixels slightly. Only if
-      // it has not answered within 2 s, nudge again.
-      for (let i = 0; i < 6000; i++) {
-        if (i % 400 === 0) await nudge();
-        if ((await evaluate("window.__lightableRendered")) === f) {
-          last = f;
-          return JSON.parse(await evaluate("window.__lightableFrameInfo"));
+    // Draws frame `f` (frames must go forward) and returns what is on
+    // screen. Frames skipped on the way are drawn too where a gesture needs
+    // them, so the person's actions happen exactly as when every frame is
+    // drawn.
+    async render(f, step = 1, cut = false) {
+      for (const [a, b] of busyFrames(step)) {
+        for (let k = Math.max(a, last + 1); k < Math.min(b + 1, f); k++) {
+          if (k % step === 0 && k > last) await timed("gesture", () => draw(k, cut));
         }
-        await sleep(5);
       }
-      throw new Error(`the app did not draw frame ${f}: ${errors.join(" | ")}`);
+      return draw(f, cut);
     },
-    async png() {
-      return Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64");
+    async png(scale = 1) {
+      const clip = scale === 1 ? undefined : { x: 0, y: 0, width: w, height: h, scale };
+      return Buffer.from((await send("Page.captureScreenshot", { format: "png", clip })).data, "base64");
     },
     close() {
       shared.send("Target.closeTarget", { targetId });
@@ -286,10 +504,23 @@ function inside(a, b, tol = 1) {
 function overlaps(a, b) {
   return a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 }
-function check(info, format, sample) {
+function check(info, format, sample, target) {
   const [x0, y0, x1, y1] = info.screen;
   const sh = y1 - y0;
   const out = {};
+  // The pointer reached the control before using it.
+  if (sample === "aim") {
+    const p = info.pointer;
+    const r = target === "pinch" ? info.pinch && [info.pinch[0] - 3, info.pinch[1] - 3, info.pinch[0] + 3, info.pinch[1] + 3] : info.targets[target];
+    out.pointer = {
+      pass: !!(p && r && p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3]),
+      detail: p && r ? `pointer at ${p.map(Math.round)} on ${target}` : `pointer ${p ? "shown" : "missing"}, ${target} ${r ? "on screen" : "not on screen"}`,
+    };
+  }
+  // After the drop: the comparison came from the dropped example files.
+  if (info.list && !info.phone) {
+    out.dropped = { pass: info.dropped && info.example_files, detail: info.dropped ? (info.example_files ? "compared the dropped example files" : "dropped files are not the example's") : "not opened by a drop" };
+  }
   if (info.caption) {
     const share = info.caption.size / sh;
     out.caption = {
@@ -299,8 +530,8 @@ function check(info, format, sample) {
   } else {
     out.caption = { pass: null, detail: "no caption" };
   }
-  if (sample === "mid") {
-    out.cutoff = { pass: null, detail: "mid-zoom (not checked)" };
+  if (sample !== "settled") {
+    out.cutoff = { pass: null, detail: `${sample} (not checked)` };
   } else if (info.focus.length && info.canvas) {
     const cut = info.focus.filter((f) => !inside(f, info.canvas) || !inside(f, info.screen));
     const covered = info.caption ? info.focus.filter((f) => overlaps(f, info.caption.rect)) : [];
@@ -309,18 +540,24 @@ function check(info, format, sample) {
       detail: cut.length ? "the change runs off the drawing area" : covered.length ? "the caption covers the change" : "change fully visible, clear of the caption",
     };
   } else {
-    out.cutoff = { pass: null, detail: info.report ? "report layout" : info.end_card ? "end card" : "nothing in focus" };
+    out.cutoff = { pass: null, detail: info.report ? "report layout" : info.end_card ? "end card" : info.phone ? "phone" : "nothing in focus" };
   }
   if (info.list_tail != null) {
     out.list = { pass: info.list_tail, detail: info.list_tail ? "'… and N more' fully visible" : "the list is cut off before '… and N more'" };
   }
   if (format === "vertical") {
-    if (info.canvas && !info.end_card) {
+    if (info.canvas && !info.end_card && !info.phone) {
       const [c0, c1, c2, c3] = info.canvas;
       const share = ((c2 - c0) * (c3 - c1)) / ((x1 - x0) * sh);
-      out.drawing = { pass: share >= 0.6, detail: `drawing ${(share * 100).toFixed(0)} % of the frame` };
+      // Details open (under a second, before "Export PNG report"): its
+      // extra toolbar row is the real layout; reported, not judged.
+      const details = !!info.targets.export_png;
+      out.drawing = {
+        pass: details ? null : share >= 0.6,
+        detail: `drawing ${(share * 100).toFixed(0)} % of the frame${details ? " (Details open, not checked)" : ""}`,
+      };
     } else {
-      out.drawing = { pass: null, detail: info.report ? "report layout" : "end card" };
+      out.drawing = { pass: null, detail: info.report ? "report layout" : info.phone ? "phone" : "end card" };
     }
   }
   return out;
@@ -334,13 +571,22 @@ async function stills(format, mode) {
   mkdirSync(dir, { recursive: true });
   const page = await openDemo(format, mode, QUALITY.stills.dpr);
   const samples = [];
+  const stepAt = (t) => Math.max(0, page.shots.findLastIndex((s) => s.at <= t));
   page.shots.forEach((s, i) => {
     const next = i + 1 < page.shots.length ? page.shots[i + 1].at : page.length;
-    const act = actName(s.desc);
-    const zooms = !["Nothing", "Scope", "EndCard", "Report"].includes(act);
-    if (zooms && next - s.at > 1.2) samples.push({ t: s.at + 0.5, step: i, act, sample: "mid" });
-    samples.push({ t: Math.max(s.at, next - 2 / CLOCK), step: i, act, sample: "settled" });
+    if (next - s.at > 2.5) samples.push({ t: s.at + 1.0, step: i, act: actName(s.desc), sample: "early" });
+    samples.push({ t: Math.max(s.at, next - 2 / CLOCK), step: i, act: actName(s.desc), sample: "settled" });
   });
+  // Each gesture: the pointer on its way, and on its target just before it
+  // acts (checked); a pinch half-way.
+  for (const g of page.gestures) {
+    const step = stepAt(g.at);
+    const act = actName(page.shots[step].desc);
+    samples.push({ t: (g.from + g.at) / 2, step, act, sample: "moving" });
+    samples.push({ t: g.at - 1 / CLOCK, step, act, sample: "aim", target: g.target });
+    if (g.until > g.at) samples.push({ t: (g.at + g.until) / 2, step, act, sample: "mid" });
+  }
+  samples.sort((a, b) => a.t - b.t);
   const results = [];
   let lastFrame = -1;
   for (const s of samples) {
@@ -349,11 +595,21 @@ async function stills(format, mode) {
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
-    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample) });
+    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target) });
   }
+  // The report the demo exported: saved for real.
+  // (Chrome finishes writing it in the background.)
+  let exported = [];
+  for (let i = 0; i < 300 && exported.length === 0; i++) {
+    exported = page.exports().filter((e) => e.name.endsWith(".png") && existsSync(e.file));
+    if (exported.length === 0) await sleep(100);
+  }
+  exported = exported.map((e) => e.name);
+  const last = results.at(-1);
+  last.checks.export = { pass: exported.length === 1, detail: exported.length ? `report saved: ${exported.join(", ")}` : "no report was saved" };
   page.close();
   // Contact sheet of the settled stills, and a phone-sized copy.
-  const settled = results.filter((r) => r.sample === "settled");
+  const settled = results.filter((r) => r.sample === "settled" || r.sample === "aim");
   const tmp = mkdtempSync(join(tmpdir(), "sheet-"));
   settled.forEach((r, k) => copyFileSync(join(dir, r.file), join(tmp, `s${String(k).padStart(2, "0")}.png`)));
   const cols = format === "landscape" ? 3 : 6;
@@ -436,6 +692,7 @@ async function video(format, mode, kind, workers, encodeSlot) {
     seg.key = sha(JSON.stringify({
       v: TOOL_VERSION, format, mode, kind, q, start: seg.start, end: seg.end,
       shots: shots.filter((s) => frameOf(s.at) < seg.end),
+      gestures: first.gestures.filter((g) => frameOf(g.from) < seg.end),
     }));
     seg.clip = join(cacheDir, `${seg.key}.mp4`);
     seg.meta = join(cacheDir, `${seg.key}.json`);
@@ -453,9 +710,9 @@ async function video(format, mode, kind, workers, encodeSlot) {
       let same = probes.every(([f]) => f > page.last);
       for (const [f, file] of probes) {
         if (!same) break;
-        await timed("probe", () => page.render(f));
+        await timed("probe", () => page.render(f, step, q.cut));
         counts.probed++;
-        same = await timed("probe", async () => alike(await page.png(), join(cacheDir, file)));
+        same = await timed("probe", async () => alike(await page.png(q.shrink ?? 1), join(cacheDir, file)));
       }
       seg.cached = same;
       if (same) return page;
@@ -468,7 +725,7 @@ async function video(format, mode, kind, workers, encodeSlot) {
         page = await timed("open", () => openDemo(format, mode, q.dpr, q.cut));
       }
       for (let f = Math.max(0, seg.start - 3 * step); f < seg.start; f += step) {
-        if (f > page.last) await timed("render", () => page.render(f));
+        if (f > page.last) await timed("render", () => page.render(f, step, q.cut));
       }
     }
     const frames = mkdtempSync(join(tmpdir(), "seg-"));
@@ -476,8 +733,8 @@ async function video(format, mode, kind, workers, encodeSlot) {
     let prev = null;
     const pngs = new Map();
     for (let f = seg.start; f < seg.end; ) {
-      const info = await timed("render", () => page.render(f));
-      const png = await timed("capture", () => page.png());
+      const info = await timed("render", () => page.render(f, step, q.cut));
+      const png = await timed("capture", () => page.png(q.shrink ?? 1));
       counts.drawn++;
       const hash = sha(png);
       pngs.set(f, png);

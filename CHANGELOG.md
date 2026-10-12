@@ -1,5 +1,12 @@
 # Changelog
 
+## Demo with real interaction (unreleased)
+
+- The demo (40 s) shows a person using Lightable: the two example files dragged in and dropped, the legend, a pinch onto the revision cloud, taps in the change list (scrolling it on phones), Side by side, Details and Export PNG report, the same comparison on a phone, the end card. Every action goes through the app's normal input; the pointer is shown (a fingertip circle in 9:16).
+- Narration timing, voice-over script, cue sheet and subtitles follow the new steps.
+- Dragging files over the page shows where to drop them; a newly selected change is scrolled fully into view; dropping the built-in example's files shows the example's note.
+- `tools/demo.mjs`: performs the gestures with browser input events, checks the pointer reached each control, the drop, and that the report was saved; drafts and cut drafts render at 2× (the 1× drafts were laid out at half scale on high-density screens).
+
 ## Demo pipeline (unreleased)
 
 - British spelling in headlines, captions, reports and docs ("Centre moved", "colour changed").

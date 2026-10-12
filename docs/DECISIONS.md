@@ -1085,6 +1085,46 @@ reading big files off the main thread, keyboard pan and zoom).
    artifacts kept 14 days, never deployed; software-rendered frames, so
    review only.
 
+## The demo shows a person using Lightable
+
+1. **Timeline (40 s):** Rev C alone; the two example files dropped in; the
+   overlay with the legend highlighted; a pinch onto the cloud; two taps in
+   the change list; Side by side; Details and Export PNG report (the
+   report stays on screen); the comparison in a phone outline; end card.
+   Replaces the 34 s automatic sequence (decision "The short demo").
+2. **Real input only:** every action is a browser input event from
+   `tools/demo.mjs` (drag and drop with the example's files, mouse moves,
+   clicks, ctrl + wheel, wheel) or, live, the same events fed to egui by the
+   app (`raw_input_hook`). The demo itself only sets captions, the pointer
+   drawing, the legend highlight, the phone outline and the end card.
+3. **The pointer** is drawn by the app at egui's pointer position (an arrow
+   in 16:9, a fingertip circle with a tap ripple in 9:16); during a file
+   drag, where browsers send no pointer moves, at the drag position the page
+   reports. Mouse events drive both formats (a fingertip-style pointer, not
+   touch events: touch has no position between taps).
+4. **"The other N weren't clouded"** only for a built-in example drawn that
+   way (`Example::cloud_by_design`); otherwise "The revision cloud, up
+   close." Lightable does not check clouds.
+5. **Caption wording:** "10 changes. Blue added, red deleted, yellow
+   changed." uses the legend's own word "deleted" and leaves out "found"
+   (in the summary line above; the longer caption needed three lines in
+   9:16).
+6. **Real export:** the recording saves the PNG (into the recorder's
+   folder; the check confirms it); nothing is drawn over the report while
+   it is captured. Live (`?demo`, `--demo`) the report is made but not
+   downloaded onto a viewer's computer.
+7. **Product changes made for this, kept for everyone:** a drop highlight
+   while files are dragged over the page ("Drop two DXF files to compare
+   them"); a newly selected change row is scrolled fully into view; the
+   built-in example's files, when dropped or chosen, are recognised and show
+   the example's note.
+8. **Recording layout:** 1.75× in both formats (9:16 was 2×); the colour
+   legend on its own row; list rows one line each except the selected one;
+   the revision-markup line left out of the summary; in 9:16 the list takes
+   18 % of the height and scrolls.
+9. **Drafts at 2×**, captured at half size (see the pipeline notes in
+   `docs/demo/demo-script.md`).
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

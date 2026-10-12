@@ -6,29 +6,74 @@
 
 use crate::compare::Compare;
 
-/// What the demo does at a moment.
+/// What the demo does at a moment. The app sets the scene; everything a
+/// viewer sees a person do is a [`Gesture`], performed through the app's
+/// normal input (by `tools/demo.mjs` with browser input events, or, playing
+/// live, by the app feeding the same events to its own input).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Act {
-    /// Rev C alone, plain, filling the frame.
+    /// Rev C open on its own, as it came in.
     Opening,
-    /// Both revisions side by side, whole sheet.
-    SideBySide,
-    /// Side by side, zoomed close to the revision cloud.
+    /// The two files are dragged in and dropped (a gesture).
+    Drop,
+    /// The overlay and the change list; the colour legend highlighted.
+    Overlay,
+    /// A pinch-zoom on the revision cloud (a gesture).
     Cloud,
-    /// The overlay, whole sheet, with the change list ("found N").
-    Found,
-    /// Select change `i` and zoom to it.
-    Select(usize),
-    /// The overlay, whole sheet, nothing selected.
-    Overview,
-    /// The report layout.
+    /// A tap on change `i` in the list (a gesture).
+    Tap(usize),
+    /// A click on "Side by side" (a gesture).
+    SideBySide,
+    /// Clicks on "Details", then "Export PNG report" (gestures); the
+    /// exported report stays on screen.
     Report,
-    /// Back from the report, view unchanged.
-    Scope,
+    /// The same comparison in a phone outline, laid out as on a phone.
+    Phone,
     /// The end card.
     EndCard,
-    /// Nothing (a caption only, or a step whose change does not exist).
+    /// A caption only.
     Nothing,
+}
+
+/// What a gesture is aimed at. The app publishes where each target is on
+/// screen ([`Target::name`]); the pointer moves there before it acts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Target {
+    /// Drag the two files in from the edge and drop them on the drawing.
+    Drop,
+    /// Pinch-zoom (ctrl + wheel) on the revision cloud, by the factor that
+    /// fits it on screen.
+    Pinch,
+    /// Click change `i` in the list.
+    Row(usize),
+    SideBySide,
+    Details,
+    ExportPng,
+}
+
+impl Target {
+    pub fn name(&self) -> String {
+        match self {
+            Target::Drop => "drop".into(),
+            Target::Pinch => "pinch".into(),
+            Target::Row(i) => format!("row:{i}"),
+            Target::SideBySide => "side_by_side".into(),
+            Target::Details => "details".into(),
+            Target::ExportPng => "export_png".into(),
+        }
+    }
+}
+
+/// A person's action from `from`: acts at `at` (click, drop, or the pinch
+/// starts) and, for a pinch, zooms until `until`. The pointer moves to the
+/// target in the last 0.8 s before a click (first scrolling the list where
+/// a row is out of view), and over the whole time for a drag or a pinch.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Gesture {
+    pub from: f64,
+    pub at: f64,
+    pub until: f64,
+    pub target: Target,
 }
 
 /// One moment of the demo.
@@ -37,11 +82,8 @@ pub struct Shot {
     /// Seconds from the start of the demo.
     pub at: f64,
     pub act: Act,
-    /// The on-screen caption from here on (`None`: no caption).
+    /// The on-screen caption from here on (`None`: unchanged).
     pub caption: Option<String>,
-    /// The caption is a change's headline (narration shows it only where
-    /// the change list is hidden).
-    pub change: bool,
 }
 
 /// A subtitle: text shown (or spoken) from `start` to `end` seconds.
@@ -55,21 +97,21 @@ pub struct Cue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
     pub shots: Vec<Shot>,
+    pub gestures: Vec<Gesture>,
     pub cues: Vec<Cue>,
     /// Total length, the end card held at the end.
     pub length: f64,
-    /// The voice-over lines (narration mode), with their step names.
+    /// Voice-over timing: no captions in the picture, the voice carries
+    /// the words (the cues are the voice-over lines).
     pub narration: bool,
 }
-
-/// How long the end card is held in the normal demo.
-const END_HOLD: f64 = 3.0;
 
 /// The end card's text, as on screen.
 pub const END_CARD: &str = "Free. Open source. Your files never leave your computer. lightable.dev";
 
-/// How long a demo caption stays: reading time at 3 words a second, plus
-/// a second for the zoom to settle; at least 3 seconds.
+/// How long a caption needs to be read: 3 words a second, plus a second;
+/// at least 3 seconds (used by the app's tests of caption lengths).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn caption_seconds(caption: &str) -> f64 {
     (caption.split_whitespace().count() as f64 / 3.0 + 1.0).max(3.0)
 }
@@ -77,39 +119,42 @@ pub fn caption_seconds(caption: &str) -> f64 {
 /// The voice-over for the bracket example, one line per step
 /// (`docs/demo/voiceover.md`). Every fact is checked against the
 /// comparison by `the_voiceover_matches_the_comparison`.
-pub const VOICEOVER: [(&str, &str); 7] = [
-    ("Overview", "Rev C of this mounting bracket just came in."),
+pub const VOICEOVER: [(&str, &str); 9] = [
     (
-        "Cloud zoom",
-        "The revision cloud marks one change: the bolt note, M12 to M16.",
+        "Opening",
+        "Rev C of this mounting bracket just came in. What changed?",
     ),
-    ("Side by side", "Easy to check that and send it on."),
+    (
+        "Drop",
+        "Drop both revisions on the page. Nothing to install, and nothing is uploaded.",
+    ),
     (
         "Overlay",
-        "But Lightable compares both revisions and finds ten changes.",
+        "Lightable finds ten changes. Blue is added, red deleted, yellow changed.",
+    ),
+    (
+        "Cloud",
+        "The revision cloud marks one of them, the bolt note. In this example, the other nine weren't clouded.",
     ),
     (
         "Changes",
-        "The four holes grew from 13.5 to 17.5 millimetres, and each moved 5 millimetres in from both edges. The edge and pitch dimensions changed too. None of them were clouded.",
+        "Every change is in plain words: the holes grew from 13.5 to 17.5 millimetres, and the edge dimensions from 20 to 25. Tap one to zoom to it.",
     ),
-    (
-        "Report",
-        "Click any change to see it, and export a review report.",
-    ),
+    ("Side by side", "See before and after, side by side."),
+    ("Report", "Then share a review report."),
+    ("Phone", "It works on your phone too."),
     (
         "End card",
-        "Lightable. Free, open source, and your files never leave your browser. lightable.dev",
+        "Lightable. Free, open source, and your files never leave your computer. lightable.dev",
     ),
 ];
 
 /// Speaking pace for the voice-over, words a second.
 const SPEAK: f64 = 2.5;
-/// Before a line starts: the view starts moving first.
+/// Before a line starts.
 const LEAD: f64 = 0.5;
-/// After a line ends: the zoom settles before the next one.
+/// After a line ends, before the next step.
 const SETTLE: f64 = 0.7;
-/// The end card held after the last line.
-const NARRATION_HOLD: f64 = 1.0;
 
 fn words(s: &str) -> usize {
     s.split_whitespace().count()
@@ -122,26 +167,198 @@ fn spoken_at(line: &str, phrase: &str) -> f64 {
     LEAD + before as f64 / SPEAK
 }
 
-/// The demo for this comparison: narration timing when asked and the
-/// comparison is the bracket example the voice-over is written for.
-pub fn plan(c: &Compare, narration: bool) -> Plan {
-    let picks = c.demo_picks();
-    if narration && c.example == Some("bracket") && picks.len() == 3 {
-        narration_plan(c, &picks)
-    } else {
-        normal_plan(c, &picks)
+/// A step of the demo: what happens, for how long (normal timing), the
+/// caption, and its gestures (`from`, `at`, `until` in seconds into the
+/// step).
+struct Step {
+    act: Act,
+    seconds: f64,
+    caption: String,
+    gestures: Vec<(f64, f64, f64, Target)>,
+    /// Later acts within the step (seconds into it), no new caption.
+    then: Vec<(f64, Act)>,
+}
+
+fn step(act: Act, seconds: f64, caption: String) -> Step {
+    Step {
+        act,
+        seconds,
+        caption,
+        gestures: Vec::new(),
+        then: Vec::new(),
     }
 }
 
-/// A headline as captions of at most one clause each: "Circle diameter
-/// changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm up"
-/// becomes two (the words unchanged, the second capitalised).
-pub fn clauses(headline: &str) -> Vec<String> {
-    headline
-        .split("; ")
-        .enumerate()
-        .map(|(k, c)| if k == 0 { c.to_owned() } else { capital(c) })
-        .collect()
+fn click(from: f64, at: f64, target: Target) -> (f64, f64, f64, Target) {
+    (from, at, at, target)
+}
+
+/// The demo for this comparison (the built-in example the demo drops in):
+/// about 40 seconds; narration timing when asked and the comparison is the
+/// bracket example the voice-over is written for.
+pub fn plan(c: &Compare, narration: bool) -> Plan {
+    let narration = narration && c.example == Some("bracket") && c.demo_picks().len() >= 2;
+    let (_, b) = c.labels();
+    // Labels kept on one line in captions ("Rev C", not "Rev" / "C").
+    let b = b.replace(' ', "\u{a0}");
+    let changes = |n: usize| match n {
+        1 => "1 change".to_owned(),
+        n => format!("{n} changes"),
+    };
+    let n = c.design_count();
+    let picks = c.demo_picks();
+    let mut steps = vec![
+        step(
+            Act::Opening,
+            3.0,
+            format!("{b} just came in. What changed?"),
+        ),
+        Step {
+            gestures: vec![(0.3, 1.8, 1.8, Target::Drop)],
+            ..step(
+                Act::Drop,
+                4.0,
+                "Drop in two revisions. No install, no upload.".into(),
+            )
+        },
+        step(
+            Act::Overlay,
+            4.0,
+            // "found" is in the summary line right above.
+            format!(
+                "{}. Blue added, red deleted, yellow changed.",
+                capital(&changes(n))
+            ),
+        ),
+    ];
+    steps.push(match c.cloud_bounds() {
+        Some(_) => Step {
+            gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
+            ..step(Act::Cloud, 5.0, cloud_caption(c))
+        },
+        None => step(Act::Nothing, 5.0, format!("{b} has no revision cloud.")),
+    });
+    let tap = "Every change in plain words. Tap to zoom.".to_owned();
+    steps.push(match picks.as_slice() {
+        [first, second, ..] => Step {
+            gestures: vec![
+                click(0.0, 0.8, Target::Row(*first)),
+                // Time to scroll the list first where the row is out of
+                // view (a phone's short list).
+                click(3.0, 4.8, Target::Row(*second)),
+            ],
+            then: vec![(3.0, Act::Tap(*second))],
+            ..step(Act::Tap(*first), 8.0, tap)
+        },
+        [only] => Step {
+            gestures: vec![click(0.0, 0.8, Target::Row(*only))],
+            ..step(Act::Tap(*only), 8.0, tap)
+        },
+        [] => step(Act::Nothing, 8.0, tap),
+    });
+    steps.push(Step {
+        gestures: vec![click(0.0, 0.7, Target::SideBySide)],
+        ..step(
+            Act::SideBySide,
+            4.0,
+            "Before and after, side by side.".into(),
+        )
+    });
+    steps.push(Step {
+        gestures: vec![
+            click(0.0, 0.6, Target::Details),
+            click(0.8, 1.5, Target::ExportPng),
+        ],
+        ..step(Act::Report, 4.0, "Share a review report.".into())
+    });
+    steps.push(step(Act::Phone, 4.0, "Works on your phone too.".into()));
+    steps.push(step(Act::EndCard, 4.0, END_CARD.into()));
+
+    let mut t = 0.0;
+    let mut plan = Plan {
+        shots: Vec::new(),
+        gestures: Vec::new(),
+        cues: Vec::new(),
+        length: 0.0,
+        narration,
+    };
+    for (k, mut s) in steps.into_iter().enumerate() {
+        let mut seconds = s.seconds;
+        if narration {
+            let line = VOICEOVER[k].1;
+            seconds = seconds.max(LEAD + words(line) as f64 / SPEAK + SETTLE);
+            // The second tap as the dimension is mentioned.
+            if s.gestures.len() == 2
+                && let Act::Tap(_) = s.act
+            {
+                let at = spoken_at(line, "and the edge").max(s.gestures[0].1 + 3.0);
+                s.gestures[1] = click(at - 1.8, at, s.gestures[1].3);
+                s.then[0].0 = at - 1.8;
+            }
+            plan.cues.push(Cue {
+                start: t + LEAD,
+                end: t + LEAD + words(line) as f64 / SPEAK,
+                text: line.to_owned(),
+            });
+        } else {
+            plan.cues.push(Cue {
+                start: t,
+                end: t + seconds,
+                // Plain spaces in subtitle files.
+                text: s.caption.replace('\u{a0}', " "),
+            });
+        }
+        let caption = if narration || s.act == Act::EndCard {
+            None
+        } else {
+            Some(s.caption)
+        };
+        plan.shots.push(Shot {
+            at: t,
+            act: s.act,
+            caption: caption.or(Some(String::new())),
+        });
+        for (offset, act) in s.then {
+            plan.shots.push(Shot {
+                at: t + offset,
+                act,
+                caption: None,
+            });
+        }
+        for (from, at, until, target) in s.gestures {
+            plan.gestures.push(Gesture {
+                from: t + from,
+                at: t + at,
+                until: t + until,
+                target,
+            });
+        }
+        t += seconds;
+    }
+    plan.length = t;
+    plan
+}
+
+/// The caption at the cloud. Only the built-in example whose cloud was
+/// drawn around one change on purpose may say the others weren't clouded:
+/// Lightable does not judge what a cloud is meant to cover.
+fn cloud_caption(c: &Compare) -> String {
+    let by_design = c
+        .example
+        .is_some_and(|id| crate::examples::find(id).cloud_by_design);
+    if !by_design {
+        return "The revision cloud, up close.".into();
+    }
+    let (clouded, n) = (c.clouded_count(), c.design_count());
+    let marks = match clouded {
+        1 => "1 change".to_owned(),
+        k => format!("{k} changes"),
+    };
+    match n.saturating_sub(clouded) {
+        0 => format!("The cloud marks {marks}."),
+        1 => format!("The cloud marks {marks}. The other 1 wasn't clouded."),
+        rest => format!("The cloud marks {marks}. The other {rest} weren't clouded."),
+    }
 }
 
 fn capital(s: &str) -> String {
@@ -149,165 +366,6 @@ fn capital(s: &str) -> String {
     c.next().map_or(String::new(), |f| {
         f.to_uppercase().collect::<String>() + c.as_str()
     })
-}
-
-fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
-    // Labels kept on one line in captions ("Rev C", not "Rev" / "C").
-    let keep = |s: &str| s.replace(' ', "\u{a0}");
-    let (a, b) = c.labels();
-    let (a, b) = (keep(a), keep(b));
-    let changes = |n: usize| match n {
-        1 => "1 change".to_owned(),
-        n => format!("{n} changes"),
-    };
-    // (act, caption, a change's headline)
-    let mut steps: Vec<(Act, String, bool)> = vec![
-        (
-            Act::Opening,
-            format!("{b} just came in. What changed?"),
-            false,
-        ),
-        (Act::SideBySide, format!("Before: {a}. After: {b}."), false),
-        match c.cloud_bounds() {
-            Some(_) => (
-                Act::Cloud,
-                format!("The revision cloud marks {}.", changes(c.clouded_count())),
-                false,
-            ),
-            None => (Act::Nothing, format!("{b} has no revision cloud."), false),
-        },
-        (
-            Act::Found,
-            format!("Lightable found {}.", changes(c.design_count())),
-            false,
-        ),
-    ];
-    // Two changes the cloud does not mark, one clause per caption.
-    for k in 0..2 {
-        match picks.get(k) {
-            Some(&i) => {
-                for (n, clause) in clauses(c.headline(i)).into_iter().enumerate() {
-                    let act = if n == 0 { Act::Select(i) } else { Act::Nothing };
-                    steps.push((act, clause, true));
-                }
-            }
-            None => steps.push((Act::Nothing, String::new(), false)),
-        }
-    }
-    steps.push((
-        Act::Report,
-        "Download the review report as PNG or JSON.".into(),
-        false,
-    ));
-    steps.push((
-        Act::Scope,
-        "Whether each change is right is still your call.".into(),
-        false,
-    ));
-    let mut t = 0.0;
-    let mut shots = Vec::new();
-    let mut cues = Vec::new();
-    for (act, caption, change) in steps {
-        // The opening has no zoom to wait for: reading time only, 3 s.
-        let seconds = if act == Act::Opening {
-            (words(&caption) as f64 / 3.0).max(3.0)
-        } else {
-            caption_seconds(&caption)
-        };
-        if !caption.is_empty() {
-            cues.push(Cue {
-                start: t,
-                end: t + seconds,
-                // Plain spaces in subtitle files.
-                text: caption.replace('\u{a0}', " "),
-            });
-        }
-        shots.push(Shot {
-            at: t,
-            act,
-            caption: Some(caption),
-            change,
-        });
-        t += seconds;
-    }
-    shots.push(Shot {
-        at: t,
-        act: Act::EndCard,
-        caption: None,
-        change: false,
-    });
-    cues.push(Cue {
-        start: t,
-        end: t + END_HOLD,
-        text: END_CARD.into(),
-    });
-    Plan {
-        shots,
-        cues,
-        length: t + END_HOLD,
-        narration: false,
-    }
-}
-
-/// `picks`: a changed circle, a changed dimension, a changed text, none of
-/// them clouded (`Compare::demo_picks`).
-fn narration_plan(c: &Compare, picks: &[usize]) -> Plan {
-    let (circle, dimension, text) = (picks[0], picks[1], picks[2]);
-    let mut t = 0.0;
-    let mut shots = Vec::new();
-    let mut cues = Vec::new();
-    for (k, (_, line)) in VOICEOVER.iter().enumerate() {
-        let start = t;
-        // (seconds into the step, act, change caption)
-        let beats: Vec<(f64, Act, Option<String>)> = match k {
-            0 => vec![(0.0, Act::Opening, None)],
-            1 => vec![(0.0, Act::Cloud, None)],
-            2 => vec![(0.0, Act::SideBySide, None)],
-            3 => vec![(0.0, Act::Found, None)],
-            4 => {
-                let edge = spoken_at(line, "The edge");
-                let hole = clauses(c.headline(circle));
-                let mut v = vec![(0.0, Act::Select(circle), hole.first().cloned())];
-                // The hole's second clause halfway to the dimension.
-                if let Some(second) = hole.get(1) {
-                    v.push((edge / 2.0, Act::Nothing, Some(second.clone())));
-                }
-                v.push((
-                    edge,
-                    Act::Select(dimension),
-                    Some(c.headline(dimension).to_owned()),
-                ));
-                v.push((spoken_at(line, "None of them"), Act::Overview, None));
-                v
-            }
-            5 => vec![
-                (0.0, Act::Select(text), Some(c.headline(text).to_owned())),
-                (spoken_at(line, "and export"), Act::Report, None),
-            ],
-            _ => vec![(0.0, Act::EndCard, None)],
-        };
-        for (offset, act, caption) in beats {
-            shots.push(Shot {
-                at: start + offset,
-                act,
-                change: caption.is_some(),
-                caption,
-            });
-        }
-        let spoken = words(line) as f64 / SPEAK;
-        cues.push(Cue {
-            start: start + LEAD,
-            end: start + LEAD + spoken,
-            text: (*line).to_owned(),
-        });
-        t = start + LEAD + spoken + SETTLE;
-    }
-    Plan {
-        shots,
-        cues,
-        length: t + NARRATION_HOLD,
-        narration: true,
-    }
 }
 
 // Used by `lightable demo-cues` (native).
@@ -384,45 +442,78 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    fn bracket() -> Compare {
-        let e = crate::examples::find("bracket");
+    fn compare(id: &str, as_example: bool) -> Compare {
+        let e = crate::examples::find(id);
         let read = |b: &[u8]| Arc::new(lightable_dxf::read_bytes(b).unwrap().0);
         Compare::new(
             None,
             (e.a_name.into(), read(e.a)),
             (e.b_name.into(), read(e.b)),
             Some((e.a_label.into(), e.b_label.into())),
-            Some(e.id),
+            as_example.then_some(e.id),
         )
         .unwrap()
     }
 
-    /// The short demo: the opening, side by side, the cloud, the count, two
-    /// changes (one clause per caption), the report, the scope line, a 3 s
-    /// end card; about 35 s.
+    fn bracket() -> Compare {
+        compare("bracket", true)
+    }
+
+    /// The 40-second demo: every step at its time, with its caption, and a
+    /// person's gesture wherever something is done.
     #[test]
-    fn the_normal_demo_is_short_and_has_no_details_step() {
-        let p = plan(&bracket(), false);
-        let acts: Vec<Act> = p.shots.iter().map(|s| s.act).collect();
-        assert!(matches!(
-            acts[..4],
-            [Act::Opening, Act::SideBySide, Act::Cloud, Act::Found]
-        ));
-        assert_eq!(p.cues[0].text, "Rev C just came in. What changed?");
-        assert!((p.cues[0].end - 3.0).abs() < 1e-9, "the opening lasts 3 s");
-        assert_eq!(p.cues[2].text, "The revision cloud marks 1 change.");
-        assert_eq!(p.cues[3].text, "Lightable found 10 changes.");
+    fn the_demo_follows_the_timeline() {
+        let c = bracket();
+        let p = plan(&c, false);
+        let starts: Vec<(f64, &str)> = p
+            .cues
+            .iter()
+            .map(|cue| (cue.start, cue.text.as_str()))
+            .collect();
         assert_eq!(
-            p.cues[4].text,
-            "Circle diameter changed from 13.5 mm to 17.5 mm"
+            starts,
+            [
+                (0.0, "Rev C just came in. What changed?"),
+                (3.0, "Drop in two revisions. No install, no upload."),
+                (7.0, "10 changes. Blue added, red deleted, yellow changed."),
+                (
+                    11.0,
+                    "The cloud marks 1 change. The other 9 weren't clouded."
+                ),
+                (16.0, "Every change in plain words. Tap to zoom."),
+                (24.0, "Before and after, side by side."),
+                (28.0, "Share a review report."),
+                (32.0, "Works on your phone too."),
+                (36.0, END_CARD),
+            ]
         );
-        assert_eq!(p.cues[5].text, "Centre moved 5 mm right and 5 mm up");
-        assert_eq!(p.cues[6].text, "Dimension changed from 20 mm to 25 mm");
-        assert!(p.length >= 30.0 && p.length <= 35.0, "{}", p.length);
-        let end = p.cues.last().unwrap();
-        assert_eq!(end.text, END_CARD);
-        assert!((end.end - end.start - 3.0).abs() < 1e-9);
-        // Each caption is one clause, short enough for two lines in 9:16.
+        assert!((p.length - 40.0).abs() < 1e-9);
+        let targets: Vec<Target> = p.gestures.iter().map(|g| g.target).collect();
+        let picks = c.demo_picks();
+        assert_eq!(
+            targets,
+            [
+                Target::Drop,
+                Target::Pinch,
+                Target::Row(picks[0]),
+                Target::Row(picks[1]),
+                Target::SideBySide,
+                Target::Details,
+                Target::ExportPng,
+            ]
+        );
+        // Each gesture inside its step, the pointer moving before it acts,
+        // and one at a time.
+        for g in &p.gestures {
+            assert!(g.from < g.at && g.at <= g.until, "{g:?}");
+        }
+        for pair in p.gestures.windows(2) {
+            assert!(pair[0].until < pair[1].from, "{pair:?}");
+        }
+        // The two taps are the circle and the dimension, neither clouded.
+        assert!(c.headline(picks[0]).starts_with("Circle diameter changed"));
+        assert!(c.headline(picks[1]).starts_with("Dimension changed"));
+        // Captions fit two lines in 9:16.
         assert!(
             p.cues
                 .iter()
@@ -433,30 +524,62 @@ mod tests {
         );
     }
 
-    /// Narration: each line at 2.5 words a second, half a second after its
-    /// step starts, and 0.7 s to settle after it; no on-screen captions.
+    /// "The other N weren't clouded" is said only of the built-in example
+    /// drawn that way, never of other files (Lightable does not check
+    /// clouds).
+    #[test]
+    fn only_the_example_built_that_way_says_the_others_were_not_clouded() {
+        let p = plan(&bracket(), false);
+        assert!(p.cues.iter().any(|c| c.text.contains("weren't clouded")));
+        // The same drawings as the user's own files.
+        let p = plan(&compare("bracket", false), false);
+        assert!(
+            p.cues.iter().all(|c| !c.text.contains("clouded")),
+            "{:?}",
+            p.cues
+        );
+        assert!(
+            p.cues
+                .iter()
+                .any(|c| c.text == "The revision cloud, up close.")
+        );
+        // The floor plan has no cloud: no zoom to one.
+        let p = plan(&compare("plan", true), false);
+        assert!(
+            p.cues
+                .iter()
+                .any(|c| c.text == "Rev B has no revision cloud.")
+        );
+        assert!(p.gestures.iter().all(|g| g.target != Target::Pinch));
+    }
+
+    /// Narration: each line at 2.5 words a second, half a second into its
+    /// step, the step long enough to finish it; no captions in the picture.
     #[test]
     fn narration_steps_leave_time_to_speak_each_line() {
         let p = plan(&bracket(), true);
         assert!(p.narration);
         assert_eq!(p.cues.len(), VOICEOVER.len());
         for (cue, (_, line)) in p.cues.iter().zip(VOICEOVER.iter()) {
+            assert_eq!(cue.text, *line);
             let spoken = cue.end - cue.start;
             assert!((spoken - words(line) as f64 / 2.5).abs() < 1e-9);
         }
         for pair in p.cues.windows(2) {
             assert!(pair[1].start - pair[0].end >= LEAD + SETTLE - 1e-9);
         }
-        // Captions only for changes (shown where the list is hidden).
-        assert!(p.shots.iter().all(|s| s.caption.is_some() == s.change));
-        assert_eq!(p.shots.iter().filter(|s| s.change).count(), 4);
-        // The changes line moves on to the dimension as it is mentioned.
-        let dimension = p
-            .shots
-            .iter()
-            .find(|s| matches!(s.act, Act::Select(_)) && s.at > p.cues[4].start + 1.0)
-            .unwrap();
-        assert!(dimension.at > p.cues[4].start && dimension.at < p.cues[4].end);
+        assert!(
+            p.shots
+                .iter()
+                .all(|s| s.caption.as_deref().is_none_or(str::is_empty))
+        );
+        // The second tap as the dimensions are mentioned.
+        let changes = &p.cues[4];
+        let second = p.gestures[3];
+        assert!(second.at > changes.start && second.at < changes.end);
+        for pair in p.gestures.windows(2) {
+            assert!(pair[0].until < pair[1].from, "{pair:?}");
+        }
         assert!(p.length > p.cues.last().unwrap().end);
     }
 
@@ -464,17 +587,7 @@ mod tests {
     /// normal demo.
     #[test]
     fn narration_only_for_the_bracket() {
-        let e = crate::examples::find("plan");
-        let read = |b: &[u8]| Arc::new(lightable_dxf::read_bytes(b).unwrap().0);
-        let c = Compare::new(
-            None,
-            (e.a_name.into(), read(e.a)),
-            (e.b_name.into(), read(e.b)),
-            Some((e.a_label.into(), e.b_label.into())),
-            Some(e.id),
-        )
-        .unwrap();
-        assert!(!plan(&c, true).narration);
+        assert!(!plan(&compare("plan", true), true).narration);
     }
 
     /// Every fact the voice-over states, checked against the comparison.
@@ -500,22 +613,30 @@ mod tests {
                 && texts.iter().any(|t| t == "REV C")
         );
         assert!(line(0).contains("Rev C") && line(0).contains("mounting bracket"));
-        // "The revision cloud marks one change: the bolt note, M12 to M16."
+        // "finds ten changes. Blue is added, red deleted, yellow changed."
+        assert_eq!(c.design_count(), 10);
+        assert!(line(2).contains("ten changes"));
+        use lightable_diff::view as v;
+        const {
+            assert!(v::ADDED.2 > v::ADDED.0 && v::ADDED.2 > v::ADDED.1, "blue");
+            assert!(
+                v::DELETED.0 > v::DELETED.1 && v::DELETED.0 > v::DELETED.2,
+                "red"
+            );
+            assert!(
+                v::CHANGED.0 > 0xe0 && v::CHANGED.1 > 0xc0 && v::CHANGED.2 < 0x40,
+                "yellow"
+            );
+        }
+        // "The revision cloud marks one of them, the bolt note. In this
+        // example, the other nine weren't clouded."
         assert_eq!(c.clouded_count(), 1);
         let clouded = c.clouded_headlines();
-        assert_eq!(clouded.len(), 1);
         assert!(clouded[0].contains("BOLTS: 4x M12") && clouded[0].contains("BOLTS: 4x M16"));
-        assert!(line(1).contains("one change") && line(1).contains("M12 to M16"));
-        // "finds ten changes"
-        assert_eq!(c.design_count(), 10);
-        assert!(line(3).contains("ten changes"));
-        // "The four holes grew from 13.5 to 17.5 millimetres, and each moved
-        // 5 millimetres in from both edges."
-        let extent = c.bounds().unwrap();
-        let mid = [
-            (extent.min[0] + extent.max[0]) / 2.0,
-            (extent.min[1] + extent.max[1]) / 2.0,
-        ];
+        assert!(crate::examples::find("bracket").cloud_by_design);
+        assert!(line(3).contains("one of them") && line(3).contains("other nine"));
+        assert!(line(3).contains("In this example"));
+        // "the holes grew from 13.5 to 17.5 millimetres"
         let holes: Vec<_> = d
             .design_changes()
             .filter(|x| x.entity_type == "CIRCLE")
@@ -528,53 +649,21 @@ mod tests {
                 "{}",
                 h.headline
             );
-            let at = h.bounds.unwrap();
-            let (x, y) = ((at.min[0] + at.max[0]) / 2.0, (at.min[1] + at.max[1]) / 2.0);
-            // Towards the middle in both directions: in from both edges.
-            let across = if x < mid[0] {
-                "5 mm right"
-            } else {
-                "5 mm left"
-            };
-            let up_down = if y < mid[1] { "5 mm up" } else { "5 mm down" };
-            assert!(
-                h.headline.contains(across) && h.headline.contains(up_down),
-                "{}",
-                h.headline
-            );
         }
-        assert!(line(4).contains("four holes") && line(4).contains("13.5 to 17.5 millimetres"));
-        assert!(line(4).contains("5 millimetres in from both edges"));
-        // "The edge and pitch dimensions changed too." Edge 20 -> 25 (two),
-        // pitch 120 -> 110 and 60 -> 50.
-        let dims: Vec<&str> = d
+        assert!(line(4).contains("holes grew from 13.5 to 17.5 millimetres"));
+        // "and the edge dimensions from 20 to 25": two of them.
+        let edges = d
             .design_changes()
             .filter(|x| x.entity_type == "DIMENSION")
-            .map(|x| x.headline.as_str())
-            .collect();
-        for want in [
-            "from 20 mm to 25 mm",
-            "from 120 mm to 110 mm",
-            "from 60 mm to 50 mm",
-        ] {
-            assert!(dims.iter().any(|h| h.contains(want)), "{want}");
-        }
-        // "None of them were clouded": only the bolt note is.
-        assert!(!clouded[0].starts_with("Circle") && !clouded[0].starts_with("Dimension"));
-        // "Click any change to see it, and export a review report." (Two
-        // clicks for the export: Details, then Export.)
-        assert!(!line(5).contains("one click"));
+            .filter(|x| x.headline.contains("from 20 mm to 25 mm"))
+            .count();
+        assert_eq!(edges, 2);
+        assert!(line(4).contains("edge dimensions from 20 to 25"));
+        assert!(line(8).contains("never leave your computer"));
     }
 
     #[test]
     fn subtitle_files_are_well_formed() {
-        assert_eq!(
-            clauses("Circle diameter changed from 1 mm to 2 mm; centre moved 5 mm up"),
-            [
-                "Circle diameter changed from 1 mm to 2 mm",
-                "Centre moved 5 mm up"
-            ]
-        );
         let cues = [Cue {
             start: 3.5,
             end: 62.25,

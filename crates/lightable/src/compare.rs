@@ -49,10 +49,6 @@ pub struct Compare {
     pub narrow: bool,
     /// Little height (a phone held sideways): a compact summary.
     pub short: bool,
-    /// The demo's opening: Rev C alone, plain (no change colours).
-    pub solo_b: bool,
-    /// Rev C drawn plain, for `solo_b` (built when first needed).
-    plain_b: Option<Doc>,
     /// The change list and the summary are shown (the demo hides them
     /// in some steps).
     pub show_list: bool,
@@ -93,6 +89,19 @@ pub struct Compare {
     used: [bool; 3],
     /// Where the controls the hints point at were drawn last frame.
     anchors: [Option<Rect>; 3],
+    /// The built-in example these files are (its files were dropped or
+    /// chosen): its note is shown as for the example itself.
+    pub files_of: Option<&'static str>,
+    /// Where things were drawn last frame, for the demo's gestures: the
+    /// colour legend, "Export PNG report", and each change row fully in
+    /// view.
+    pub legend_rect: Option<Rect>,
+    pub export_rect: Option<Rect>,
+    pub row_rects: Vec<(usize, Rect)>,
+    /// The part of the change list in view (rows outside it scroll in).
+    pub list_rect: Option<Rect>,
+    /// Frames left to bring the selected row into view.
+    reveal_selected: u8,
 }
 
 /// The PNG report: shown for a few frames, then captured (or, in the demo,
@@ -165,7 +174,9 @@ fn short_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
-fn legend(ui: &mut egui::Ui) {
+/// The colour legend; returns where it was drawn.
+fn legend(ui: &mut egui::Ui) -> Rect {
+    let mut area = Rect::NOTHING;
     for (color, label) in [
         (dview::ADDED, "added"),
         (dview::DELETED, "deleted"),
@@ -174,9 +185,11 @@ fn legend(ui: &mut egui::Ui) {
     ] {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(11.0, 11.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, 2.0, rgb(color));
-        ui.label(egui::RichText::new(label).color(Color32::from_gray(200)));
+        let text = ui.label(egui::RichText::new(label).color(Color32::from_gray(200)));
+        area = area.union(rect).union(text.rect);
         ui.add_space(6.0);
     }
+    area
 }
 
 impl Compare {
@@ -213,8 +226,6 @@ impl Compare {
             notes: Vec::new(),
             narrow: false,
             short: false,
-            solo_b: false,
-            plain_b: None,
             show_list: true,
             list_limit: None,
             list_tail_visible: None,
@@ -238,6 +249,12 @@ impl Compare {
             reveal_not_compared: false,
             used: [false; 3],
             anchors: [None; 3],
+            files_of: None,
+            legend_rect: None,
+            export_rect: None,
+            row_rects: Vec::new(),
+            list_rect: None,
+            reveal_selected: 0,
         })
     }
 
@@ -266,17 +283,6 @@ impl Compare {
         for d in [&self.overlay, &self.left, &self.right] {
             d.destroy(gl);
         }
-        if let Some(d) = &self.plain_b {
-            d.destroy(gl);
-        }
-    }
-
-    /// Builds the plain drawing of Rev C for `solo_b`.
-    pub fn ensure_plain_b(&mut self, gl: Option<&Arc<glow::Context>>) {
-        if self.plain_b.is_none() {
-            let scene = lightable_render::build(&self.drawings.1);
-            self.plain_b = Doc::new(gl, self.b_name.clone(), scene, 0).ok();
-        }
     }
 
     pub fn bounds(&self) -> Option<Bounds> {
@@ -285,7 +291,7 @@ impl Compare {
 
     /// The panes to draw in: one, or two side by side.
     pub fn panes(&self, rect: Rect) -> Vec<Rect> {
-        if !self.side_by_side || self.reporting() || self.solo_b {
+        if !self.side_by_side || self.reporting() {
             return vec![rect];
         }
         // Portrait (a phone, a 9:16 frame): one above the other.
@@ -321,11 +327,13 @@ impl Compare {
     /// Selects change `i`; returns where to zoom.
     pub fn select(&mut self, i: usize) -> Option<Bounds> {
         self.current = Some(i);
+        self.reveal_selected = 2;
         self.used[0] = true;
         self.zoom_for(i)
     }
 
     /// The headline of change `i`.
+    #[cfg(test)]
     pub fn headline(&self, i: usize) -> &str {
         self.diff.changes.get(i).map_or("", |c| c.headline.as_str())
     }
@@ -345,7 +353,7 @@ impl Compare {
     /// The built-in example's note on how it was drawn ("Example: the
     /// drafter clouded only the bolt note."); never for the user's files.
     pub fn example_note(&self) -> Option<&'static str> {
-        let id = self.example?;
+        let id = self.example.or(self.files_of)?;
         crate::examples::EXAMPLES.iter().find(|e| e.id == id)?.note
     }
 
@@ -420,6 +428,12 @@ impl Compare {
             .and_then(|c| c.bounds)
     }
 
+    /// Where the change list's first row, "Side by side" and "Details"
+    /// were drawn last frame.
+    pub fn anchors(&self) -> [Option<Rect>; 3] {
+        self.anchors
+    }
+
     /// No change selected.
     pub fn clear_selection(&mut self) {
         self.current = None;
@@ -492,13 +506,6 @@ impl Compare {
 
     pub fn toolbar(&mut self, ui: &mut egui::Ui) -> Action {
         let mut action = Action::default();
-        // Recording a video: only the view toggle.
-        if self.record {
-            ui.horizontal(|ui| {
-                let _ = ui.selectable_label(self.side_by_side, "Side by side");
-            });
-            return action;
-        }
         let narrow = self.narrow || self.short;
         // On phones: files and examples, then the view buttons, then the
         // privacy line, each on its own row.
@@ -565,11 +572,11 @@ impl Compare {
                 if ui.button("Export JSON").clicked() {
                     action.message = Some(this.export());
                 }
-                if ui
+                let export = ui
                     .button("Export PNG report")
-                    .on_hover_text("The overlay and the change list as one image")
-                    .clicked()
-                {
+                    .on_hover_text("The overlay and the change list as one image");
+                this.export_rect = Some(export.rect);
+                if export.clicked() {
                     this.start_report();
                     action.fit = true;
                 }
@@ -591,6 +598,12 @@ impl Compare {
                 action.message = crate::feedback::open(ui.ctx());
             }
         };
+        self.export_rect = None;
+        // Recording a video: only the view buttons (they work as usual).
+        if self.record {
+            ui.horizontal_wrapped(|ui| view(ui, self, &mut action));
+            return action;
+        }
         if narrow {
             ui.horizontal_wrapped(|ui| files(ui, self, &mut action));
             ui.horizontal_wrapped(|ui| {
@@ -661,22 +674,28 @@ impl Compare {
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new(self.summary())
-                    .size(if self.short { 16.0 } else { 20.0 })
+                    .size(if self.short || (self.record && self.narrow) {
+                        16.0
+                    } else {
+                        20.0
+                    })
                     .strong()
                     .color(Color32::WHITE),
             );
-            if let Some(markup) = self
-                .diff
-                .markup_summary()
-                .filter(|_| !(self.record && self.narrow))
-            {
+            if let Some(markup) = self.diff.markup_summary().filter(|_| !self.record) {
                 ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
             }
             if self.record {
+                // On its own row, so it reads (and is highlighted) as one.
+                ui.end_row();
+            } else {
+                ui.add_space(16.0);
+            }
+            self.legend_rect = Some(legend(ui));
+            // Recording: no Previous / Next.
+            if self.record {
                 return;
             }
-            ui.add_space(16.0);
-            legend(ui);
             if self.narrow || self.short {
                 ui.add_space(8.0);
                 step(ui, self, false);
@@ -696,7 +715,8 @@ impl Compare {
                     .color(Color32::from_gray(185)),
             );
         }
-        if self.example.is_none() {
+        // In a 9:16 recording the summary line names the files already.
+        if self.example.is_none() && !(self.record && self.narrow) {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     egui::RichText::new(format!(
@@ -805,13 +825,15 @@ impl Compare {
     }
 
     /// Called once per report frame; true when it is time to capture.
-    pub fn report_frame(&mut self) -> bool {
+    /// `new_frame`: false when the same frame is drawn again (a recording
+    /// draws some frames more than once), which does not count.
+    pub fn report_frame(&mut self, new_frame: bool) -> bool {
         match self.report {
             Report::Preparing(n) if n >= 3 => {
                 self.report = Report::Capturing;
                 true
             }
-            Report::Preparing(n) => {
+            Report::Preparing(n) if new_frame => {
                 self.report = Report::Preparing(n + 1);
                 false
             }
@@ -823,9 +845,17 @@ impl Compare {
         self.report == Report::Capturing
     }
 
-    /// Saves the captured report and leaves the report layout.
-    pub fn finish_report(&mut self, image: &egui::ColorImage) -> String {
+    /// Saves the captured report and leaves the report layout. `save`
+    /// false (the live demo): made, but not downloaded onto a viewer's
+    /// computer.
+    pub fn finish_report(&mut self, image: &egui::ColorImage, save: bool) -> String {
         self.report = Report::Off;
+        if !save {
+            return format!(
+                "Report made ({} × {}); the demo does not save it.",
+                image.size[0], image.size[1]
+            );
+        }
         let rgba: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
         match crate::files::png(image.size[0], image.size[1], &rgba) {
             Ok(png) => {
@@ -850,7 +880,7 @@ impl Compare {
             ui.label(egui::RichText::new(note).italics());
         }
         ui.horizontal_wrapped(|ui| {
-            legend(ui);
+            let _ = legend(ui);
             ui.separator();
             ui.label(format!(
                 "{} to {}",
@@ -960,7 +990,12 @@ impl Compare {
         let mut first_row = None;
         let mut reveal = false;
         let mut tail_visible = None;
+        let mut rows = Vec::new();
+        let mut view = None;
+        let bring = self.reveal_selected > 0;
+        self.reveal_selected = self.reveal_selected.saturating_sub(1);
         egui::ScrollArea::vertical().show(ui, |ui| {
+            view = Some(ui.clip_rect());
             let markup_start = d.changes.iter().position(|c| c.markup);
             let design = d.design_changes().count();
             for (i, c) in d.changes.iter().enumerate() {
@@ -997,7 +1032,9 @@ impl Compare {
                         // 9:16 recording one line each, so the drawing keeps
                         // its share of the frame.
                         let button = egui::Button::selectable(selected, text);
-                        if self.record && (self.narrow || self.list_limit.is_some()) {
+                        // Recording: one line each, except the change
+                        // tapped, in full.
+                        if self.record && !selected {
                             ui.add(button.truncate())
                         } else {
                             ui.add(button.wrap())
@@ -1007,6 +1044,7 @@ impl Compare {
                 if first_row.is_none() {
                     first_row = Some(response.rect);
                 }
+                rows.push((i, response.rect));
                 if response.clicked() {
                     clicked = Some(i);
                 }
@@ -1040,7 +1078,9 @@ impl Compare {
                         }
                     });
                 }
-                if selected && response.clicked() {
+                // A newly selected row comes fully into view (for two
+                // frames: in a recording it grows to its full headline).
+                if selected && (response.clicked() || bring) {
                     response.scroll_to_me(None);
                 }
             }
@@ -1099,6 +1139,8 @@ impl Compare {
         });
         self.anchors[0] = first_row;
         self.list_tail_visible = tail_visible;
+        self.row_rects = rows;
+        self.list_rect = view;
         if reveal {
             self.details = true;
             self.used[2] = true;
@@ -1136,17 +1178,14 @@ impl Compare {
     }
 
     pub fn paint(&self, ui: &egui::Ui, panes: &[Rect], view: &View) {
-        let docs: Vec<(&Doc, &str)> =
-            if let Some(plain) = self.plain_b.as_ref().filter(|_| self.solo_b) {
-                vec![(plain, self.b_label.as_str())]
-            } else if self.side_by_side && !self.reporting() {
-                vec![
-                    (&self.left, self.a_label.as_str()),
-                    (&self.right, self.b_label.as_str()),
-                ]
-            } else {
-                vec![(&self.overlay, "")]
-            };
+        let docs: Vec<(&Doc, &str)> = if self.side_by_side && !self.reporting() {
+            vec![
+                (&self.left, self.a_label.as_str()),
+                (&self.right, self.b_label.as_str()),
+            ]
+        } else {
+            vec![(&self.overlay, "")]
+        };
         let highlight = self
             .current
             .and_then(|i| self.diff.changes.get(i))
