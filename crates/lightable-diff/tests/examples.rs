@@ -224,7 +224,7 @@ fn plan_example_headlines_use_millimetres() {
         "Text changed from BEDROOM to MASTER BEDROOM",
         "Line deleted",
         "In block CHAIR: Polyline added",
-        "Layer FURNITURE: color changed from dark grey (8) to magenta (6)",
+        "Layer FURNITURE: colour changed from dark grey (8) to magenta (6)",
         "Hatch pattern changed from SOLID to ANSI37",
     ] {
         assert!(all.contains(&want), "missing {want:?} in {all:#?}");

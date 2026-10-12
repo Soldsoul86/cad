@@ -134,7 +134,7 @@ pub fn plan(c: &Compare, narration: bool) -> Plan {
 }
 
 /// A headline as captions of at most one clause each: "Circle diameter
-/// changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up"
+/// changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm up"
 /// becomes two (the words unchanged, the second capitalised).
 pub fn clauses(headline: &str) -> Vec<String> {
     headline
@@ -152,7 +152,10 @@ fn capital(s: &str) -> String {
 }
 
 fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
+    // Labels kept on one line in captions ("Rev C", not "Rev" / "C").
+    let keep = |s: &str| s.replace(' ', "\u{a0}");
     let (a, b) = c.labels();
+    let (a, b) = (keep(a), keep(b));
     let changes = |n: usize| match n {
         1 => "1 change".to_owned(),
         n => format!("{n} changes"),
@@ -215,7 +218,8 @@ fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
             cues.push(Cue {
                 start: t,
                 end: t + seconds,
-                text: caption.clone(),
+                // Plain spaces in subtitle files.
+                text: caption.replace('\u{a0}', " "),
             });
         }
         shots.push(Shot {
@@ -412,7 +416,7 @@ mod tests {
             p.cues[4].text,
             "Circle diameter changed from 13.5 mm to 17.5 mm"
         );
-        assert_eq!(p.cues[5].text, "Center moved 5 mm right and 5 mm up");
+        assert_eq!(p.cues[5].text, "Centre moved 5 mm right and 5 mm up");
         assert_eq!(p.cues[6].text, "Dimension changed from 20 mm to 25 mm");
         assert!(p.length >= 30.0 && p.length <= 35.0, "{}", p.length);
         let end = p.cues.last().unwrap();
@@ -565,10 +569,10 @@ mod tests {
     #[test]
     fn subtitle_files_are_well_formed() {
         assert_eq!(
-            clauses("Circle diameter changed from 1 mm to 2 mm; center moved 5 mm up"),
+            clauses("Circle diameter changed from 1 mm to 2 mm; centre moved 5 mm up"),
             [
                 "Circle diameter changed from 1 mm to 2 mm",
-                "Center moved 5 mm up"
+                "Centre moved 5 mm up"
             ]
         );
         let cues = [Cue {

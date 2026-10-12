@@ -42,4 +42,21 @@ awk -v list="$OUT/changes.html" -v bytes="$WASM_BYTES" '
   { gsub(/__WASM_BYTES__/, bytes); print }
 ' web/index.html > "$OUT/index.html"
 rm "$OUT/changes.html"
+# The public demo page (lightable.dev/demo/), only once approved videos are
+# in web/demo/ (`node tools/demo.mjs approve`); drafts never go there.
+PAGES="/"
+if [ -f web/demo/demo-landscape.mp4 ] && [ -f web/demo/demo-vertical.mp4 ] \
+   && [ -f web/demo/poster-landscape.jpg ] && [ -f web/demo/demo.vtt ]; then
+  mkdir -p "$OUT/demo"
+  cp web/demo/index.html web/demo/demo-landscape.mp4 web/demo/demo-vertical.mp4 \
+     web/demo/poster-landscape.jpg web/demo/poster-vertical.jpg web/demo/demo.vtt "$OUT/demo/"
+  PAGES="/ /demo/"
+fi
+{
+  echo '<?xml version="1.0" encoding="UTF-8"?>'
+  echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+  for page in $PAGES; do echo "  <url><loc>https://lightable.dev$page</loc></url>"; done
+  echo '</urlset>'
+} > "$OUT/sitemap.xml"
+printf 'User-agent: *\nAllow: /\nSitemap: https://lightable.dev/sitemap.xml\n' > "$OUT/robots.txt"
 ls -l "$OUT"

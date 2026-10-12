@@ -143,7 +143,7 @@ demo timing 2; changed: plan headlines, cloud/no-coordinates checks).
 | U12 | Fixed | "Reading big_save.dxf (50 MB)…" in the middle of the screen while the page is busy (≈ 4.5 s) | `after-huge-file-reading.jpg` (a compositor frame: screenshots cannot be taken while the page is busy) |
 | U13 | Fixed | "What isn't compared?" under the list opens Details at that list | `after-not-compared-link.jpg` |
 | U14 | Fixed | "Files are read in this browser, never uploaded." beside "Choose files…" and on the loading page | `after-engineer-first-screen.jpg` |
-| U15 | Fixed | "Hatch pattern changed from SOLID to ANSI37"; "color changed from dark grey (8) to magenta (6)" | `after-architect-plan.jpg` |
+| U15 | Fixed | "Hatch pattern changed from SOLID to ANSI37"; "colour changed from dark grey (8) to magenta (6)" | `after-architect-plan.jpg` |
 | U16 | Fixed | Hints only beside visible targets; on phones only the list hint | `after-phone-portrait.jpg` |
 | U17 | Fixed | Landscape phone: list beside the drawing, compact summary, wrapped rows | `after-phone-landscape.jpg`, `after-phone-landscape-firefox.jpg` |
 | U18 | Fixed | Empty state: "Compare two revisions of a drawing", "Choose two DXF files…", "Or try the example", privacy line (no command-line wording on the web) | `after-empty-state.jpg` (after Close) |

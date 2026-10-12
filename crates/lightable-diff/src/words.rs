@@ -239,7 +239,7 @@ fn value_words(v: &Value, units: Option<&str>) -> String {
     }
 }
 
-/// "color changed from 8 to 6"; a position or direction just "changed"
+/// "colour changed from 8 to 6"; a position or direction just "changed"
 /// (its coordinates are in the details).
 fn from_to(label: &str, a: &Value, b: &Value, units: Option<&str>) -> String {
     match (a, b) {

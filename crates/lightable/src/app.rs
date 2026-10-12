@@ -177,7 +177,7 @@ struct Demo {
     done: usize,
 }
 
-/// The recorder's side of `?demo&record` (`tools/record_demo.mjs`): it
+/// The recorder's side of `?demo&record` (`tools/demo.mjs`): it
 /// sets `window.__lightableFrame`, the app draws that moment and answers in
 /// `window.__lightableRendered`; the demo's length is in
 /// `window.__lightableDemoLength`.
@@ -214,12 +214,44 @@ mod record {
     pub fn publish_length(seconds: f64) {
         set("__lightableDemoLength", seconds);
     }
+
+    fn set_text(_name: &str, _value: &str) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = window() {
+            let _ = js_sys::Reflect::set(&w, &_name.into(), &_value.into());
+        }
+    }
+
+    /// The demo's steps as JSON: `[{"at": seconds, "desc": "..."}]`.
+    pub fn publish_shots(json: &str) {
+        set_text("__lightableDemoShots", json);
+    }
+
+    /// What is on screen this frame, as JSON (for the recorder's checks and
+    /// its hold optimisation).
+    pub fn publish_frame_info(json: &str) {
+        set_text("__lightableFrameInfo", json);
+    }
+
+    /// A string as a JSON string literal.
+    pub fn json_string(s: &str) -> String {
+        let mut out = String::from("\"");
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
 }
 
 /// Frames a second when recording.
 const RECORD_FPS: f64 = 30.0;
 
-/// Caption text size for a screen: readable in a 16:9 or 9:16 video.
 /// Caption text size for a screen: 4.5 % of its height (readable on a phone
 /// in a social feed), shrunk to [`CAPTION_MIN`] at most to fit two lines.
 pub fn caption_size(height: f32) -> f32 {
@@ -227,7 +259,7 @@ pub fn caption_size(height: f32) -> f32 {
 }
 
 /// The smallest caption, as a share of the screen height.
-const CAPTION_MIN: f32 = 0.032;
+const CAPTION_MIN: f32 = 0.04;
 
 /// The file dialog exists (web); the native app takes files by drag and
 /// drop or on the command line.
@@ -270,7 +302,9 @@ pub struct CadApp {
     anim: Option<Anim>,
     /// A demo zoom to start once this frame's pane size is known (a demo
     /// step can switch side by side or Details, which resizes the panes).
-    demo_zoom: Option<(lightable_render::Bounds, f64)>,
+    /// The zoom and when it starts (the step's scheduled time, so a frame
+    /// looks the same however the recorder reaches it).
+    demo_zoom: Option<(lightable_render::Bounds, f64, f64)>,
     /// The view shows everything and nobody has moved it since: when the
     /// panes change size (the change list settling its width, Side by
     /// side), it is fitted again.
@@ -288,6 +322,11 @@ pub struct CadApp {
     now: f64,
     /// The UI scale changes next frame (recording): wait with zooms.
     zoom_pending: bool,
+    /// What the demo's current step is about (the change, the cloud, the
+    /// sheet), for the recorder's checks.
+    demo_focus: Option<lightable_render::Bounds>,
+    /// The caption drawn last: text size, box and number of lines.
+    caption_box: std::cell::Cell<Option<(f32, Rect, usize)>>,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -375,6 +414,8 @@ impl CadApp {
             }),
             now: 0.0,
             zoom_pending: false,
+            demo_focus: None,
+            caption_box: std::cell::Cell::new(None),
             canvas_rect: None,
             caption: None,
             end_card: false,
@@ -889,7 +930,7 @@ impl CadApp {
             self.fit();
         }
         if !self.zoom_pending
-            && let Some((b, margin)) = self.demo_zoom.take()
+            && let Some((b, margin, start)) = self.demo_zoom.take()
         {
             // Keep the change clear of the caption: two lines and padding.
             let band = if self.captions_possible() {
@@ -898,7 +939,7 @@ impl CadApp {
             } else {
                 0.0
             };
-            self.animate_to_above(&b, margin, self.now, 1.2, band);
+            self.animate_to_above(&b, margin, start.min(self.now), 1.2, band);
         }
         let has_content = self.doc.is_some() || self.compare.is_some();
         if self.fit_pending && has_content && rect.width() > 0.0 {
@@ -1158,6 +1199,15 @@ impl eframe::App for CadApp {
         // exported.
         self.zoom_pending = false;
         if self.recording() {
+            // egui's own animations (fades, list scrolling) run on the wall
+            // clock: off while recording, so every frame depends only on the
+            // demo clock.
+            if ui.ctx().global_style().animation_time > 0.0 {
+                ui.ctx().all_styles_mut(|style| {
+                    style.animation_time = 0.0;
+                    style.scroll_animation = egui::style::ScrollAnimation::none();
+                });
+            }
             let r = ui.ctx().content_rect();
             let reporting = self.compare.as_ref().is_some_and(|c| c.reporting());
             let zoom = if reporting {
@@ -1177,6 +1227,7 @@ impl eframe::App for CadApp {
             self.report(ui);
             self.overlays(ui);
             if self.recording() {
+                self.publish_frame_info(ui);
                 record::rendered(self.now * RECORD_FPS);
             }
             return;
@@ -1201,10 +1252,12 @@ impl eframe::App for CadApp {
         if let Some(c) = &mut self.compare {
             let mut zoom = None;
             let mut action = crate::compare::Action::default();
-            if c.show_summary {
+            // In a 9:16 recording the caption carries the summary.
+            if c.show_summary && !(c.record && narrow) {
                 egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
             }
             let show_list = c.show_list;
+            let limited = c.list_limit.is_some();
             let list = |ui: &mut egui::Ui| c.change_list(ui);
             // The demo uses fixed shares of the screen, whatever the panel
             // was before.
@@ -1214,7 +1267,10 @@ impl eframe::App for CadApp {
             } else if narrow {
                 let panel = egui::Panel::bottom("changes-below");
                 let panel = if demo {
-                    panel.exact_size(screen.height() * 0.45)
+                    // Four one-line rows at the "found" step; more room
+                    // otherwise.
+                    let share = if limited { 0.33 } else { 0.45 };
+                    panel.exact_size(screen.height() * share)
                 } else {
                     panel.resizable(true).default_size(screen.height() * 0.35)
                 };
@@ -1222,7 +1278,9 @@ impl eframe::App for CadApp {
             } else {
                 let panel = egui::Panel::right("changes");
                 let panel = if demo {
-                    panel.exact_size(screen.width() * 0.36)
+                    // Half the frame at the "found" step, so its four
+                    // lines and the count of the rest show in full.
+                    panel.exact_size(screen.width() * if limited { 0.5 } else { 0.36 })
                 } else {
                     panel
                         .resizable(true)
@@ -1294,6 +1352,7 @@ impl eframe::App for CadApp {
         self.order_window(ui, gl.as_ref());
         self.overlays(ui);
         if self.demo.as_ref().is_some_and(|d| d.record) {
+            self.publish_frame_info(ui);
             record::rendered(self.now * RECORD_FPS);
         }
 
@@ -1375,6 +1434,18 @@ impl CadApp {
         if demo.plan.is_none() {
             let plan = crate::demo::plan(c, demo.narration);
             record::publish_length(plan.length);
+            let shots: Vec<String> = plan
+                .shots
+                .iter()
+                .map(|s| {
+                    format!(
+                        "{{\"at\":{},\"desc\":{}}}",
+                        s.at,
+                        record::json_string(&format!("{:?}", s))
+                    )
+                })
+                .collect();
+            record::publish_shots(&format!("[{}]", shots.join(",")));
             // Live, a second's pause first; recorded, from the first frame.
             let start = if demo.record { now } else { now + 1.0 };
             demo.plan = Some((plan, start));
@@ -1389,9 +1460,69 @@ impl CadApp {
             demo.done += 1;
         }
         let narration = plan.narration;
+        let start = *start;
         for shot in due {
-            self.play(shot, narration, gl);
+            let at = start + shot.at;
+            self.play(shot, narration, gl, at);
         }
+    }
+
+    /// Publishes what is on screen this frame (points; `zoom` converts to
+    /// CSS pixels) for the recorder.
+    fn publish_frame_info(&self, ui: &egui::Ui) {
+        let r = |r: Rect| format!("[{},{},{},{}]", r.min.x, r.min.y, r.max.x, r.max.y);
+        let screen = ui.ctx().content_rect();
+        let canvas = self
+            .canvas_rect
+            .filter(|_| self.compare.as_ref().is_some_and(|c| !c.reporting()));
+        let mut focus = Vec::new();
+        if let (Some(c), Some(canvas), Some(b)) = (&self.compare, canvas, self.demo_focus) {
+            for pane in c.panes(canvas) {
+                let mut v = self.view;
+                v.size = [f64::from(pane.width()), f64::from(pane.height())];
+                let p0 = v.to_screen([b.min[0], b.max[1]]);
+                let p1 = v.to_screen([b.max[0], b.min[1]]);
+                focus.push(r(Rect::from_min_max(
+                    egui::pos2(pane.min.x + p0[0] as f32, pane.min.y + p0[1] as f32),
+                    egui::pos2(pane.min.x + p1[0] as f32, pane.min.y + p1[1] as f32),
+                )));
+            }
+        }
+        let caption = self
+            .caption_box
+            .get()
+            .map_or("null".to_owned(), |(size, rect, rows)| {
+                format!("{{\"size\":{size},\"rect\":{},\"rows\":{rows}}}", r(rect))
+            });
+        let (step, next) = self.demo.as_ref().map_or((0, None), |d| {
+            let next = d
+                .plan
+                .as_ref()
+                .and_then(|(p, _)| p.shots.get(d.done))
+                .map(|s| s.at);
+            (d.done, next)
+        });
+        let still = self.anim.is_none()
+            && self.demo_zoom.is_none()
+            && !self.zoom_pending
+            && self.to_read.is_none();
+        let c = self.compare.as_ref();
+        let json = format!(
+            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{}}}",
+            ui.ctx().zoom_factor(),
+            r(screen),
+            canvas.map_or("null".to_owned(), r),
+            focus.join(","),
+            next.map_or("null".to_owned(), |t| t.to_string()),
+            self.end_card,
+            c.is_some_and(|c| c.reporting()),
+            c.is_some_and(|c| c.show_list),
+            c.and_then(|c| c
+                .list_tail_visible
+                .filter(|_| c.show_list && c.list_limit.is_some()))
+                .map_or("null".to_owned(), |v| v.to_string()),
+        );
+        record::publish_frame_info(&json);
     }
 
     /// Recording the demo frame by frame (`?demo&record`).
@@ -1401,7 +1532,13 @@ impl CadApp {
 
     /// Applies one demo moment. Every number and headline comes from the
     /// comparison (`demo::plan`).
-    fn play(&mut self, shot: crate::demo::Shot, narration: bool, gl: Option<&Arc<glow::Context>>) {
+    fn play(
+        &mut self,
+        shot: crate::demo::Shot,
+        narration: bool,
+        gl: Option<&Arc<glow::Context>>,
+        at: f64,
+    ) {
         use crate::demo::Act;
         let Some(c) = &mut self.compare else { return };
         let extent = c.bounds();
@@ -1425,7 +1562,7 @@ impl CadApp {
                 c.solo_b = false;
                 c.side_by_side = true;
                 c.show_list = false;
-                c.show_summary = true;
+                c.show_summary = false;
                 c.clear_selection();
                 zoom = whole(0.02);
             }
@@ -1433,7 +1570,7 @@ impl CadApp {
                 c.solo_b = false;
                 c.side_by_side = true;
                 c.show_list = false;
-                c.show_summary = true;
+                c.show_summary = false;
                 // Close enough to read the clouded text.
                 zoom = c.cloud_bounds_tight().map(|b| (b, 0.06));
             }
@@ -1441,12 +1578,14 @@ impl CadApp {
                 c.solo_b = false;
                 c.side_by_side = false;
                 c.show_list = true;
+                c.list_limit = Some(4);
                 c.show_summary = true;
                 c.clear_selection();
                 zoom = whole(0.03);
             }
             Act::Select(i) => {
                 c.preview_report(false);
+                c.list_limit = None;
                 // On a narrow screen the caption shows the change instead
                 // of the list.
                 if narrow {
@@ -1456,6 +1595,7 @@ impl CadApp {
             }
             Act::Overview => {
                 c.side_by_side = false;
+                c.list_limit = None;
                 c.clear_selection();
                 if narrow {
                     c.show_list = false;
@@ -1484,8 +1624,15 @@ impl CadApp {
         if shot.caption.is_some() || narration {
             self.caption = shot.caption.filter(|t| show && !t.is_empty());
         }
+        self.demo_focus = match shot.act {
+            Act::Select(i) => self.compare.as_ref().and_then(|c| c.change_bounds(i)),
+            Act::Cloud => self.compare.as_ref().and_then(|c| c.cloud_bounds_tight()),
+            Act::Opening | Act::SideBySide | Act::Found | Act::Overview => extent,
+            Act::Nothing => self.demo_focus,
+            Act::Report | Act::Scope | Act::EndCard => None,
+        };
         if let Some((b, margin)) = zoom {
-            self.demo_zoom = Some((b, margin));
+            self.demo_zoom = Some((b, margin, at));
         }
     }
 
@@ -1501,6 +1648,7 @@ impl CadApp {
 
     /// Demo captions and the end card, over everything.
     fn overlays(&self, ui: &mut egui::Ui) {
+        self.caption_box.set(None);
         let screen = ui.ctx().content_rect();
         let painter = ui.ctx().layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
@@ -1559,18 +1707,19 @@ impl CadApp {
             // Two lines at most: smaller only if it does not fit.
             let mut size = caption_size(screen.height());
             let layout = |size: f32| {
-                let pad = egui::vec2(size * 0.6, size * 0.35);
+                let pad = egui::vec2(size * 0.45, size * 0.35);
                 let galley = painter.layout(
                     text.to_owned(),
                     FontId::proportional(size),
                     Color32::WHITE,
-                    area.width() * 0.94 - 2.0 * pad.x,
+                    area.width() * 0.98 - 2.0 * pad.x,
                 );
                 (galley, pad)
             };
             let (mut galley, mut pad) = layout(size);
-            while galley.rows.len() > 2 && size > CAPTION_MIN * screen.height() {
-                size *= 0.95;
+            let smallest = CAPTION_MIN * screen.height();
+            while galley.rows.len() > 2 && size > smallest {
+                size = (size * 0.95).max(smallest);
                 (galley, pad) = layout(size);
             }
             let boxed = galley.size() + 2.0 * pad;
@@ -1585,7 +1734,9 @@ impl CadApp {
                 size * 0.3,
                 Color32::from_rgba_unmultiplied(0, 0, 0, 240),
             );
+            let rows = galley.rows.len();
             painter.galley(rect.min + pad, galley, Color32::WHITE);
+            self.caption_box.set(Some((size, rect, rows)));
         }
     }
 
@@ -1665,12 +1816,23 @@ fn report(bench: &Bench, doc: Option<&Doc>) {
 }
 
 #[cfg(test)]
+mod record_tests {
+    #[test]
+    fn json_strings_are_escaped() {
+        assert_eq!(
+            super::record::json_string("a\"b\\c\n"),
+            r#""a\"b\\c\u000a""#
+        );
+    }
+}
+
+#[cfg(test)]
 mod demo_tests {
     /// Captions stay long enough to read at 3 words a second.
     #[test]
     fn captions_stay_long_enough_to_read() {
         let headline =
-            "Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up";
+            "Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm up";
         assert_eq!(headline.split_whitespace().count(), 18);
         assert!(crate::demo::caption_seconds(headline) >= 18.0 / 3.0);
         assert_eq!(

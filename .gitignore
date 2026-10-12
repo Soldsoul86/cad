@@ -15,5 +15,5 @@ __pycache__/
 *.changes.json
 *.changes.png
 
-# Recorded demo videos and subtitle files (tools/record_demo.mjs, lightable demo-cues)
+# Demo stills, videos, caches and the private review page (tools/demo.mjs, lightable demo-cues)
 /out/

@@ -55,7 +55,7 @@ visible) do not show.
 | Item | Lightable's result |
 |---|---|
 | E1 | "Text changed from BOLTS: 4x M12 ISO 4017 - 8.8 to BOLTS: 4x M16 ISO 4017 - 8.8" |
-| E2–E5 | "Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up" (and left/down variants), one per hole |
+| E2–E5 | "Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm up" (and left/down variants), one per hole |
 | E6 | "Text changed from 4x Ø13.5 THRU to 4x Ø17.5 THRU" |
 | E7, E9 | "Dimension changed from 20 mm to 25 mm" |
 | E8 | "Dimension changed from 120 mm to 110 mm" |

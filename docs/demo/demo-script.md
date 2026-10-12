@@ -34,7 +34,7 @@ card for 3 s (34.3 s in all).
 | 6.0 s | 3.0 s | Side by side, close on the cloud and the bolt note (M12 / M16 readable) | "The revision cloud marks 1 change." | Design changes whose centre is inside the added cloud (narration only) |
 | 9.0 s | 3.0 s | Overlay, whole sheet, the change list appears | "Lightable found 10 changes." | `Diff::design_changes().count()` |
 | 12.0 s | 4.0 s | A hole, framed | "Circle diameter changed from 13.5 mm to 17.5 mm" | First clause of the first changed circle's headline |
-| 16.0 s | 4.0 s | (same) | "Center moved 5 mm right and 5 mm up" | Second clause of the same headline |
+| 16.0 s | 4.0 s | (same) | "Centre moved 5 mm right and 5 mm up" | Second clause of the same headline |
 | 20.0 s | 3.7 s | A dimension, framed | "Dimension changed from 20 mm to 25 mm" | The first changed dimension's headline |
 | 23.7 s | 3.7 s | Report layout, whole sheet | "Download the review report as PNG or JSON." | The PNG report layout (shown, not saved) |
 | 27.3 s | 4.0 s | Overlay, whole sheet | "Whether each change is right is still your call." | Scope statement |
@@ -89,14 +89,69 @@ writes `demo.srt`/`.vtt` (normal demo: the on-screen captions and the end
 card), `demo-narration.srt`/`.vtt` (the voice-over lines) and
 `cue-sheet.md`. Times count from the first frame of the matching video.
 
-Videos are recorded frame by frame from the web build: `?demo&record` makes
-demo time follow a frame counter the recorder sets (30 frames a second), so
-the result is smooth however slowly the page renders:
+## Video pipeline: stills, drafts, finals
+
+Everything is made from the web build (`tools/build_web.sh`, served by
+`python3 tools/web_test_server.py`) by `tools/demo.mjs`, and published to
+the private review page (below). The workflow: stills and checks first,
+then draft videos, then final videos, each reviewed on a phone; only an
+approved final goes to lightable.dev/demo.
 
 ```bash
-node tools/record_demo.mjs "http://localhost:8765/target/web/index.html?demo&record&format=landscape" out/demo/demo-landscape.mp4 960 540
+node tools/demo.mjs stills --note "what changed"
 ```
 
-(960 × 540 CSS pixels at a pixel ratio of 2 = 1920 × 1080; use 540 960 and
-`format=vertical` for 1080 × 1920, and add `&narration` for the voice-over
-timing.) `out/` is git-ignored.
+One frame per step once it has settled, plus one mid-zoom frame, for both
+formats and both timings (normal and narration), with a contact sheet per
+set and a 390 px wide copy for phones; about 35–60 s for all four sets.
+Each still is checked automatically, pass or fail:
+
+- caption text at least 4 % of the frame height, at most two lines, inside
+  the frame;
+- the change (or cloud, or sheet) the step is about fully inside the
+  drawing area and not covered by the caption;
+- at the "found" step, the list's last line ("… and N more") fully visible;
+- in 9:16, the drawing area at least 60 % of the frame.
+
+```bash
+node tools/demo.mjs draft --note "what changed"   # 960 × 540 / 540 × 960, 15 fps, VideoToolbox
+node tools/demo.mjs final --note "what changed"   # 1920 × 1080 / 1080 × 1920, 30 fps, x264
+```
+
+`--modes normal` or `--formats vertical` limit a run. How it is fast:
+
+- `?demo&record` puts the demo on a frame clock the tool sets (demo time =
+  frame ÷ 30), every zoom starts at its step's scheduled time, and egui's
+  own animations are off, so any frame looks the same however it is
+  reached: stills jump straight to the frames that matter.
+- When two frames in a row are identical and nothing is moving, the frame
+  is drawn once and repeated until the next step.
+- Videos are cut into segments at the steps. A segment is cached under its
+  timeline and settings; before reuse the current build redraws three
+  probe frames (start, middle, end), which must match the cached ones
+  exactly. Only steps that look different are recorded again; ffmpeg joins
+  the segments.
+
+## Private review page
+
+```bash
+python3 tools/review_server.py start    # prints http://<this Mac>:8766/
+python3 tools/review_server.py stop
+```
+
+Serves `out/review/` (git-ignored) on this Mac's home-network address
+only, to private-network clients only, with byte ranges for iPhone video
+playback. The page shows the newest run first (contact sheets, check
+results, videos with subtitles, each with its time and note) and older
+runs folded below; it reloads itself when new output appears.
+
+## Publishing (only after approval)
+
+```bash
+node tools/demo.mjs approve --mode normal      # or --mode narration
+```
+
+copies the current final videos of that mode (never drafts), their
+WebVTT captions and two posters into `web/demo/`; `tools/build_web.sh` then
+builds lightable.dev/demo/ and lists it in `sitemap.xml`. Without approved
+videos in `web/demo/` the demo page is not built.

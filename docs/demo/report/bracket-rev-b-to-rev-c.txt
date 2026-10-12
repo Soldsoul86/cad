@@ -1,11 +1,11 @@
-Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up
-    changed CIRCLE A4 on HOLES (model): center moved by (5, 5); radius changed from 6.75 to 8.75
-Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm left and 5 mm up
-    changed CIRCLE A5 on HOLES (model): center moved by (-5, 5); radius changed from 6.75 to 8.75
-Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm left and 5 mm down
-    changed CIRCLE A6 on HOLES (model): center moved by (-5, -5); radius changed from 6.75 to 8.75
-Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm down
-    changed CIRCLE A7 on HOLES (model): center moved by (5, -5); radius changed from 6.75 to 8.75
+Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm up
+    changed CIRCLE A4 on HOLES (model): centre moved by (5, 5); radius changed from 6.75 to 8.75
+Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm left and 5 mm up
+    changed CIRCLE A5 on HOLES (model): centre moved by (-5, 5); radius changed from 6.75 to 8.75
+Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm left and 5 mm down
+    changed CIRCLE A6 on HOLES (model): centre moved by (-5, -5); radius changed from 6.75 to 8.75
+Circle diameter changed from 13.5 mm to 17.5 mm; centre moved 5 mm right and 5 mm down
+    changed CIRCLE A7 on HOLES (model): centre moved by (5, -5); radius changed from 6.75 to 8.75
 Text changed from 4x Ø13.5 THRU to 4x Ø17.5 THRU
     changed TEXT A8 on NOTES (model): text changed from "4x Ø13.5 THRU" to "4x Ø17.5 THRU"
 Text changed from BOLTS: 4x M12 ISO 4017 - 8.8 to BOLTS: 4x M16 ISO 4017 - 8.8

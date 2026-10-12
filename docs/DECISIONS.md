@@ -943,7 +943,7 @@ reading big files off the main thread, keyboard pan and zoom).
 8. **Keyboard.** Focused widgets get a 2-point blue outline; P steps to the
    previous change as N does to the next, and the list header says so.
 9. **Words.** Colour index numbers are named ("dark grey (8) to magenta
-   (6)", "layer color"); a hatch whose pattern changed says only that in
+   (6)", "layer colour"); a hatch whose pattern changed says only that in
    its headline (fill flag, line definitions and other data stay in the
    details). "What isn't compared?" under the list opens Details at that
    list. The picker says "Examples" when the user's own files are open.
@@ -980,7 +980,7 @@ reading big files off the main thread, keyboard pan and zoom).
 3. **Recording** (`?demo&record`, web only): demo time = frame ÷ 30, the
    frame set by the recorder in `window.__lightableFrame`; the app reports
    each drawn frame in `window.__lightableRendered` and the demo length in
-   `window.__lightableDemoLength`. `tools/record_demo.mjs` screenshots each
+   `window.__lightableDemoLength`. The recorder (now `tools/demo.mjs`) screenshots each
    frame (lossless) and encodes H.264 30 fps with ffmpeg afterwards (CRF
    16, `-tune animation`, yuv420p, no audio). Videos go to the git-ignored
    `out/demo/`.
@@ -1023,6 +1023,46 @@ reading big files off the main thread, keyboard pan and zoom).
    (closed, three straight sides), "Markup outline" (other closed),
    "Markup lines" (open polyline); revision clouds stay "Revision cloud".
    Design content keeps its CAD names. Details still show the entity type.
+
+## Demo pipeline, review page, public demo page
+
+1. **British spelling** in everything users read: headlines ("centre
+   moved", "colour changed from layer colour to blue (5)"), captions,
+   reports, docs and the DXF reader's messages. Code identifiers, CSS and
+   file formats keep their spelling.
+2. **The "found" step** lists four changes and "… and N more" (N = design
+   changes not listed); in recordings one line each, the list half the
+   width in 16:9 and a third of the height in 9:16. The summary line is
+   shown from that step on (it would give the count away earlier) and not
+   in 9:16 recordings, where the caption carries it.
+3. **Frames reproducible however they are reached:** in a recording every
+   demo zoom starts at its step's scheduled time and egui's own animations
+   are off; the app publishes the steps and, per frame, where the caption,
+   the drawing and the change in focus are (`window.__lightableFrameInfo`).
+   `tools/demo.mjs` uses this to jump straight to the frames it needs
+   (stills), to check them, to repeat a frame while nothing moves, and to
+   reuse cached video segments after probing three of their frames.
+   Replaces `tools/record_demo.mjs`.
+4. **Automatic still checks:** caption ≥ 4 % of the frame height, ≤ 2
+   lines; the change in focus fully inside the drawing and clear of the
+   caption; "… and N more" fully visible; 9:16 drawing ≥ 60 % of the frame.
+   Mid-zoom stills only get the caption check.
+5. **Text boxes follow alignment:** a text's box spans from its insertion
+   point according to its alignment (not symmetrically around it), with a
+   character about 0.85 of the text height wide. Highlight frames and
+   zooms now fit the text; snapshot frames changed accordingly.
+6. **Drafts** are 960 × 540 / 540 × 960 at 15 fps with VideoToolbox when
+   present; finals 1920 × 1080 / 1080 × 1920 at 30 fps with x264.
+7. **Private review page** (`tools/review_server.py`, `out/review/`): bound
+   to the Mac's home-network address (not all interfaces), private-network
+   clients only, hidden files refused, byte ranges for iPhone video. Never
+   published.
+8. **Public demo page** (`web/demo/index.html`): no scripts, CSP limited to
+   the site's own images, media and inline styles; vertical video on phones
+   held upright, landscape otherwise; poster, captions track, "Try it
+   yourself". Built only when approved videos are in `web/demo/`
+   (`tools/demo.mjs approve`, finals only); then listed in `sitemap.xml`.
+   `robots.txt` and `sitemap.xml` are new.
 
 ## Rules for M5 (decided before M5)
 

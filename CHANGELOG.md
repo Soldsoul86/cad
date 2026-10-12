@@ -1,5 +1,14 @@
 # Changelog
 
+## Demo pipeline (unreleased)
+
+- British spelling in headlines, captions, reports and docs ("Centre moved", "colour changed").
+- Demo "found" step: four changes and "… and N more".
+- Highlight frames and zooms fit text properly (text boxes follow alignment).
+- `tools/demo.mjs`: stills with automatic checks and contact sheets (about a minute for all four sets), draft videos (15 fps, VideoToolbox), final videos; frames are reproducible, still stretches drawn once, segments cached and probed so only changed steps are recorded again.
+- Private review page for phones (`tools/review_server.py`), never published.
+- Public demo page `/demo/` prepared (built only once a final is approved); `sitemap.xml` and `robots.txt`.
+
 ## Demo for social feeds (unreleased)
 
 - Shorter demo (34 s): opens on Rev C alone ("Rev C just came in. What changed?"), side by side fitted tightly (stacked on portrait screens), close on the cloud, "found 10 changes", two changes, the report, a 3 s end card; no Details step.

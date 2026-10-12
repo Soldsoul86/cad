@@ -56,6 +56,12 @@ pub struct Compare {
     /// The change list and the summary are shown (the demo hides them
     /// in some steps).
     pub show_list: bool,
+    /// Show only this many changes, then "… and N more" (the demo's
+    /// "found" step).
+    pub list_limit: Option<usize>,
+    /// With `list_limit`: whether "… and N more" was fully on screen in the
+    /// last frame (the recorder's checks).
+    pub list_tail_visible: Option<bool>,
     pub show_summary: bool,
     /// Recording a video: only the view toggle in the toolbar, no legend
     /// or Previous/Next.
@@ -210,6 +216,8 @@ impl Compare {
             solo_b: false,
             plain_b: None,
             show_list: true,
+            list_limit: None,
+            list_tail_visible: None,
             show_summary: true,
             record: false,
             a_name,
@@ -401,6 +409,15 @@ impl Compare {
             }
         }
         Some(b)
+    }
+
+    /// The box around change `i` (model space), if it has one.
+    pub fn change_bounds(&self, i: usize) -> Option<Bounds> {
+        self.diff
+            .changes
+            .get(i)
+            .filter(|c| zoomable(c))
+            .and_then(|c| c.bounds)
     }
 
     /// No change selected.
@@ -942,9 +959,26 @@ impl Compare {
         let mut clicked = None;
         let mut first_row = None;
         let mut reveal = false;
+        let mut tail_visible = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             let markup_start = d.changes.iter().position(|c| c.markup);
+            let design = d.design_changes().count();
             for (i, c) in d.changes.iter().enumerate() {
+                if let Some(limit) = self.list_limit
+                    && i >= limit
+                {
+                    // The rest as a real count: design changes not listed.
+                    let rest = design.saturating_sub(limit);
+                    if rest > 0 {
+                        let tail = ui.label(
+                            egui::RichText::new(format!("… and {rest} more"))
+                                .size(15.0)
+                                .color(Color32::from_gray(200)),
+                        );
+                        tail_visible = Some(ui.clip_rect().contains_rect(tail.rect));
+                    }
+                    break;
+                }
                 if Some(i) == markup_start {
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new("Revision markup").color(Color32::from_gray(150)));
@@ -959,8 +993,15 @@ impl Compare {
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 2.0, kind_color(c));
-                        // Long headlines wrap (narrow screens, report).
-                        ui.add(egui::Button::selectable(selected, text).wrap())
+                        // Long headlines wrap (narrow screens, report); in a
+                        // 9:16 recording one line each, so the drawing keeps
+                        // its share of the frame.
+                        let button = egui::Button::selectable(selected, text);
+                        if self.record && (self.narrow || self.list_limit.is_some()) {
+                            ui.add(button.truncate())
+                        } else {
+                            ui.add(button.wrap())
+                        }
                     })
                     .inner;
                 if first_row.is_none() {
@@ -1006,7 +1047,7 @@ impl Compare {
             if d.changes.is_empty() {
                 ui.label("The two drawings are the same in everything compared.");
             }
-            if !details && !d.not_compared.is_empty() {
+            if !details && !d.not_compared.is_empty() && !self.record {
                 ui.add_space(10.0);
                 if ui
                     .link(egui::RichText::new("What isn't compared?").small())
@@ -1057,6 +1098,7 @@ impl Compare {
             }
         });
         self.anchors[0] = first_row;
+        self.list_tail_visible = tail_visible;
         if reveal {
             self.details = true;
             self.used[2] = true;
