@@ -61,9 +61,9 @@ visible) do not show.
 | E8 | "Dimension changed from 120 mm to 110 mm" |
 | E10 | "Dimension changed from 60 mm to 50 mm" |
 | M1 | "Text changed from REV B to REV C" (revision markup) |
-| M2 | "Polyline added", "Line added", "Text “C” added", "Text “BOLTS M12 TO M16 (ECN-017)” added" (revision markup) |
+| M2 | "Markup lines added", "Markup line added", "Text “C” added", "Text “BOLTS M12 TO M16 (ECN-017)” added" (revision markup) |
 | M3 | "Revision cloud added" (revision markup) |
-| M4 | "Polyline added", "Text “C” added" (revision markup) |
+| M4 | "Markup triangle added", "Text “C” added" (revision markup) |
 
 Summary line: "10 changes found between Rev B and Rev C", beside it "plus revision
 markup (8 items, including 1 revision cloud)"; the markup is listed separately. Every expected item is found, nothing

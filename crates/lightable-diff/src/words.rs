@@ -425,10 +425,32 @@ pub fn changed(
 pub fn added_or_deleted(e: &Entity, added: bool) -> String {
     let what = if is_revision_cloud(e) {
         "Revision cloud".to_owned()
+    } else if let Some(m) = markup_shape(e) {
+        m.to_owned()
     } else {
         subject(e, false)
     };
     format!("{what} {}", if added { "added" } else { "deleted" })
+}
+
+/// Lines and polylines of revision markup in plain words, from their
+/// shape only: "Markup line", "Markup triangle" (a closed polyline of three
+/// straight sides), "Markup outline" (another closed one), "Markup lines"
+/// (an open polyline). Not for design content, nor for revision clouds.
+fn markup_shape(e: &Entity) -> Option<&'static str> {
+    if !is_markup_layer(&e.layer) || is_revision_cloud(e) {
+        return None;
+    }
+    if matches!(e.kind, EntityKind::Line(_)) {
+        return Some("Markup line");
+    }
+    let (v, closed) = vertices(e)?;
+    let straight = v.iter().all(|p| p[2] == 0.0);
+    Some(match (closed, v.len()) {
+        (true, 3) if straight => "Markup triangle",
+        (true, _) => "Markup outline",
+        (false, _) => "Markup lines",
+    })
 }
 
 /// A sentence from a detail: first letter upper case.
@@ -442,6 +464,57 @@ pub fn sentence(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn markup_lines_and_polylines_in_plain_words() {
+        use lightable_dxf::{Line, LwPolyline, LwVertex, Point3};
+        let poly = |layer: &str, pts: &[(f64, f64)], closed: bool| {
+            let mut e = Entity::new(EntityKind::LwPolyline(LwPolyline {
+                flags: i16::from(closed),
+                constant_width: None,
+                elevation: 0.0,
+                thickness: 0.0,
+                extrusion: lightable_dxf::Z_AXIS,
+                vertices: pts
+                    .iter()
+                    .map(|&(x, y)| LwVertex {
+                        x,
+                        y,
+                        ..Default::default()
+                    })
+                    .collect(),
+            }));
+            e.layer = layer.into();
+            e
+        };
+        let tri = [(0.0, 0.0), (10.0, 0.0), (5.0, 9.0)];
+        assert_eq!(
+            added_or_deleted(&poly("REVISION", &tri, true), true),
+            "Markup triangle added"
+        );
+        assert_eq!(
+            added_or_deleted(&poly("TITLE", &tri[..2], false), true),
+            "Markup lines added"
+        );
+        let square = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        assert_eq!(
+            added_or_deleted(&poly("BORDER", &square, true), false),
+            "Markup outline deleted"
+        );
+        let mut line = Entity::new(EntityKind::Line(Line {
+            start: Point3::new(0.0, 0.0, 0.0),
+            end: Point3::new(1.0, 0.0, 0.0),
+            thickness: 0.0,
+            extrusion: lightable_dxf::Z_AXIS,
+        }));
+        line.layer = "TITLE".into();
+        assert_eq!(added_or_deleted(&line, true), "Markup line added");
+        // Design content keeps its CAD name.
+        assert_eq!(
+            added_or_deleted(&poly("OUTLINE", &tri, true), true),
+            "Polyline added"
+        );
+    }
 
     #[test]
     fn displacements_name_their_directions() {

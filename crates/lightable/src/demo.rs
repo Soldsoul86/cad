@@ -9,21 +9,25 @@ use crate::compare::Compare;
 /// What the demo does at a moment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Act {
-    /// The whole sheet, overlay or side by side, nothing selected.
-    Whole { side: bool },
-    /// Zoom to the revision cloud (and the markup next to it).
+    /// Rev C alone, plain, filling the frame.
+    Opening,
+    /// Both revisions side by side, whole sheet.
+    SideBySide,
+    /// Side by side, zoomed close to the revision cloud.
     Cloud,
+    /// The overlay, whole sheet, with the change list ("found N").
+    Found,
     /// Select change `i` and zoom to it.
     Select(usize),
-    /// Details on, scrolled to "Not compared yet".
-    Details,
+    /// The overlay, whole sheet, nothing selected.
+    Overview,
     /// The report layout.
     Report,
     /// Back from the report, view unchanged.
     Scope,
     /// The end card.
     EndCard,
-    /// Nothing (a step whose change does not exist in this drawing).
+    /// Nothing (a caption only, or a step whose change does not exist).
     Nothing,
 }
 
@@ -35,6 +39,9 @@ pub struct Shot {
     pub act: Act,
     /// The on-screen caption from here on (`None`: no caption).
     pub caption: Option<String>,
+    /// The caption is a change's headline (narration shows it only where
+    /// the change list is hidden).
+    pub change: bool,
 }
 
 /// A subtitle: text shown (or spoken) from `start` to `end` seconds.
@@ -56,7 +63,7 @@ pub struct Plan {
 }
 
 /// How long the end card is held in the normal demo.
-const END_HOLD: f64 = 4.0;
+const END_HOLD: f64 = 3.0;
 
 /// The end card's text, as on screen.
 pub const END_CARD: &str = "Free. Open source. Your files never leave your computer. lightable.dev";
@@ -120,10 +127,28 @@ fn spoken_at(line: &str, phrase: &str) -> f64 {
 pub fn plan(c: &Compare, narration: bool) -> Plan {
     let picks = c.demo_picks();
     if narration && c.example == Some("bracket") && picks.len() == 3 {
-        narration_plan(&picks)
+        narration_plan(c, &picks)
     } else {
         normal_plan(c, &picks)
     }
+}
+
+/// A headline as captions of at most one clause each: "Circle diameter
+/// changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up"
+/// becomes two (the words unchanged, the second capitalised).
+pub fn clauses(headline: &str) -> Vec<String> {
+    headline
+        .split("; ")
+        .enumerate()
+        .map(|(k, c)| if k == 0 { c.to_owned() } else { capital(c) })
+        .collect()
+}
+
+fn capital(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| {
+        f.to_uppercase().collect::<String>() + c.as_str()
+    })
 }
 
 fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
@@ -132,46 +157,60 @@ fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
         1 => "1 change".to_owned(),
         n => format!("{n} changes"),
     };
-    let mut steps: Vec<(Act, String)> = vec![
+    // (act, caption, a change's headline)
+    let mut steps: Vec<(Act, String, bool)> = vec![
         (
-            Act::Whole { side: true },
-            format!("Before and after: {a} left, {b} right."),
+            Act::Opening,
+            format!("{b} just came in. What changed?"),
+            false,
         ),
+        (Act::SideBySide, format!("Before: {a}. After: {b}."), false),
         match c.cloud_bounds() {
             Some(_) => (
                 Act::Cloud,
                 format!("The revision cloud marks {}.", changes(c.clouded_count())),
+                false,
             ),
-            None => (Act::Nothing, format!("{b} has no revision cloud.")),
+            None => (Act::Nothing, format!("{b} has no revision cloud."), false),
         },
         (
-            Act::Whole { side: false },
+            Act::Found,
             format!("Lightable found {}.", changes(c.design_count())),
+            false,
         ),
     ];
-    for k in 0..3 {
-        steps.push(match picks.get(k) {
-            Some(&i) => (Act::Select(i), c.headline(i).to_owned()),
-            None => (Act::Nothing, String::new()),
-        });
+    // Two changes the cloud does not mark, one clause per caption.
+    for k in 0..2 {
+        match picks.get(k) {
+            Some(&i) => {
+                for (n, clause) in clauses(c.headline(i)).into_iter().enumerate() {
+                    let act = if n == 0 { Act::Select(i) } else { Act::Nothing };
+                    steps.push((act, clause, true));
+                }
+            }
+            None => steps.push((Act::Nothing, String::new(), false)),
+        }
     }
-    steps.push((
-        Act::Details,
-        "Details: exact values, and what is not compared.".into(),
-    ));
     steps.push((
         Act::Report,
         "Download the review report as PNG or JSON.".into(),
+        false,
     ));
     steps.push((
         Act::Scope,
-        "Lightable shows what changed. Whether it is right is still your call.".into(),
+        "Whether each change is right is still your call.".into(),
+        false,
     ));
     let mut t = 0.0;
     let mut shots = Vec::new();
     let mut cues = Vec::new();
-    for (act, caption) in steps {
-        let seconds = caption_seconds(&caption);
+    for (act, caption, change) in steps {
+        // The opening has no zoom to wait for: reading time only, 3 s.
+        let seconds = if act == Act::Opening {
+            (words(&caption) as f64 / 3.0).max(3.0)
+        } else {
+            caption_seconds(&caption)
+        };
         if !caption.is_empty() {
             cues.push(Cue {
                 start: t,
@@ -183,6 +222,7 @@ fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
             at: t,
             act,
             caption: Some(caption),
+            change,
         });
         t += seconds;
     }
@@ -190,6 +230,7 @@ fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
         at: t,
         act: Act::EndCard,
         caption: None,
+        change: false,
     });
     cues.push(Cue {
         start: t,
@@ -206,33 +247,47 @@ fn normal_plan(c: &Compare, picks: &[usize]) -> Plan {
 
 /// `picks`: a changed circle, a changed dimension, a changed text, none of
 /// them clouded (`Compare::demo_picks`).
-fn narration_plan(picks: &[usize]) -> Plan {
+fn narration_plan(c: &Compare, picks: &[usize]) -> Plan {
     let (circle, dimension, text) = (picks[0], picks[1], picks[2]);
     let mut t = 0.0;
     let mut shots = Vec::new();
     let mut cues = Vec::new();
     for (k, (_, line)) in VOICEOVER.iter().enumerate() {
         let start = t;
-        let beats: Vec<(f64, Act)> = match k {
-            0 | 2 => vec![(0.0, Act::Whole { side: true })],
-            1 => vec![(0.0, Act::Cloud)],
-            3 => vec![(0.0, Act::Whole { side: false })],
-            4 => vec![
-                (0.0, Act::Select(circle)),
-                (spoken_at(line, "The edge"), Act::Select(dimension)),
-                (spoken_at(line, "None of them"), Act::Whole { side: false }),
-            ],
+        // (seconds into the step, act, change caption)
+        let beats: Vec<(f64, Act, Option<String>)> = match k {
+            0 => vec![(0.0, Act::Opening, None)],
+            1 => vec![(0.0, Act::Cloud, None)],
+            2 => vec![(0.0, Act::SideBySide, None)],
+            3 => vec![(0.0, Act::Found, None)],
+            4 => {
+                let edge = spoken_at(line, "The edge");
+                let hole = clauses(c.headline(circle));
+                let mut v = vec![(0.0, Act::Select(circle), hole.first().cloned())];
+                // The hole's second clause halfway to the dimension.
+                if let Some(second) = hole.get(1) {
+                    v.push((edge / 2.0, Act::Nothing, Some(second.clone())));
+                }
+                v.push((
+                    edge,
+                    Act::Select(dimension),
+                    Some(c.headline(dimension).to_owned()),
+                ));
+                v.push((spoken_at(line, "None of them"), Act::Overview, None));
+                v
+            }
             5 => vec![
-                (0.0, Act::Select(text)),
-                (spoken_at(line, "and export"), Act::Report),
+                (0.0, Act::Select(text), Some(c.headline(text).to_owned())),
+                (spoken_at(line, "and export"), Act::Report, None),
             ],
-            _ => vec![(0.0, Act::EndCard)],
+            _ => vec![(0.0, Act::EndCard, None)],
         };
-        for (offset, act) in beats {
+        for (offset, act, caption) in beats {
             shots.push(Shot {
                 at: start + offset,
                 act,
-                caption: None,
+                change: caption.is_some(),
+                caption,
             });
         }
         let spoken = words(line) as f64 / SPEAK;
@@ -338,24 +393,40 @@ mod tests {
         .unwrap()
     }
 
-    /// The normal demo keeps the timing it had: each caption's reading
-    /// time, the end card held 4 s.
+    /// The short demo: the opening, side by side, the cloud, the count, two
+    /// changes (one clause per caption), the report, the scope line, a 3 s
+    /// end card; about 35 s.
     #[test]
-    fn the_normal_demo_timing_is_unchanged() {
+    fn the_normal_demo_is_short_and_has_no_details_step() {
         let p = plan(&bracket(), false);
-        let starts: Vec<f64> = p
-            .shots
-            .iter()
-            .map(|s| (s.at * 100.0).round() / 100.0)
-            .collect();
+        let acts: Vec<Act> = p.shots.iter().map(|s| s.act).collect();
+        assert!(matches!(
+            acts[..4],
+            [Act::Opening, Act::SideBySide, Act::Cloud, Act::Found]
+        ));
+        assert_eq!(p.cues[0].text, "Rev C just came in. What changed?");
+        assert!((p.cues[0].end - 3.0).abs() < 1e-9, "the opening lasts 3 s");
+        assert_eq!(p.cues[2].text, "The revision cloud marks 1 change.");
+        assert_eq!(p.cues[3].text, "Lightable found 10 changes.");
         assert_eq!(
-            starts,
-            [0.0, 4.0, 7.0, 10.0, 17.0, 20.67, 25.0, 28.67, 32.33, 37.33]
+            p.cues[4].text,
+            "Circle diameter changed from 13.5 mm to 17.5 mm"
         );
-        assert_eq!(p.cues[1].text, "The revision cloud marks 1 change.");
-        assert_eq!(p.cues[2].text, "Lightable found 10 changes.");
-        assert!((p.length - 41.33).abs() < 0.01);
-        assert_eq!(p.cues.last().unwrap().text, END_CARD);
+        assert_eq!(p.cues[5].text, "Center moved 5 mm right and 5 mm up");
+        assert_eq!(p.cues[6].text, "Dimension changed from 20 mm to 25 mm");
+        assert!(p.length >= 30.0 && p.length <= 35.0, "{}", p.length);
+        let end = p.cues.last().unwrap();
+        assert_eq!(end.text, END_CARD);
+        assert!((end.end - end.start - 3.0).abs() < 1e-9);
+        // Each caption is one clause, short enough for two lines in 9:16.
+        assert!(
+            p.cues
+                .iter()
+                .filter(|c| c.text != END_CARD)
+                .all(|c| c.text.len() <= 72),
+            "{:?}",
+            p.cues
+        );
     }
 
     /// Narration: each line at 2.5 words a second, half a second after its
@@ -372,7 +443,9 @@ mod tests {
         for pair in p.cues.windows(2) {
             assert!(pair[1].start - pair[0].end >= LEAD + SETTLE - 1e-9);
         }
-        assert!(p.shots.iter().all(|s| s.caption.is_none()));
+        // Captions only for changes (shown where the list is hidden).
+        assert!(p.shots.iter().all(|s| s.caption.is_some() == s.change));
+        assert_eq!(p.shots.iter().filter(|s| s.change).count(), 4);
         // The changes line moves on to the dimension as it is mentioned.
         let dimension = p
             .shots
@@ -491,6 +564,13 @@ mod tests {
 
     #[test]
     fn subtitle_files_are_well_formed() {
+        assert_eq!(
+            clauses("Circle diameter changed from 1 mm to 2 mm; center moved 5 mm up"),
+            [
+                "Circle diameter changed from 1 mm to 2 mm",
+                "Center moved 5 mm up"
+            ]
+        );
         let cues = [Cue {
             start: 3.5,
             end: 62.25,

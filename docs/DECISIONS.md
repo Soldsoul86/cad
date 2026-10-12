@@ -995,6 +995,35 @@ reading big files off the main thread, keyboard pan and zoom).
    drawing (45 % of the height) and wraps its header; the demo's report
    step zooms to the whole sheet.
 
+## Demo for phones in social feeds
+
+1. **The short demo** (`?demo`): opening on Rev C alone in its own colours
+   ("Rev C just came in. What changed?", 3 s), side by side fitted tightly,
+   close on the cloud (the clouded text readable), "found N" with the list,
+   two changes the cloud does not mark, the report, a scope line, a 3 s
+   end card: 34.3 s for the bracket. The Details step left the short demo
+   (kept for a longer explainer). Narration keeps its seven lines and
+   timing, with the same new views.
+2. **Captions** start at 4.5 % of the screen height and shrink only to fit
+   two lines (not below 3.2 %); long headlines are split at "; " into
+   clauses, words unchanged. The demo's zooms fit the change above a band
+   of 3.3 caption heights at the bottom (`View::fit_above`), where the
+   caption sits, so it never covers the change.
+3. **Recording** (`&record`) scales the interface (1.75× in 16:9, 2× in
+   9:16; the report layout at 1×, as exported) and leaves only the Side by
+   side toggle: no legend, Previous/Next, status bar or other buttons.
+4. **Portrait layouts:** side by side is stacked (Rev B above Rev C) when
+   the drawing area is portrait, in the app as well as the demo. In the
+   demo the change list has fixed shares (36 % of the width, 45 % of the
+   height when stacked); in 9:16 it shows only at "found N" and the
+   current change is a caption instead (also in narration). The report
+   layout puts its list under the drawing on narrow screens.
+5. **Markup in plain words** (layers 1–3): lines and polylines on markup
+   layers are named from their shape only: "Markup line", "Markup triangle"
+   (closed, three straight sides), "Markup outline" (other closed),
+   "Markup lines" (open polyline); revision clouds stay "Revision cloud".
+   Design content keeps its CAD names. Details still show the entity type.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

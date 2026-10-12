@@ -4,8 +4,10 @@ For the bracket example (Rev B → Rev C). Play it with `?demo&narration`
 (add `&format=landscape` or `&format=vertical` for a 16:9 or 9:16 frame).
 In narration mode each step lasts long enough to say its line at about
 2.5 words a second, with half a second before the line and 0.7 s after it
-for the view to settle; no captions are drawn on screen, so the voice and
-the subtitle files carry the words. Everything on screen (counts, headlines,
+for the view to settle. No captions are drawn in 16:9, so the voice and the
+subtitle files carry the words; in 9:16, where the change list is hidden,
+the change being shown appears as a caption (its headline, one clause at a
+time). Everything on screen (counts, headlines,
 the change list) still comes from the comparison.
 
 The lines live in `crates/lightable/src/demo.rs` (`VOICEOVER`), where the
@@ -16,10 +18,10 @@ every fact below against the comparison of the two example files.
 
 | Step | Line | On screen |
 |---|---|---|
-| Overview | "Rev C of this mounting bracket just came in." | Rev B and Rev C side by side, whole sheet |
-| Cloud zoom | "The revision cloud marks one change: the bolt note, M12 to M16." | Both revisions zoomed to the cloud, the bolt note and the revision triangle |
+| Overview | "Rev C of this mounting bracket just came in." | Rev C alone, plain colours, filling the frame |
+| Cloud zoom | "The revision cloud marks one change: the bolt note, M12 to M16." | Both revisions (stacked in 9:16), close on the cloud: M12 and M16 readable |
 | Side by side | "Easy to check that and send it on." | Side by side, whole sheet |
-| Overlay | "But Lightable compares both revisions and finds ten changes." | Overlay; "10 changes found between Rev B and Rev C" |
+| Overlay | "But Lightable compares both revisions and finds ten changes." | Overlay; "10 changes found between Rev B and Rev C"; the change list |
 | Changes | "The four holes grew from 13.5 to 17.5 millimetres, and each moved 5 millimetres in from both edges. The edge and pitch dimensions changed too. None of them were clouded." | A hole selected and framed; at "The edge…" a dimension (20 → 25); at "None of them…" the whole overlay again |
 | Report | "Click any change to see it, and export a review report." | The hole callout selected; at "and export…" the report layout (whole sheet) |
 | End card | "Lightable. Free, open source, and your files never leave your browser. lightable.dev" | End card |

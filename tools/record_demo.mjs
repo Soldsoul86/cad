@@ -12,14 +12,20 @@
 // is smooth however slowly the page renders.
 //
 // Needs Chrome and ffmpeg (with libx264). Also writes OUT.network.json:
-// every request the page made. Development only.
+// every request the page made.
+//
+//   node tools/record_demo.mjs URL OUT_DIR WIDTH HEIGHT --stills 1.5,6,12
+//
+// steps through the demo the same way but only saves PNG stills at those
+// times (seconds) into OUT_DIR, to check a layout quickly. Development only.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [url, out, w, h] = process.argv.slice(2);
+const [url, out, w, h, flag, list] = process.argv.slice(2);
+const stills = flag === "--stills" ? list.split(",").map(Number) : null;
 const FPS = 30;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const port = 9347;
@@ -55,6 +61,11 @@ ws.addEventListener("message", (m) => {
     requests.push({ method: r.method, url: r.url, body: r.postData ? r.postData.length : 0 });
   }
   if (d.method === "Runtime.exceptionThrown") errors.push(JSON.stringify(d.params.exceptionDetails.text));
+  if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
+    const text = d.params.args.map((a) => a.value ?? a.description).join(" ");
+    errors.push(text);
+    process.stderr.write(`console error: ${text.slice(0, 2000)}\n`);
+  }
 });
 const send = (method, params = {}) => new Promise((r) => {
   const n = ++id;
@@ -89,27 +100,39 @@ for (let i = 0; i < 600 && !length; i++) {
   }
 }
 if (!length) throw new Error("the demo did not start (is ?demo&record in the URL?)");
-const frames = Math.ceil(length * FPS);
+const frames = stills ? Math.round(Math.max(...stills) * FPS) + 1 : Math.ceil(length * FPS);
+const wanted = stills ? new Set(stills.map((t) => Math.round(t * FPS))) : null;
 
-const dir = mkdtempSync(join(tmpdir(), "frames-"));
+const dir = stills ? out : mkdtempSync(join(tmpdir(), "frames-"));
 const started = Date.now();
 for (let f = 0; f < frames; f++) {
   await evaluate(`window.__lightableFrame = ${f}`);
   // The app draws only when asked: a Shift tap (no visible effect) makes
   // it draw this frame.
+  let answered = false;
   for (let i = 0; i < 400; i++) {
     if (i % 20 === 0) {
       await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
       await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
     }
-    if ((await evaluate("window.__lightableRendered")) === f) break;
+    if ((await evaluate("window.__lightableRendered")) === f) {
+      answered = true;
+      break;
+    }
     await sleep(5);
   }
+  if (!answered) throw new Error(`the app did not draw frame ${f}: ${errors.join(" | ").slice(0, 2000)}`);
+  if (wanted && !wanted.has(f)) continue;
   const shot = await send("Page.captureScreenshot", { format: "png" });
-  writeFileSync(join(dir, `f${String(f).padStart(5, "0")}.png`), Buffer.from(shot.data, "base64"));
+  const name = wanted ? `t${(f / FPS).toFixed(1)}.png` : `f${String(f).padStart(5, "0")}.png`;
+  writeFileSync(join(dir, name), Buffer.from(shot.data, "base64"));
   if (f % 300 === 0) process.stderr.write(`frame ${f}/${frames}\n`);
 }
 chrome.kill();
+if (stills) {
+  console.log(JSON.stringify({ stills: [...wanted].length, out, requests: requests.length }));
+  process.exit(0);
+}
 const ffmpeg = spawn("ffmpeg", [
   "-y", "-loglevel", "error", "-framerate", String(FPS), "-i", join(dir, "f%05d.png"),
   "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", "16", "-pix_fmt", "yuv420p",

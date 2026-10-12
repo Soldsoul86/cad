@@ -49,6 +49,17 @@ pub struct Compare {
     pub narrow: bool,
     /// Little height (a phone held sideways): a compact summary.
     pub short: bool,
+    /// The demo's opening: Rev C alone, plain (no change colours).
+    pub solo_b: bool,
+    /// Rev C drawn plain, for `solo_b` (built when first needed).
+    plain_b: Option<Doc>,
+    /// The change list and the summary are shown (the demo hides them
+    /// in some steps).
+    pub show_list: bool,
+    pub show_summary: bool,
+    /// Recording a video: only the view toggle in the toolbar, no legend
+    /// or Previous/Next.
+    pub record: bool,
     a_name: String,
     b_name: String,
     /// What the summary calls the two drawings ("Rev B", "Rev C").
@@ -196,6 +207,11 @@ impl Compare {
             notes: Vec::new(),
             narrow: false,
             short: false,
+            solo_b: false,
+            plain_b: None,
+            show_list: true,
+            show_summary: true,
+            record: false,
             a_name,
             b_name,
             a_label,
@@ -242,6 +258,17 @@ impl Compare {
         for d in [&self.overlay, &self.left, &self.right] {
             d.destroy(gl);
         }
+        if let Some(d) = &self.plain_b {
+            d.destroy(gl);
+        }
+    }
+
+    /// Builds the plain drawing of Rev C for `solo_b`.
+    pub fn ensure_plain_b(&mut self, gl: Option<&Arc<glow::Context>>) {
+        if self.plain_b.is_none() {
+            let scene = lightable_render::build(&self.drawings.1);
+            self.plain_b = Doc::new(gl, self.b_name.clone(), scene, 0).ok();
+        }
     }
 
     pub fn bounds(&self) -> Option<Bounds> {
@@ -250,8 +277,18 @@ impl Compare {
 
     /// The panes to draw in: one, or two side by side.
     pub fn panes(&self, rect: Rect) -> Vec<Rect> {
-        if !self.side_by_side || self.reporting() {
+        if !self.side_by_side || self.reporting() || self.solo_b {
             return vec![rect];
+        }
+        // Portrait (a phone, a 9:16 frame): one above the other.
+        if rect.height() > rect.width() * 1.2 {
+            let half = (rect.height() - self.gap) / 2.0;
+            let top = Rect::from_min_size(rect.min, egui::vec2(rect.width(), half));
+            let bottom = Rect::from_min_size(
+                egui::pos2(rect.min.x, rect.min.y + half + self.gap),
+                egui::vec2(rect.width(), half),
+            );
+            return vec![top, bottom];
         }
         let half = (rect.width() - self.gap) / 2.0;
         let left = Rect::from_min_size(rect.min, egui::vec2(half, rect.height()));
@@ -289,26 +326,12 @@ impl Compare {
     /// revision markup right next to it (the revision triangle and its
     /// letter), so a zoom shows the whole callout.
     pub fn cloud_bounds(&self) -> Option<Bounds> {
-        let cloud = self.diff.changes.iter().find(|c| c.revision_cloud)?;
-        let mut b = cloud.bounds?;
-        let size = b.size();
-        let reach = 0.5 * size[0].max(size[1]);
-        let near = Bounds {
-            min: [b.min[0] - reach, b.min[1] - reach],
-            max: [b.max[0] + reach, b.max[1] + reach],
-        };
-        for c in &self.diff.changes {
-            if let Some(m) = c.bounds.filter(|_| c.markup && !c.revision_cloud) {
-                let centre = [(m.min[0] + m.max[0]) / 2.0, (m.min[1] + m.max[1]) / 2.0];
-                if (near.min[0]..=near.max[0]).contains(&centre[0])
-                    && (near.min[1]..=near.max[1]).contains(&centre[1])
-                {
-                    b.union(&m);
-                }
-            }
-        }
         // The cloud and a little around it.
-        Some(dview::zoom_box(b, self.extent, 0.2))
+        Some(dview::zoom_box(
+            self.cloud_bounds_tight()?,
+            self.extent,
+            0.2,
+        ))
     }
 
     /// The built-in example's note on how it was drawn ("Example: the
@@ -356,6 +379,28 @@ impl Compare {
             .into_iter()
             .map(|i| self.diff.changes[i].headline.as_str())
             .collect()
+    }
+
+    /// The revision cloud and the markup next to it, without the usual
+    /// minimum zoom box: close enough to read the clouded text (demo).
+    pub fn cloud_bounds_tight(&self) -> Option<Bounds> {
+        let cloud = self.diff.changes.iter().find(|c| c.revision_cloud)?;
+        let mut b = cloud.bounds?;
+        let size = b.size();
+        let reach = 0.5 * size[0].max(size[1]);
+        for c in &self.diff.changes {
+            if let Some(m) = c.bounds.filter(|_| c.markup && !c.revision_cloud) {
+                let centre = [(m.min[0] + m.max[0]) / 2.0, (m.min[1] + m.max[1]) / 2.0];
+                if centre[0] >= b.min[0] - reach
+                    && centre[0] <= b.max[0] + reach
+                    && centre[1] >= b.min[1] - reach
+                    && centre[1] <= b.max[1] + reach
+                {
+                    b.union(&m);
+                }
+            }
+        }
+        Some(b)
     }
 
     /// No change selected.
@@ -430,6 +475,13 @@ impl Compare {
 
     pub fn toolbar(&mut self, ui: &mut egui::Ui) -> Action {
         let mut action = Action::default();
+        // Recording a video: only the view toggle.
+        if self.record {
+            ui.horizontal(|ui| {
+                let _ = ui.selectable_label(self.side_by_side, "Side by side");
+            });
+            return action;
+        }
         let narrow = self.narrow || self.short;
         // On phones: files and examples, then the view buttons, then the
         // privacy line, each on its own row.
@@ -596,8 +648,15 @@ impl Compare {
                     .strong()
                     .color(Color32::WHITE),
             );
-            if let Some(markup) = self.diff.markup_summary() {
+            if let Some(markup) = self
+                .diff
+                .markup_summary()
+                .filter(|_| !(self.record && self.narrow))
+            {
                 ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
+            }
+            if self.record {
+                return;
             }
             ui.add_space(16.0);
             legend(ui);
@@ -610,7 +669,10 @@ impl Compare {
                 });
             }
         });
-        if let Some(note) = self.example_note().filter(|_| !self.short) {
+        if let Some(note) = self
+            .example_note()
+            .filter(|_| !self.short && !(self.record && self.narrow))
+        {
             ui.label(
                 egui::RichText::new(note)
                     .italics()
@@ -868,7 +930,7 @@ impl Compare {
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             ui.heading("What changed");
-            if !d.changes.is_empty() && !self.narrow {
+            if !d.changes.is_empty() && !self.narrow && !self.record {
                 ui.label(
                     egui::RichText::new("click a line to zoom · N / P keys step")
                         .small()
@@ -1032,14 +1094,17 @@ impl Compare {
     }
 
     pub fn paint(&self, ui: &egui::Ui, panes: &[Rect], view: &View) {
-        let docs: Vec<(&Doc, &str)> = if self.side_by_side && !self.reporting() {
-            vec![
-                (&self.left, self.a_label.as_str()),
-                (&self.right, self.b_label.as_str()),
-            ]
-        } else {
-            vec![(&self.overlay, "")]
-        };
+        let docs: Vec<(&Doc, &str)> =
+            if let Some(plain) = self.plain_b.as_ref().filter(|_| self.solo_b) {
+                vec![(plain, self.b_label.as_str())]
+            } else if self.side_by_side && !self.reporting() {
+                vec![
+                    (&self.left, self.a_label.as_str()),
+                    (&self.right, self.b_label.as_str()),
+                ]
+            } else {
+                vec![(&self.overlay, "")]
+            };
         let highlight = self
             .current
             .and_then(|i| self.diff.changes.get(i))
@@ -1083,10 +1148,18 @@ impl Compare {
             }
         }
         if panes.len() == 2 {
-            let gap = Rect::from_min_max(
-                egui::pos2(panes[0].max.x, panes[0].min.y),
-                egui::pos2(panes[1].min.x, panes[1].max.y),
-            );
+            // Between the panes: a column, or a row when stacked.
+            let gap = if panes[1].min.y >= panes[0].max.y {
+                Rect::from_min_max(
+                    egui::pos2(panes[0].min.x, panes[0].max.y),
+                    egui::pos2(panes[1].max.x, panes[1].min.y),
+                )
+            } else {
+                Rect::from_min_max(
+                    egui::pos2(panes[0].max.x, panes[0].min.y),
+                    egui::pos2(panes[1].min.x, panes[1].max.y),
+                )
+            };
             ui.painter().rect_filled(gap, 0.0, Color32::from_gray(60));
         }
     }

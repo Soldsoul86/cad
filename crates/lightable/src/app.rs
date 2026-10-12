@@ -220,9 +220,14 @@ mod record {
 const RECORD_FPS: f64 = 30.0;
 
 /// Caption text size for a screen: readable in a 16:9 or 9:16 video.
-pub fn caption_size(width: f32, height: f32) -> f32 {
-    (width.min(height) / 26.0).clamp(20.0, 48.0)
+/// Caption text size for a screen: 4.5 % of its height (readable on a phone
+/// in a social feed), shrunk to [`CAPTION_MIN`] at most to fit two lines.
+pub fn caption_size(height: f32) -> f32 {
+    0.045 * height
 }
+
+/// The smallest caption, as a share of the screen height.
+const CAPTION_MIN: f32 = 0.032;
 
 /// The file dialog exists (web); the native app takes files by drag and
 /// drop or on the command line.
@@ -281,6 +286,8 @@ pub struct CadApp {
     /// This frame's time (seconds): the app clock, or the recorder's frame
     /// clock when recording.
     now: f64,
+    /// The UI scale changes next frame (recording): wait with zooms.
+    zoom_pending: bool,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -367,6 +374,7 @@ impl CadApp {
                 done: 0,
             }),
             now: 0.0,
+            zoom_pending: false,
             canvas_rect: None,
             caption: None,
             end_card: false,
@@ -401,9 +409,22 @@ impl CadApp {
         now: f64,
         seconds: f64,
     ) {
+        self.animate_to_above(bounds, margin, now, seconds, 0.0);
+    }
+
+    /// Like `animate_to`, keeping a band of `bottom` points at the bottom of
+    /// the view clear (for a caption).
+    fn animate_to_above(
+        &mut self,
+        bounds: &lightable_render::Bounds,
+        margin: f64,
+        now: f64,
+        seconds: f64,
+        bottom: f64,
+    ) {
         self.auto_fit = false;
         let mut to = self.view;
-        to.fit(bounds, margin);
+        to.fit_above(bounds, margin, bottom);
         self.anim = Some(Anim {
             from: self.view,
             to,
@@ -867,8 +888,17 @@ impl CadApp {
         if resized && self.auto_fit && self.anim.is_none() && rect.width() > 0.0 {
             self.fit();
         }
-        if let Some((b, margin)) = self.demo_zoom.take() {
-            self.animate_to(&b, margin, self.now, 1.2);
+        if !self.zoom_pending
+            && let Some((b, margin)) = self.demo_zoom.take()
+        {
+            // Keep the change clear of the caption: two lines and padding.
+            let band = if self.captions_possible() {
+                let h = ui.ctx().content_rect().height();
+                f64::from(caption_size(h) * 3.3)
+            } else {
+                0.0
+            };
+            self.animate_to_above(&b, margin, self.now, 1.2, band);
         }
         let has_content = self.doc.is_some() || self.compare.is_some();
         if self.fit_pending && has_content && rect.width() > 0.0 {
@@ -1103,7 +1133,7 @@ impl eframe::App for CadApp {
             ui.ctx().request_repaint();
         }
         if self.demo.is_some() {
-            self.run_demo(ui, now);
+            self.run_demo(ui, now, gl.as_ref());
         }
         if self.report_and_quit
             && let Some(c) = &mut self.compare
@@ -1122,18 +1152,44 @@ impl eframe::App for CadApp {
                 self.fit_pending = true;
             }
         }
+        // Recording a video for phones: everything larger (1.75x in 16:9,
+        // 2x in 9:16).
+        // The report layout stays at normal scale: it shows the document as
+        // exported.
+        self.zoom_pending = false;
+        if self.recording() {
+            let r = ui.ctx().content_rect();
+            let reporting = self.compare.as_ref().is_some_and(|c| c.reporting());
+            let zoom = if reporting {
+                1.0
+            } else if r.height() > r.width() * 1.2 {
+                2.0
+            } else {
+                1.75
+            };
+            if (ui.ctx().zoom_factor() - zoom).abs() > 1e-3 {
+                ui.ctx().set_zoom_factor(zoom);
+                // Sizes change next frame: fit the demo's zoom then.
+                self.zoom_pending = true;
+            }
+        }
         if self.compare.as_ref().is_some_and(|c| c.reporting()) {
             self.report(ui);
             self.overlays(ui);
+            if self.recording() {
+                record::rendered(self.now * RECORD_FPS);
+            }
             return;
         }
         // Narrow or portrait screens (phones): the change list goes under
         // the drawing and rows wrap.
         let screen = ui.ctx().content_rect();
         let narrow = is_narrow(screen.width(), screen.height());
+        let recording = self.recording();
         if let Some(c) = &mut self.compare {
             c.narrow = narrow;
             c.short = is_short(screen.height());
+            c.record = recording;
         }
         egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui, gl.as_ref()));
         // Details: the comparison's toggle; always for a single drawing;
@@ -1145,20 +1201,34 @@ impl eframe::App for CadApp {
         if let Some(c) = &mut self.compare {
             let mut zoom = None;
             let mut action = crate::compare::Action::default();
-            egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
+            if c.show_summary {
+                egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
+            }
+            let show_list = c.show_list;
             let list = |ui: &mut egui::Ui| c.change_list(ui);
-            let picked = if narrow {
-                egui::Panel::bottom("changes-below")
-                    .resizable(true)
-                    .default_size(screen.height() * 0.35)
-                    .show(ui, list)
-                    .inner
+            // The demo uses fixed shares of the screen, whatever the panel
+            // was before.
+            let demo = self.demo.is_some();
+            let picked = if !show_list {
+                None
+            } else if narrow {
+                let panel = egui::Panel::bottom("changes-below");
+                let panel = if demo {
+                    panel.exact_size(screen.height() * 0.45)
+                } else {
+                    panel.resizable(true).default_size(screen.height() * 0.35)
+                };
+                panel.show(ui, list).inner
             } else {
-                egui::Panel::right("changes")
-                    .resizable(true)
-                    .default_size(520.0_f32.min(screen.width() * 0.4))
-                    .show(ui, list)
-                    .inner
+                let panel = egui::Panel::right("changes");
+                let panel = if demo {
+                    panel.exact_size(screen.width() * 0.36)
+                } else {
+                    panel
+                        .resizable(true)
+                        .default_size(520.0_f32.min(screen.width() * 0.4))
+                };
+                panel.show(ui, list).inner
             };
             if let Some(b) = picked.or(zoom) {
                 self.animate_to(&b, 0.15, now, 0.6);
@@ -1167,7 +1237,7 @@ impl eframe::App for CadApp {
         }
         // The status bar is a detail, except to report an export or that a
         // file is being read.
-        if details || self.message.is_some() {
+        if (details || self.message.is_some()) && !self.recording() {
             egui::Panel::bottom("status").show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if let Some(m) = &self.message {
@@ -1290,7 +1360,7 @@ impl eframe::App for CadApp {
 impl CadApp {
     /// Plays the demo: each step sets up the view once when its time
     /// comes; captions say what is on screen.
-    fn run_demo(&mut self, ui: &mut egui::Ui, now: f64) {
+    fn run_demo(&mut self, ui: &mut egui::Ui, now: f64, gl: Option<&Arc<glow::Context>>) {
         // Live, the demo draws continuously; recorded, a frame is drawn when
         // the recorder asks for it (it taps a key after setting the frame).
         if !self.recording() {
@@ -1320,7 +1390,7 @@ impl CadApp {
         }
         let narration = plan.narration;
         for shot in due {
-            self.play(shot, narration);
+            self.play(shot, narration, gl);
         }
     }
 
@@ -1331,48 +1401,102 @@ impl CadApp {
 
     /// Applies one demo moment. Every number and headline comes from the
     /// comparison (`demo::plan`).
-    fn play(&mut self, shot: crate::demo::Shot, narration: bool) {
+    fn play(&mut self, shot: crate::demo::Shot, narration: bool, gl: Option<&Arc<glow::Context>>) {
         use crate::demo::Act;
         let Some(c) = &mut self.compare else { return };
         let extent = c.bounds();
+        let narrow = c.narrow;
         let mut zoom: Option<(lightable_render::Bounds, f64)> = None;
+        // Tight fits: the drawing fills its frame or pane.
+        let whole = |m: f64| extent.map(|e| (e, m));
         match shot.act {
-            Act::Whole { side } => {
-                c.side_by_side = side;
+            Act::Opening => {
+                c.ensure_plain_b(gl);
+                c.solo_b = true;
+                c.side_by_side = false;
+                c.show_list = false;
+                c.show_summary = false;
                 c.details = false;
                 c.preview_report(false);
                 c.clear_selection();
-                zoom = extent.map(|e| (e, 0.03));
+                zoom = whole(0.02);
             }
-            Act::Cloud => zoom = c.cloud_bounds().map(|b| (b, 0.1)),
+            Act::SideBySide => {
+                c.solo_b = false;
+                c.side_by_side = true;
+                c.show_list = false;
+                c.show_summary = true;
+                c.clear_selection();
+                zoom = whole(0.02);
+            }
+            Act::Cloud => {
+                c.solo_b = false;
+                c.side_by_side = true;
+                c.show_list = false;
+                c.show_summary = true;
+                // Close enough to read the clouded text.
+                zoom = c.cloud_bounds_tight().map(|b| (b, 0.06));
+            }
+            Act::Found => {
+                c.solo_b = false;
+                c.side_by_side = false;
+                c.show_list = true;
+                c.show_summary = true;
+                c.clear_selection();
+                zoom = whole(0.03);
+            }
             Act::Select(i) => {
                 c.preview_report(false);
+                // On a narrow screen the caption shows the change instead
+                // of the list.
+                if narrow {
+                    c.show_list = false;
+                }
                 zoom = c.select(i).map(|b| (b, 0.15));
             }
-            Act::Details => {
-                c.details = true;
-                c.reveal_not_compared = true;
-                zoom = extent.map(|e| (e, 0.03));
+            Act::Overview => {
+                c.side_by_side = false;
+                c.clear_selection();
+                if narrow {
+                    c.show_list = false;
+                }
+                zoom = whole(0.03);
             }
             Act::Report => {
                 c.details = false;
                 c.preview_report(true);
                 // The report shows the whole sheet.
-                zoom = extent.map(|e| (e, 0.03));
+                zoom = whole(0.03);
             }
-            Act::Scope => c.preview_report(false),
+            Act::Scope => {
+                c.preview_report(false);
+                zoom = whole(0.03);
+            }
             Act::EndCard => {
                 c.preview_report(false);
                 self.end_card = true;
             }
             Act::Nothing => {}
         }
-        if !narration || shot.caption.is_some() {
-            self.caption = shot.caption.filter(|t| !t.is_empty());
+        // Narration: the voice carries the words; captions only show the
+        // change where the list is hidden.
+        let show = !narration || (shot.change && narrow);
+        if shot.caption.is_some() || narration {
+            self.caption = shot.caption.filter(|t| show && !t.is_empty());
         }
         if let Some((b, margin)) = zoom {
             self.demo_zoom = Some((b, margin));
         }
+    }
+
+    /// Captions can be on screen: the demo, except in narration mode on a
+    /// wide screen (where the voice carries the words).
+    fn captions_possible(&self) -> bool {
+        let narrow = self.compare.as_ref().is_some_and(|c| c.narrow);
+        self.demo.as_ref().is_some_and(|d| {
+            let narration = d.plan.as_ref().map_or(d.narration, |(p, _)| p.narration);
+            !narration || narrow
+        })
     }
 
     /// Demo captions and the end card, over everything.
@@ -1432,23 +1556,34 @@ impl CadApp {
         }
         if let Some(text) = self.caption.as_deref().filter(|t| !t.is_empty()) {
             let area = self.canvas_rect.unwrap_or(screen);
-            let size = caption_size(screen.width(), screen.height());
-            let pad = egui::vec2(size * 0.75, size * 0.4);
-            let galley = painter.layout(
-                text.to_owned(),
-                FontId::proportional(size),
-                Color32::WHITE,
-                area.width() * 0.9 - 2.0 * pad.x,
-            );
+            // Two lines at most: smaller only if it does not fit.
+            let mut size = caption_size(screen.height());
+            let layout = |size: f32| {
+                let pad = egui::vec2(size * 0.6, size * 0.35);
+                let galley = painter.layout(
+                    text.to_owned(),
+                    FontId::proportional(size),
+                    Color32::WHITE,
+                    area.width() * 0.94 - 2.0 * pad.x,
+                );
+                (galley, pad)
+            };
+            let (mut galley, mut pad) = layout(size);
+            while galley.rows.len() > 2 && size > CAPTION_MIN * screen.height() {
+                size *= 0.95;
+                (galley, pad) = layout(size);
+            }
             let boxed = galley.size() + 2.0 * pad;
+            // At the bottom of the drawing, under the band the demo's zooms
+            // keep clear (`caption_band`).
             let rect = Rect::from_center_size(
-                egui::pos2(area.center().x, area.max.y - boxed.y / 2.0 - size),
+                egui::pos2(area.center().x, area.max.y - boxed.y / 2.0 - size * 0.4),
                 boxed,
             );
             painter.rect_filled(
                 rect,
-                size * 0.4,
-                Color32::from_rgba_unmultiplied(0, 0, 0, 215),
+                size * 0.3,
+                Color32::from_rgba_unmultiplied(0, 0, 0, 240),
             );
             painter.galley(rect.min + pad, galley, Color32::WHITE);
         }
@@ -1545,17 +1680,12 @@ mod demo_tests {
         assert_eq!(crate::demo::caption_seconds(""), 3.0);
     }
 
-    /// Captions are larger in a 1080p video than in a laptop window, and
-    /// the same size in 16:9 and 9:16.
+    /// Captions start at 4.5 % of the screen height.
     #[test]
-    fn caption_size_follows_the_shorter_side() {
-        assert_eq!(
-            super::caption_size(1920.0, 1080.0),
-            super::caption_size(1080.0, 1920.0)
-        );
-        assert!(super::caption_size(1920.0, 1080.0) >= 40.0);
-        assert!((super::caption_size(1400.0, 714.0) - 27.5).abs() < 0.1);
-        assert_eq!(super::caption_size(390.0, 844.0), 20.0);
+    fn caption_size_is_a_share_of_the_height() {
+        assert!((super::caption_size(1080.0) - 48.6).abs() < 1e-3);
+        assert!((super::caption_size(714.0) - 32.13).abs() < 1e-2);
+        const { assert!(super::CAPTION_MIN < 0.045) };
     }
 }
 

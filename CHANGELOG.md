@@ -1,5 +1,11 @@
 # Changelog
 
+## Demo for social feeds (unreleased)
+
+- Shorter demo (34 s): opens on Rev C alone ("Rev C just came in. What changed?"), side by side fitted tightly (stacked on portrait screens), close on the cloud, "found 10 changes", two changes, the report, a 3 s end card; no Details step.
+- Captions at 4.5 % of the screen height, at most two lines, one clause each, never covering the change; recording scales the interface up and hides the clutter; 9:16 shows the current change as a caption instead of the list.
+- Revision markup in plain words: "Markup line added", "Markup triangle added", "Markup lines added", "Markup outline added".
+
 ## Voice-over and demo videos (unreleased)
 
 - `?demo&narration`: voice-over timing for the bracket demo (each line at about 2.5 words a second); script and cue sheet in `docs/demo/voiceover.md`, every fact checked against the comparison by a test.
