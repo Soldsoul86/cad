@@ -1064,6 +1064,27 @@ reading big files off the main thread, keyboard pan and zoom).
    (`tools/demo.mjs approve`, finals only); then listed in `sitemap.xml`.
    `robots.txt` and `sitemap.xml` are new.
 
+## Faster demo rendering
+
+1. **Output unchanged:** finals are identical to those made before this
+   change (worst difference 0 in every frame); drafts are identical to what
+   the previous tool makes from the same build.
+2. **Workers:** one Chrome per run, one window per video; segments and
+   videos shared out over `--workers` (default 2 for stills and cut drafts,
+   otherwise half the physical cores, 1–4). On 2 cores more workers made
+   finals slower (579 s against 470 s), so they default to one.
+3. **No frame sharing between normal and narration timing:** x264's
+   lookahead turns sub-tolerance input differences into visible ones (up to
+   38 levels), so the output would change.
+4. **Capture stays a CDP screenshot of the windowed page:** `beginFrame` is
+   unavailable on macOS; canvas readback and headless were slower and not
+   pixel-identical.
+5. **Cut drafts** (`?demo&record&cut`, `tools/demo.mjs cut`): demo zooms
+   take no time; for checking content, never published.
+6. **CI workflow** for finals: `workflow_dispatch` only, read-only token,
+   artifacts kept 14 days, never deployed; software-rendered frames, so
+   review only.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

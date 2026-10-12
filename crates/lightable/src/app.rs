@@ -152,6 +152,8 @@ pub struct Start {
     pub narration: bool,
     /// Demo driven frame by frame by a recorder (`?demo&record`, web).
     pub record: bool,
+    /// Demo steps cut in without zoom animation (`?demo&cut`, quick drafts).
+    pub cut: bool,
 }
 
 /// A smooth move of the view.
@@ -175,6 +177,8 @@ struct Demo {
     plan: Option<(crate::demo::Plan, f64)>,
     /// Shots applied so far.
     done: usize,
+    /// Zooms are instant (`?demo&cut`).
+    cut: bool,
 }
 
 /// The recorder's side of `?demo&record` (`tools/demo.mjs`): it
@@ -374,6 +378,7 @@ impl CadApp {
             demo,
             narration,
             record,
+            cut,
         } = start;
         // First run, nothing to open: show the default example at once, so
         // the first thing on screen is a comparison.
@@ -411,6 +416,7 @@ impl CadApp {
                 record,
                 plan: None,
                 done: 0,
+                cut,
             }),
             now: 0.0,
             zoom_pending: false,
@@ -477,7 +483,12 @@ impl CadApp {
     /// Advances a running view animation.
     fn step_anim(&mut self, now: f64) -> bool {
         let Some(a) = self.anim else { return false };
-        let t = ((now - a.start) / a.seconds).clamp(0.0, 1.0);
+        // A zero-length animation lands at once.
+        let t = if a.seconds > 0.0 {
+            ((now - a.start) / a.seconds).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         let e = t * t * (3.0 - 2.0 * t);
         self.view.center = [
             a.from.center[0] + (a.to.center[0] - a.from.center[0]) * e,
@@ -939,7 +950,12 @@ impl CadApp {
             } else {
                 0.0
             };
-            self.animate_to_above(&b, margin, start.min(self.now), 1.2, band);
+            let seconds = if self.demo.as_ref().is_some_and(|d| d.cut) {
+                0.0
+            } else {
+                1.2
+            };
+            self.animate_to_above(&b, margin, start.min(self.now), seconds, band);
         }
         let has_content = self.doc.is_some() || self.compare.is_some();
         if self.fit_pending && has_content && rect.width() > 0.0 {

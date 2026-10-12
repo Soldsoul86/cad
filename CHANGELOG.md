@@ -7,6 +7,7 @@
 - Highlight frames and zooms fit text properly (text boxes follow alignment).
 - `tools/demo.mjs`: stills with automatic checks and contact sheets (about a minute for all four sets), draft videos (15 fps, VideoToolbox), final videos; frames are reproducible, still stretches drawn once, segments cached and probed so only changed steps are recorded again.
 - Private review page for phones (`tools/review_server.py`), never published.
+- Faster rendering, same output: one Chrome per run, workers, cut drafts (`tools/demo.mjs cut`, steps without zooms), single redraw per frame (frames now identical between runs), cached WebAssembly, `--profile`; manual-only GitHub workflow rendering the finals as artifacts.
 - Public demo page `/demo/` prepared (built only once a final is approved); `sitemap.xml` and `robots.txt`.
 
 ## Demo for social feeds (unreleased)

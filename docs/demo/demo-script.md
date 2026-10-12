@@ -131,6 +131,37 @@ node tools/demo.mjs final --note "what changed"   # 1920 × 1080 / 1080 × 1920,
   probe frames (start, middle, end), which must match the cached ones
   exactly. Only steps that look different are recorded again; ffmpeg joins
   the segments.
+- One Chrome per run; each video gets its own window. Segments of a video,
+  and videos, are spread over workers (`--workers N`; by default 2 for
+  stills and cut drafts, otherwise half the physical cores, at most 4).
+  On a 2-core Mac, finals and drafts run best with one worker: x264 and
+  Chrome already fill both cores.
+- Each frame is asked for with a single redraw nudge (repeated nudges drew
+  twice and made a few frames differ between runs).
+- The test server lets the browser cache the WebAssembly for 60 s, so it is
+  compiled once per run.
+
+```bash
+node tools/demo.mjs cut     # steps appear without zooming, 15 fps, ultrafast: content review in under a minute
+```
+
+`--profile` prints where the time went (launch, load, capture, encode).
+
+Tried and dropped (measured on the 2-core Intel Mac):
+
+- `HeadlessExperimental.beginFrame`: not supported on macOS.
+- Reading the canvas pixels in the page: slower (≈ 550 ms a frame against
+  ≈ 150 ms for a screenshot) and not identical (PSNR 49.6 dB).
+- Headless Chrome: slower, and draws with a different GL path (PSNR 14.7 dB
+  against the windowed frames).
+- Reusing normal-timing frames in the narration videos: the frames match
+  within tolerance, but x264 amplifies the tiny differences up to 38 levels
+  in the encoded video, so each timing is drawn on its own.
+
+`.github/workflows/demo-videos.yml` renders the four finals in parallel on
+demand (manual trigger only) and uploads them as workflow artifacts; it
+never deploys. Its frames come from a software renderer and are not
+identical to the Mac's; use them for review only.
 
 ## Private review page
 

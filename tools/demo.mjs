@@ -36,7 +36,7 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpus, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
@@ -81,17 +81,35 @@ if (command === "approve") {
   console.log(`Approved ${mode} final copied to web/demo/; tools/build_web.sh will publish it at /demo/.`);
   process.exit(0);
 }
-if (!["stills", "draft", "final"].includes(command)) {
-  console.error("usage: node tools/demo.mjs stills|draft|final [--modes normal,narration] [--formats landscape,vertical] [--note TEXT]");
+if (!["stills", "cut", "draft", "final"].includes(command)) {
+  console.error("usage: node tools/demo.mjs stills|cut|draft|final [--modes normal,narration] [--formats landscape,vertical] [--workers N] [--note TEXT]");
   process.exit(2);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Time spent per phase (printed with --profile).
+const PROFILE = {};
+const timed = async (phase, work) => {
+  const t0 = Date.now();
+  try {
+    return await work();
+  } finally {
+    PROFILE[phase] = (PROFILE[phase] ?? 0) + Date.now() - t0;
+  }
+};
 const sha = (data) => createHash("sha256").update(data).digest("hex");
 const FRAME = { landscape: [960, 540], vertical: [540, 960] };
 const hasVideoToolbox = spawnSync("ffmpeg", ["-hide_banner", "-encoders"]).stdout.toString().includes("h264_videotoolbox");
 const QUALITY = {
   stills: { dpr: 2 },
+  // Like draft, but every step cuts in without its zoom: content review in
+  // seconds.
+  // Mostly held frames in short segments: x264 "ultrafast" starts quicker
+  // than a VideoToolbox session per segment.
+  cut: {
+    dpr: 1, fps: 15, cut: true,
+    encode: ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p"],
+  },
   draft: {
     dpr: 1, fps: 15,
     encode: hasVideoToolbox
@@ -106,23 +124,70 @@ const QUALITY = {
 
 // --- A browser page playing the demo on the recorder's clock -------------
 
-async function openDemo(format, mode, dpr) {
-  const port = 9350 + Math.floor(Math.random() * 400);
-  const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
-    `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "demo-"))}`,
-    "--no-first-run", "--no-default-browser-check", "--window-size=1400,1000",
-    "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
-    "--disable-backgrounding-occluded-windows", "about:blank",
-  ], { stdio: "ignore" });
-  let target;
-  for (let i = 0; i < 80 && !target; i++) {
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === "page");
-    } catch {}
-    if (!target) await sleep(250);
-  }
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
+// Browsers working at once (`--workers N`): half the physical cores, 1 to
+// 4. Each browser plus its share of x264 keeps about two cores busy; on a
+// 2-core Mac two workers were slower than one (measured).
+function physicalCores() {
+  const mac = spawnSync("sysctl", ["-n", "hw.physicalcpu"]).stdout?.toString().trim();
+  if (mac && Number(mac) > 0) return Number(mac);
+  const linux = spawnSync("sh", ["-c", "lscpu -p=core 2>/dev/null | grep -v '^#' | sort -u | wc -l"]).stdout?.toString().trim();
+  if (linux && Number(linux) > 0) return Number(linux);
+  return Math.max(1, Math.floor(cpus().length / 2));
+}
+// Stills and cut drafts mostly wait for pages to load: at least two there.
+const WORKERS = Number(opt("workers", 0))
+  || Math.min(4, Math.max(["stills", "cut"].includes(command) ? 2 : 1, Math.floor(physicalCores() / 2)));
+const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+let nextPort = 9350 + Math.floor(Math.random() * 300);
+
+// One Chrome for the whole run (launching one with a fresh profile takes
+// about 8 s); each page gets its own window, so none is a hidden tab.
+let browser = null;
+function sharedBrowser() {
+  browser ??= (async () => {
+    const port = nextPort++;
+    const proc = spawn(CHROME, [
+      `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "demo-"))}`,
+      "--no-first-run", "--no-default-browser-check", "--window-size=1400,1000",
+      "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows", "about:blank",
+    ], { stdio: "ignore" });
+    let version;
+    for (let i = 0; i < 120 && !version; i++) {
+      try {
+        version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+      } catch {}
+      if (!version) await sleep(250);
+    }
+    const ws = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise((r) => ws.addEventListener("open", r));
+    let id = 0;
+    const pending = new Map();
+    ws.addEventListener("message", (m) => {
+      const d = JSON.parse(m.data);
+      if (pending.has(d.id)) {
+        pending.get(d.id)(d.result ?? { error: d.error });
+        pending.delete(d.id);
+      }
+    });
+    const send = (method, params = {}) => new Promise((r) => {
+      const n = ++id;
+      pending.set(n, r);
+      ws.send(JSON.stringify({ id: n, method, params }));
+    });
+    return { port, proc, send };
+  })();
+  return browser;
+}
+
+async function openDemo(format, mode, dpr, cut = false) {
+  const tOpen = Date.now();
+  const shared = await sharedBrowser();
+  const { port } = shared;
+  const { targetId } = await shared.send("Target.createTarget", { url: "about:blank", newWindow: true });
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/devtools/page/${targetId}`);
   await new Promise((r) => ws.addEventListener("open", r));
+  const tLaunched = Date.now();
   let id = 0;
   const pending = new Map();
   const requests = [];
@@ -160,12 +225,13 @@ async function openDemo(format, mode, dpr) {
   await send("Page.bringToFront");
   const [w, h] = FRAME[format];
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: false });
-  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}`;
+  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${cut ? "&cut" : ""}`;
   await send("Page.navigate", { url });
   for (let i = 0; i < 600; i++) {
     if (await evaluate("!document.getElementById('loading')")) break;
     await sleep(100);
   }
+  const tLoaded = Date.now();
   await evaluate("window.__lightableFrame = 0");
   let length;
   for (let i = 0; i < 600 && !length; i++) {
@@ -175,17 +241,23 @@ async function openDemo(format, mode, dpr) {
   }
   if (!length) throw new Error(`the demo did not start: ${url} ${errors.join(" | ")}`);
   const shots = JSON.parse(await evaluate("window.__lightableDemoShots"));
+  PROFILE.launch = (PROFILE.launch ?? 0) + (tLaunched - tOpen);
+  PROFILE.load = (PROFILE.load ?? 0) + (tLoaded - tLaunched);
+  PROFILE.start = (PROFILE.start ?? 0) + (Date.now() - tLoaded);
   let last = -1;
   return {
-    url, length, shots, requests, errors, chrome,
+    url, length, shots, requests, errors,
     get last() {
       return last;
     },
     // Draws frame `f` (frames must go forward) and returns what is on screen.
     async render(f) {
       await evaluate(`window.__lightableFrame = ${f}`);
-      for (let i = 0; i < 600; i++) {
-        if (i % 20 === 0) await nudge();
+      // One nudge per frame: repeated nudges under load made the app draw
+      // some frames twice, which can change text pixels slightly. Only if
+      // it has not answered within 2 s, nudge again.
+      for (let i = 0; i < 6000; i++) {
+        if (i % 400 === 0) await nudge();
         if ((await evaluate("window.__lightableRendered")) === f) {
           last = f;
           return JSON.parse(await evaluate("window.__lightableFrameInfo"));
@@ -198,7 +270,7 @@ async function openDemo(format, mode, dpr) {
       return Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64");
     },
     close() {
-      chrome.kill();
+      shared.send("Target.closeTarget", { targetId });
     },
   };
 }
@@ -317,14 +389,39 @@ function alike(png, cachedFile) {
   return true;
 }
 
-async function video(format, mode, kind) {
+// Runs at most `n` jobs at a time.
+function limiter(n) {
+  let active = 0;
+  const waiting = [];
+  return async (job) => {
+    while (active >= n) await new Promise((r) => waiting.push(r));
+    active++;
+    try {
+      return await job();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
+}
+
+function ffmpeg(args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg: ${err}`))));
+  });
+}
+
+async function video(format, mode, kind, workers, encodeSlot) {
   const q = QUALITY[kind];
   const step = CLOCK / q.fps;
   const cacheDir = join(OUT, "cache");
   mkdirSync(cacheDir, { recursive: true });
-  // The plan (steps and length) comes from the app; open it once to read it.
-  let page = await openDemo(format, mode, q.dpr);
-  const { shots, length } = page;
+  // The plan (steps and length) comes from the app; the first page reads it.
+  const first = await timed("open", () => openDemo(format, mode, q.dpr, q.cut));
+  const { shots, length } = first;
   const total = Math.ceil((length * CLOCK) / step) * step;
   const align = (f) => Math.round(f / step) * step;
   // Segments start at steps; a step shorter than 1.5 s joins the one before
@@ -343,88 +440,110 @@ async function video(format, mode, kind) {
     seg.clip = join(cacheDir, `${seg.key}.mp4`);
     seg.meta = join(cacheDir, `${seg.key}.json`);
   }
-  let drawn = 0;
-  let held = 0;
-  let probed = 0;
-  for (const seg of segments) {
-    // Reuse when the current build draws the cached probe frames exactly.
+  const counts = { drawn: 0, held: 0, probed: 0 };
+  const encodes = [];
+  const requests = [];
+  const errors = [];
+  const pages = [first];
+
+  async function segmentWork(page, seg) {
+    // Reuse when the current build draws the cached probe frames alike.
     if (existsSync(seg.clip) && existsSync(seg.meta)) {
       const { probes } = JSON.parse(readFileSync(seg.meta, "utf8"));
       let same = probes.every(([f]) => f > page.last);
       for (const [f, file] of probes) {
         if (!same) break;
-        await page.render(f);
-        probed++;
-        same = alike(await page.png(), join(cacheDir, file));
+        await timed("probe", () => page.render(f));
+        counts.probed++;
+        same = await timed("probe", async () => alike(await page.png(), join(cacheDir, file)));
       }
       seg.cached = same;
-      if (same) continue;
+      if (same) return page;
     }
-    const frames = mkdtempSync(join(tmpdir(), "seg-"));
-    // Warm up: the end of the previous segment, so this one starts from
-    // its settled view.
-    if (page.last !== seg.start - step) {
+    // Warm up: the end of the previous segment, so this one starts from its
+    // settled view.
+    if (seg.start > 0 && page.last !== seg.start - step) {
       if (page.last > seg.start - step) {
         page.close();
-        page = await openDemo(format, mode, q.dpr);
+        page = await timed("open", () => openDemo(format, mode, q.dpr, q.cut));
       }
       for (let f = Math.max(0, seg.start - 3 * step); f < seg.start; f += step) {
-        if (f > page.last) await page.render(f);
+        if (f > page.last) await timed("render", () => page.render(f));
       }
     }
+    const frames = mkdtempSync(join(tmpdir(), "seg-"));
     let n = 0;
     let prev = null;
-    const hashes = new Map();
     const pngs = new Map();
     for (let f = seg.start; f < seg.end; ) {
-      const info = await page.render(f);
-      const png = await page.png();
-      drawn++;
+      const info = await timed("render", () => page.render(f));
+      const png = await timed("capture", () => page.png());
+      counts.drawn++;
+      const hash = sha(png);
+      pngs.set(f, png);
       const file = join(frames, `${String(n++).padStart(5, "0")}.png`);
       writeFileSync(file, png);
-      const hash = sha(png);
-      hashes.set(f, hash);
-      pngs.set(f, png);
       f += step;
-      // Twice the same picture with nothing moving: repeat it until the
-      // next step (or the segment's end).
+      // Twice the same picture with nothing moving: repeat it (hard links)
+      // until the next step (or the segment's end).
       if (prev && prev.hash === hash && prev.still && info.still) {
         const until = Math.min(seg.end, info.next == null ? seg.end : align(frameOf(info.next)));
         for (; f < until; f += step) {
           linkSync(file, join(frames, `${String(n++).padStart(5, "0")}.png`));
-          hashes.set(f, hash);
           pngs.set(f, png);
-          held++;
+          counts.held++;
         }
       }
       prev = { hash, still: info.still };
     }
-    const r = spawnSync("ffmpeg", ["-v", "error", "-y", "-framerate", String(q.fps), "-i", join(frames, "%05d.png"),
-      ...q.encode, "-r", String(q.fps), "-an", seg.clip]);
-    if (r.status !== 0) throw new Error(`ffmpeg: ${r.stderr}`);
-    rmSync(frames, { recursive: true, force: true });
     // Probe frames for next time: the first, the middle and the last.
-    const all = [...hashes.keys()];
+    const all = [...pngs.keys()];
     const pick = [...new Set([all[0], all[Math.floor(all.length / 2)], all.at(-1)])];
     const probes = pick.map((f) => {
       const file = `${seg.key}-${f}.png`;
       writeFileSync(join(cacheDir, file), pngs.get(f));
       return [f, file];
     });
-    writeFileSync(seg.meta, JSON.stringify({ probes }));
+    // Encode in the background while rendering goes on: the numbered frames
+    // exactly as before (a concat list with durations shifted frames by one).
+    encodes.push(encodeSlot(() => timed("encode", async () => {
+      await ffmpeg(["-v", "error", "-y", "-framerate", String(q.fps), "-i", join(frames, "%05d.png"),
+        ...q.encode, "-r", String(q.fps), "-an", seg.clip]);
+      writeFileSync(seg.meta, JSON.stringify({ probes }));
+      rmSync(frames, { recursive: true, force: true });
+    })));
+    return page;
   }
-  const requests = page.requests;
-  const errors = page.errors;
-  page.close();
-  const name = `${kind === "final" ? "demo" : "draft"}-${format}${mode === "narration" ? "-narration" : ""}.mp4`;
+
+  // Workers take the next segment in order; each keeps its own page.
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(workers, segments.length) }, async (_, w) => {
+    let page = w === 0 ? first : null;
+    while (next < segments.length) {
+      const seg = segments[next++];
+      if (!page) {
+        page = await timed("open", () => openDemo(format, mode, q.dpr, q.cut));
+        pages.push(page);
+      }
+      page = await segmentWork(page, seg);
+      if (!pages.includes(page)) pages.push(page);
+    }
+  }));
+  await Promise.all(encodes);
+  for (const p of pages) {
+    requests.push(...p.requests);
+    errors.push(...p.errors);
+    p.close();
+  }
+  const prefix = kind === "final" ? "demo" : kind;
+  const name = `${prefix}-${format}${mode === "narration" ? "-narration" : ""}.mp4`;
   const list = join(mkdtempSync(join(tmpdir(), "list-")), "list.txt");
   writeFileSync(list, segments.map((s) => `file '${s.clip}'`).join("\n"));
-  const r = spawnSync("ffmpeg", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy",
+  await ffmpeg(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy",
     "-movflags", "+faststart", join(OUT, name)]);
-  if (r.status !== 0) throw new Error(`ffmpeg concat: ${r.stderr}`);
   return {
     name, file: join(OUT, name), segments: segments.length, reused: segments.filter((s) => s.cached).length,
-    drawn, held, probed, requests, errors,
+    ...counts, requests, errors,
   };
 }
 
@@ -469,25 +588,30 @@ if (command !== "stills" || review) {
   const r = spawnSync(join(ROOT, "target", "release", "lightable"), ["demo-cues", OUT]);
   if (r.status !== 0) console.error("note: could not write subtitles (build target/release/lightable)");
 }
-for (const mode of modes) {
-  for (const format of formats) {
-    const t0 = Date.now();
-    const label = `${mode} ${format}`;
-    if (command === "stills") {
-      const s = await stills(format, mode);
-      network.push(...s.requests);
-      const failed = s.results.flatMap((r) => Object.entries(r.checks).filter(([, c]) => c.pass === false).map(([k]) => `${r.file}: ${k}`));
-      report.push({ label, seconds: (Date.now() - t0) / 1000, stills: s.results.length, failed, errors: s.errors });
-      items.push({ label, format, mode, contact: join(s.dir, "contact.png"), phone: join(s.dir, "contact-phone.png"), stills: s.results, stillsDir: s.dir });
-    } else {
-      const v = await video(format, mode, command);
-      network.push(...v.requests);
-      const vtt = join(OUT, mode === "narration" ? "demo-narration.vtt" : "demo.vtt");
-      report.push({ label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors });
-      items.push({ label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null });
-    }
+// Variants run side by side, WORKERS browsers in all: whole variants per
+// worker when there are enough of them, otherwise segments of one video
+// across several.
+const variants = modes.flatMap((mode) => formats.map((format) => ({ mode, format })));
+const runVariant = limiter(WORKERS);
+const encodeSlot = limiter(WORKERS);
+const perVideo = Math.max(1, Math.floor(WORKERS / variants.length));
+await Promise.all(variants.map(({ mode, format }, k) => runVariant(async () => {
+  const t0 = Date.now();
+  const label = `${mode} ${format}`;
+  if (command === "stills") {
+    const s = await stills(format, mode);
+    network.push(...s.requests);
+    const failed = s.results.flatMap((r) => Object.entries(r.checks).filter(([, c]) => c.pass === false).map(([key]) => `${r.file}: ${key}`));
+    report[k] = { label, seconds: (Date.now() - t0) / 1000, stills: s.results.length, failed, errors: s.errors };
+    items[k] = { label, format, mode, contact: join(s.dir, "contact.png"), phone: join(s.dir, "contact-phone.png"), stills: s.results, stillsDir: s.dir };
+  } else {
+    const v = await video(format, mode, command, perVideo, encodeSlot);
+    network.push(...v.requests);
+    const vtt = join(OUT, mode === "narration" ? "demo-narration.vtt" : "demo.vtt");
+    report[k] = { label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors };
+    items[k] = { label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null };
   }
-}
+})));
 const origin = new URL(base).origin;
 const summary = {
   command, seconds: (Date.now() - started) / 1000, runs: report,
@@ -498,4 +622,8 @@ const summary = {
   },
 };
 if (review) summary.review = publish(command, items);
+if (args.includes("--profile")) summary.profile = PROFILE;
+summary.workers = WORKERS;
 console.log(JSON.stringify(summary, null, 1));
+if (browser) (await browser).proc.kill();
+process.exit(0);

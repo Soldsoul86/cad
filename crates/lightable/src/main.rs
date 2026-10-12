@@ -277,6 +277,7 @@ fn main() -> std::process::ExitCode {
                     demo,
                     narration,
                     record: false,
+                    cut: false,
                 },
             )))
         }),
@@ -320,6 +321,7 @@ fn main() {
             demo,
             narration: flag("narration"),
             record: flag("record"),
+            cut: flag("cut"),
             ..Default::default()
         };
         let _ = eframe::WebRunner::new()
