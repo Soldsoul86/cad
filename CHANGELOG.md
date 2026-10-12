@@ -1,5 +1,12 @@
 # Changelog
 
+## Voice-over and demo videos (unreleased)
+
+- `?demo&narration`: voice-over timing for the bracket demo (each line at about 2.5 words a second); script and cue sheet in `docs/demo/voiceover.md`, every fact checked against the comparison by a test.
+- `lightable demo-cues OUT_DIR`: SRT and WebVTT subtitles for the normal and narration demos, and the cue sheet, from the same plan the app plays.
+- `?demo&record` and `tools/record_demo.mjs`: frame-exact recording to MP4 (H.264, 30 fps) at 1920 × 1080 and 1080 × 1920.
+- Fixed: on high-density screens, arcs up to twice the intended size were drawn with the coarse 30° segments (the level-of-detail threshold compared points with pixels); the report layout now stacks its change list under the drawing on narrow or portrait screens and shows the whole sheet.
+
 ## UX pass (unreleased)
 
 - Web: "Choose files…" opens the file dialog (phones can open files now); "Files are read in this browser, never uploaded." beside it.

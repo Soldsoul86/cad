@@ -11,7 +11,8 @@
 //!                                                (--svg: the overlay as SVG)
 //!     lightable --diff A.dxf B.dxf [--side]      compare A and B in the viewer
 //!     lightable --example [bracket|plan] [--side]  compare a built-in example
-//!     lightable --demo                          play the 30-second demo
+//!     lightable --demo [--narration]            play the demo (voice-over timing)
+//!     lightable demo-cues OUT_DIR               subtitles (SRT, WebVTT) and voice-over cue sheet
 //!     lightable --diff A B --report              save the PNG change report and quit
 //!     lightable --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
 //!
@@ -21,6 +22,7 @@
 
 mod app;
 mod compare;
+mod demo;
 mod examples;
 mod feedback;
 mod files;
@@ -117,6 +119,38 @@ mod cli {
                 }
             })(
             ),
+            [cmd, out] if cmd == "demo-cues" => (|| {
+                // Subtitles and the voice-over cue sheet for the bracket demo,
+                // from the same plan the app plays.
+                let e = crate::examples::find("bracket");
+                let read = |b: &[u8]| {
+                    lightable_dxf::read_bytes(b)
+                        .map(|(d, _)| std::sync::Arc::new(d))
+                        .map_err(|e| e.to_string())
+                };
+                let c = crate::compare::Compare::new(
+                    None,
+                    (e.a_name.into(), read(e.a)?),
+                    (e.b_name.into(), read(e.b)?),
+                    Some((e.a_label.into(), e.b_label.into())),
+                    Some(e.id),
+                )?;
+                let dir = std::path::Path::new(out);
+                std::fs::create_dir_all(dir).map_err(|e| format!("{out}: {e}"))?;
+                let write = |name: &str, text: String| {
+                    std::fs::write(dir.join(name), text).map_err(|e| format!("{name}: {e}"))
+                };
+                for (narration, stem) in [(false, "demo"), (true, "demo-narration")] {
+                    let plan = crate::demo::plan(&c, narration);
+                    write(&format!("{stem}.srt"), crate::demo::srt(&plan.cues))?;
+                    write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;
+                    println!("{stem}: {:.2} s, {} cues", plan.length, plan.cues.len());
+                    if narration {
+                        write("cue-sheet.md", crate::demo::cue_sheet(&plan))?;
+                    }
+                }
+                Ok(())
+            })(),
             [cmd, path] if cmd == "info" => (|| {
                 let drawing = load(path)?;
                 println!(
@@ -147,6 +181,7 @@ fn main() -> std::process::ExitCode {
     let mut side_by_side = false;
     let mut report_and_quit = false;
     let mut demo = false;
+    let mut narration = false;
     let mut example = None;
     let (bench, paths) = match args.as_slice() {
         [flag, path, rest @ ..] if flag == "--bench" => {
@@ -184,11 +219,12 @@ fn main() -> std::process::ExitCode {
                     (opt == "--shot").then(|| rest.next()).flatten(),
                 ) {
                     ("--side", _) => side_by_side = true,
+                    ("--narration", _) => narration = true,
                     ("--report", _) => report_and_quit = true,
                     ("--shot", Some(out)) => bench = Some(app::Bench::screenshot(out.clone())),
                     _ => {
                         eprintln!(
-                            "usage: lightable --diff A.dxf B.dxf | --example [bracket|plan] | --demo  [--side] [--report] [--shot OUT.ppm]"
+                            "usage: lightable --diff A.dxf B.dxf | --example [bracket|plan] | --demo [--narration]  [--side] [--report] [--shot OUT.ppm]"
                         );
                         return std::process::ExitCode::FAILURE;
                     }
@@ -239,6 +275,8 @@ fn main() -> std::process::ExitCode {
                     side_by_side,
                     report_and_quit,
                     demo,
+                    narration,
+                    record: false,
                 },
             )))
         }),
@@ -276,9 +314,12 @@ fn main() {
         let demo = params
             .iter()
             .any(|p| *p == "demo" || p.starts_with("demo="));
+        let flag = |name: &str| params.contains(&name);
         let start = app::Start {
             example,
             demo,
+            narration: flag("narration"),
+            record: flag("record"),
             ..Default::default()
         };
         let _ = eframe::WebRunner::new()

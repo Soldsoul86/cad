@@ -348,6 +348,21 @@ impl Compare {
             .collect()
     }
 
+    /// The headlines of the design changes inside a revision cloud (demo
+    /// and voice-over checks only).
+    #[cfg(test)]
+    pub fn clouded_headlines(&self) -> Vec<&str> {
+        self.clouded()
+            .into_iter()
+            .map(|i| self.diff.changes[i].headline.as_str())
+            .collect()
+    }
+
+    /// No change selected.
+    pub fn clear_selection(&mut self) {
+        self.current = None;
+    }
+
     /// How many design changes the revision cloud surrounds (demo only).
     pub fn clouded_count(&self) -> usize {
         self.clouded().len()
@@ -745,7 +760,8 @@ impl Compare {
     /// The report's title bar.
     pub fn report_header(&self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        // Wrapped, so a narrow (9:16) report keeps every word.
+        ui.horizontal_wrapped(|ui| {
             ui.heading(self.summary());
             if let Some(markup) = self.diff.markup_summary() {
                 ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
@@ -754,7 +770,7 @@ impl Compare {
         if let Some(note) = self.example_note() {
             ui.label(egui::RichText::new(note).italics());
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             legend(ui);
             ui.separator();
             ui.label(format!(

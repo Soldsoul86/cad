@@ -148,6 +148,10 @@ pub struct Start {
     pub report_and_quit: bool,
     /// Play the demo sequence (`--demo`, `?demo`).
     pub demo: bool,
+    /// Demo with voice-over timing (`--narration`, `?demo&narration`).
+    pub narration: bool,
+    /// Demo driven frame by frame by a recorder (`?demo&record`, web).
+    pub record: bool,
 }
 
 /// A smooth move of the view.
@@ -162,20 +166,58 @@ struct Anim {
 /// The demo sequence (`?demo`): about 30 seconds with captions, then an end
 /// card. Times in seconds from the start.
 struct Demo {
-    /// When the next step starts (the first a second after the app is up).
-    next_at: Option<f64>,
-    /// The step showing now; `usize::MAX` before the first.
-    step: usize,
+    /// Voice-over timing (`?demo&narration`).
+    narration: bool,
+    /// Recording: demo time is the frame number the recorder sets, at 30
+    /// frames a second (`?demo&record`).
+    record: bool,
+    /// The plan and when it started (app time), once the example is open.
+    plan: Option<(crate::demo::Plan, f64)>,
+    /// Shots applied so far.
+    done: usize,
 }
 
-/// The demo's steps; the last is the end card, which stays.
-const DEMO_LAST_STEP: usize = 9;
+/// The recorder's side of `?demo&record` (`tools/record_demo.mjs`): it
+/// sets `window.__lightableFrame`, the app draws that moment and answers in
+/// `window.__lightableRendered`; the demo's length is in
+/// `window.__lightableDemoLength`.
+mod record {
+    #[cfg(target_arch = "wasm32")]
+    fn window() -> Option<eframe::web_sys::Window> {
+        eframe::web_sys::window()
+    }
 
-/// How long a demo caption stays: reading time at 3 words a second, plus
-/// a second for the zoom to settle; at least 3 seconds.
-pub fn caption_seconds(caption: &str) -> f64 {
-    (caption.split_whitespace().count() as f64 / 3.0 + 1.0).max(3.0)
+    /// The frame the recorder asks for, if it has asked.
+    pub fn frame() -> Option<f64> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let w = window()?;
+            js_sys::Reflect::get(&w, &"__lightableFrame".into())
+                .ok()?
+                .as_f64()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        None
+    }
+
+    fn set(_name: &str, _value: f64) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = window() {
+            let _ = js_sys::Reflect::set(&w, &_name.into(), &_value.into());
+        }
+    }
+
+    pub fn rendered(frame: f64) {
+        set("__lightableRendered", frame.round());
+    }
+
+    pub fn publish_length(seconds: f64) {
+        set("__lightableDemoLength", seconds);
+    }
 }
+
+/// Frames a second when recording.
+const RECORD_FPS: f64 = 30.0;
 
 /// Caption text size for a screen: readable in a 16:9 or 9:16 video.
 pub fn caption_size(width: f32, height: f32) -> f32 {
@@ -236,6 +278,9 @@ pub struct CadApp {
     /// Where the drawing was drawn last frame (demo captions sit at its
     /// bottom).
     canvas_rect: Option<Rect>,
+    /// This frame's time (seconds): the app clock, or the recorder's frame
+    /// clock when recording.
+    now: f64,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -281,6 +326,8 @@ impl CadApp {
             side_by_side,
             report_and_quit,
             demo,
+            narration,
+            record,
         } = start;
         // First run, nothing to open: show the default example at once, so
         // the first thing on screen is a comparison.
@@ -314,9 +361,12 @@ impl CadApp {
             demo_zoom: None,
             auto_fit: false,
             demo: demo.then_some(Demo {
-                next_at: None,
-                step: usize::MAX,
+                narration,
+                record,
+                plan: None,
+                done: 0,
             }),
+            now: 0.0,
             canvas_rect: None,
             caption: None,
             end_card: false,
@@ -818,8 +868,7 @@ impl CadApp {
             self.fit();
         }
         if let Some((b, margin)) = self.demo_zoom.take() {
-            let now = ui.input(|i| i.time);
-            self.animate_to(&b, margin, now, 1.2);
+            self.animate_to(&b, margin, self.now, 1.2);
         }
         let has_content = self.doc.is_some() || self.compare.is_some();
         if self.fit_pending && has_content && rect.width() > 0.0 {
@@ -1044,8 +1093,13 @@ impl eframe::App for CadApp {
                 c.side_by_side = true;
             }
         }
-        let now = ui.input(|i| i.time);
-        if self.step_anim(now) {
+        // Recording: the recorder's frame clock; otherwise the app's.
+        let now = match &self.demo {
+            Some(d) if d.record => record::frame().map_or(-1.0, |f| f / RECORD_FPS),
+            _ => ui.input(|i| i.time),
+        };
+        self.now = now;
+        if self.step_anim(now) && !self.recording() {
             ui.ctx().request_repaint();
         }
         if self.demo.is_some() {
@@ -1169,6 +1223,9 @@ impl eframe::App for CadApp {
         self.problem_window(ui, gl.as_ref());
         self.order_window(ui, gl.as_ref());
         self.overlays(ui);
+        if self.demo.as_ref().is_some_and(|d| d.record) {
+            record::rendered(self.now * RECORD_FPS);
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(bench) = &mut self.bench
@@ -1234,81 +1291,87 @@ impl CadApp {
     /// Plays the demo: each step sets up the view once when its time
     /// comes; captions say what is on screen.
     fn run_demo(&mut self, ui: &mut egui::Ui, now: f64) {
-        ui.ctx().request_repaint();
+        // Live, the demo draws continuously; recorded, a frame is drawn when
+        // the recorder asks for it (it taps a key after setting the frame).
+        if !self.recording() {
+            ui.ctx().request_repaint();
+        }
         let Some(c) = &self.compare else { return };
-        let (a, b) = {
-            let (a, b) = c.labels();
-            (a.to_owned(), b.to_owned())
-        };
         let Some(demo) = &mut self.demo else { return };
-        let next_at = *demo.next_at.get_or_insert(now + 1.0);
-        if now < next_at || demo.step == DEMO_LAST_STEP {
+        // A recording waits for its first frame.
+        if demo.record && now < 0.0 {
             return;
         }
-        let step = demo.step.wrapping_add(1);
-        demo.step = step;
+        if demo.plan.is_none() {
+            let plan = crate::demo::plan(c, demo.narration);
+            record::publish_length(plan.length);
+            // Live, a second's pause first; recorded, from the first frame.
+            let start = if demo.record { now } else { now + 1.0 };
+            demo.plan = Some((plan, start));
+        }
+        let Some((plan, start)) = &demo.plan else {
+            return;
+        };
+        let t = now - start;
+        let mut due = Vec::new();
+        while let Some(shot) = plan.shots.get(demo.done).filter(|s| s.at <= t) {
+            due.push(shot.clone());
+            demo.done += 1;
+        }
+        let narration = plan.narration;
+        for shot in due {
+            self.play(shot, narration);
+        }
+    }
+
+    /// Recording the demo frame by frame (`?demo&record`).
+    fn recording(&self) -> bool {
+        self.demo.as_ref().is_some_and(|d| d.record)
+    }
+
+    /// Applies one demo moment. Every number and headline comes from the
+    /// comparison (`demo::plan`).
+    fn play(&mut self, shot: crate::demo::Shot, narration: bool) {
+        use crate::demo::Act;
         let Some(c) = &mut self.compare else { return };
         let extent = c.bounds();
-        let picks = c.demo_picks();
-        let changes = |n: usize| match n {
-            1 => "1 change".to_owned(),
-            n => format!("{n} changes"),
-        };
         let mut zoom: Option<(lightable_render::Bounds, f64)> = None;
-        // Every number and headline below comes from the comparison.
-        self.caption = Some(match step {
-            0 => {
-                c.side_by_side = true;
+        match shot.act {
+            Act::Whole { side } => {
+                c.side_by_side = side;
                 c.details = false;
                 c.preview_report(false);
+                c.clear_selection();
                 zoom = extent.map(|e| (e, 0.03));
-                format!("Before and after: {a} left, {b} right.")
             }
-            1 => match c.cloud_bounds() {
-                Some(cloud) => {
-                    zoom = Some((cloud, 0.1));
-                    format!("The revision cloud marks {}.", changes(c.clouded_count()))
-                }
-                None => format!("{b} has no revision cloud."),
-            },
-            2 => {
-                c.side_by_side = false;
-                zoom = extent.map(|e| (e, 0.03));
-                format!("Lightable found {}.", changes(c.design_count()))
+            Act::Cloud => zoom = c.cloud_bounds().map(|b| (b, 0.1)),
+            Act::Select(i) => {
+                c.preview_report(false);
+                zoom = c.select(i).map(|b| (b, 0.15));
             }
-            3..=5 => match picks.get(step - 3) {
-                Some(&i) => {
-                    zoom = c.select(i).map(|b| (b, 0.15));
-                    c.headline(i).to_owned()
-                }
-                None => String::new(),
-            },
-            6 => {
+            Act::Details => {
                 c.details = true;
                 c.reveal_not_compared = true;
                 zoom = extent.map(|e| (e, 0.03));
-                "Details: exact values, and what is not compared.".to_owned()
             }
-            7 => {
+            Act::Report => {
                 c.details = false;
                 c.preview_report(true);
-                "Download the review report as PNG or JSON.".to_owned()
+                // The report shows the whole sheet.
+                zoom = extent.map(|e| (e, 0.03));
             }
-            8 => {
+            Act::Scope => c.preview_report(false),
+            Act::EndCard => {
                 c.preview_report(false);
-                "Lightable shows what changed. Whether it is right is still your call.".to_owned()
-            }
-            _ => {
                 self.end_card = true;
-                String::new()
             }
-        });
+            Act::Nothing => {}
+        }
+        if !narration || shot.caption.is_some() {
+            self.caption = shot.caption.filter(|t| !t.is_empty());
+        }
         if let Some((b, margin)) = zoom {
             self.demo_zoom = Some((b, margin));
-        }
-        let seconds = caption_seconds(self.caption.as_deref().unwrap_or(""));
-        if let Some(demo) = &mut self.demo {
-            demo.next_at = Some(now + seconds);
         }
     }
 
@@ -1394,7 +1457,9 @@ impl CadApp {
     /// The PNG report layout: header, overlay, change list and footer,
     /// shown for a few frames and then captured.
     fn report(&mut self, ui: &mut egui::Ui) {
-        ui.ctx().request_repaint();
+        if !self.recording() {
+            ui.ctx().request_repaint();
+        }
         let Some(c) = &mut self.compare else { return };
         let capture = c.report_frame();
         let image = ui.input(|i| {
@@ -1420,9 +1485,17 @@ impl CadApp {
                 ));
             });
         });
-        egui::Panel::right("report-changes")
-            .exact_size(420.0)
-            .show(ui, |ui| c.report_list(ui));
+        // Narrow or portrait (a 9:16 frame): the list under the drawing.
+        let screen = ui.ctx().content_rect();
+        if is_narrow(screen.width(), screen.height()) {
+            egui::Panel::bottom("report-changes-below")
+                .exact_size(screen.height() * 0.45)
+                .show(ui, |ui| c.report_list(ui));
+        } else {
+            egui::Panel::right("report-changes")
+                .exact_size(420.0)
+                .show(ui, |ui| c.report_list(ui));
+        }
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         if capture {
             ui.ctx()
@@ -1464,9 +1537,12 @@ mod demo_tests {
         let headline =
             "Circle diameter changed from 13.5 mm to 17.5 mm; center moved 5 mm right and 5 mm up";
         assert_eq!(headline.split_whitespace().count(), 18);
-        assert!(super::caption_seconds(headline) >= 18.0 / 3.0);
-        assert_eq!(super::caption_seconds("Lightable found 10 changes."), 3.0);
-        assert_eq!(super::caption_seconds(""), 3.0);
+        assert!(crate::demo::caption_seconds(headline) >= 18.0 / 3.0);
+        assert_eq!(
+            crate::demo::caption_seconds("Lightable found 10 changes."),
+            3.0
+        );
+        assert_eq!(crate::demo::caption_seconds(""), 3.0);
     }
 
     /// Captions are larger in a 1080p video than in a laptop window, and

@@ -961,6 +961,40 @@ reading big files off the main thread, keyboard pan and zoom).
     in the revision markup next to the cloud (triangle and letter), so the
     narrow 9:16 panes show the whole callout.
 
+## Voice-over and recorded demo videos
+
+1. **One plan for the demo** (`demo.rs`): the app plays it and
+   `lightable demo-cues` writes the subtitles (SRT, WebVTT) and the
+   voice-over cue sheet from it, so their times are the demo's times. The
+   normal demo's steps and timing are as before (tested).
+2. **Narration mode** (`?demo&narration`, `--demo --narration`): the
+   voice-over lines are constants (`demo::VOICEOVER`) written for the
+   bracket example; each step lasts 0.5 s + words ÷ 2.5 + 0.7 s; moves
+   within a line happen as its words come (the dimension at "The edge…",
+   the whole view at "None of them…", the report at "and export…"). No
+   on-screen captions: the voice and the subtitle files carry the words.
+   Other drawings fall back to the normal demo. A test checks every fact in
+   the lines against the comparison; three facts in the first draft did not
+   match and were corrected in the script ("mounting bracket", "5
+   millimetres in from both edges", no "one click" for the export).
+3. **Recording** (`?demo&record`, web only): demo time = frame ÷ 30, the
+   frame set by the recorder in `window.__lightableFrame`; the app reports
+   each drawn frame in `window.__lightableRendered` and the demo length in
+   `window.__lightableDemoLength`. `tools/record_demo.mjs` screenshots each
+   frame (lossless) and encodes H.264 30 fps with ffmpeg afterwards (CRF
+   16, `-tune animation`, yuv420p, no audio). Videos go to the git-ignored
+   `out/demo/`.
+   While recording, the app draws only when asked (the recorder taps
+   Shift after setting the frame): drawing continuously made each
+   screenshot about ten times slower.
+4. **Arc detail follows pixels, not points:** the coarse arcs (30°) are
+   used while a chunk's largest radius is under 30 *pixels*
+   (`tess::use_coarse`, with the pixel ratio); comparing points made circles
+   visibly polygonal on 2× screens and in the 1080p videos.
+5. **The report layout on narrow screens** puts the change list under the
+   drawing (45 % of the height) and wraps its header; the demo's report
+   step zooms to the whole sheet.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

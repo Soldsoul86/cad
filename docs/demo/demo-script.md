@@ -79,3 +79,34 @@ comparison; `the_bracket_cloud_surrounds_exactly_one_design_change`
 `?demo&example=plan` plays the same script on the floor plan: there is no
 revision cloud, so the second caption says so, and the clicks are three of the plan's
 changes (a circle, dimension or text first where there is one).
+
+## Voice-over mode and video files
+
+`?demo&narration` plays the voice-over version for the bracket example: the
+seven steps of `docs/demo/voiceover.md`, each long enough to speak its line
+at about 2.5 words a second plus settling time, with no on-screen captions
+(about 46 s). Other drawings fall back to the normal demo. The normal
+timing above is unchanged.
+
+Subtitles and the cue sheet come from the same plan the app plays
+(`crates/lightable/src/demo.rs`):
+
+```bash
+cargo run --release -p lightable -- demo-cues out/demo
+```
+
+writes `demo.srt`/`.vtt` (normal demo: the on-screen captions and the end
+card), `demo-narration.srt`/`.vtt` (the voice-over lines) and
+`cue-sheet.md`. Times count from the first frame of the matching video.
+
+Videos are recorded frame by frame from the web build: `?demo&record` makes
+demo time follow a frame counter the recorder sets (30 frames a second), so
+the result is smooth however slowly the page renders:
+
+```bash
+node tools/record_demo.mjs "http://localhost:8765/target/web/index.html?demo&record&format=landscape" out/demo/demo-landscape.mp4 960 540
+```
+
+(960 × 540 CSS pixels at a pixel ratio of 2 = 1920 × 1080; use 540 960 and
+`format=vertical` for 1080 × 1920, and add `&narration` for the voice-over
+timing.) `out/` is git-ignored.
