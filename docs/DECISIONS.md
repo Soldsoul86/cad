@@ -1125,6 +1125,41 @@ reading big files off the main thread, keyboard pan and zoom).
 9. **Drafts at 2×**, captured at half size (see the pipeline notes in
    `docs/demo/demo-script.md`).
 
+## The demo page for engineers (lightable.dev/demo)
+
+1. **Five feature videos** (20–30 s, 16:9 and 9:16, same recorder and
+   rules as the main demo: real input, visible pointer, numbers from the
+   comparison): find (`?demo&feature=find`), explain, compare, report,
+   private. Plans in `demo::feature_plan`; `lightable --demo --feature ID`
+   plays one live.
+2. **Starting points:** find and compare start on Rev C alone and drop
+   files; explain, report and private start on the example's comparison,
+   as the app opens.
+3. **Compare drops "bracket.dxf" and "bracket from supplier.dxf"** (the
+   example's files, the same date on disk): no revision mark and no date
+   difference, so the app asks which is earlier (tested). The private video
+   drops a file with a DWG header only (written by the recorder, never
+   committed), which the app recognises.
+4. **Captions at most 55 characters** (two lines in 9:16, tested).
+5. **Recording shows what a video is about:** the privacy line in the
+   toolbar (private), the file names with Swap in 9:16 (compare), "What
+   isn't compared?" in the list (always; it is real UI).
+6. **The page** has no scripts, the same security policy, no tracking;
+   videos are muted, inline, with controls, posters and captions (off by
+   default: the captions are in the picture); vertical on phones held
+   upright, landscape elsewhere; only the first video preloads metadata.
+   `?own` opens the app on its start screen ("Compare your own files").
+7. **Facts on the page are tested** (`the_demo_page_matches_the_comparison`):
+   the summary, the counts, the headlines, the not-compared list, the DXF
+   versions. Matching and test results come from decisions above (28 of 28
+   on 12 pairs); browser times from the 2026-10-10 browser test.
+8. **Publishing:** `tools/build_web.sh` builds /demo/ only when all ten
+   approved final videos, posters and captions are in `web/demo/`
+   (`node tools/demo.mjs approve --mode features`). `node tools/demo.mjs
+   page` previews the page with draft videos on the private review page
+   and checks it at 390 px (video size, files, text size, no sideways
+   scrolling, no requests to other sites) and at 1280 px.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

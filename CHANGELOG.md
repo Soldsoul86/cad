@@ -1,5 +1,11 @@
 # Changelog
 
+## Demo page for engineers (unreleased)
+
+- Five short feature videos (find what changed, every change explained, before and after, share a review report, private and honest), 16:9 and 9:16, each action real input.
+- The demo page: what Lightable does, the videos with what each shows, why the example has 10 changes, what it works with, how it decides what changed (with measured results), privacy, honest limits, questions and feedback. Mobile-first, no scripts, no tracking.
+- `?own` opens the app on its start screen.
+
 ## Demo with real interaction (unreleased)
 
 - The demo (40 s) shows a person using Lightable: the two example files dragged in and dropped, the legend, a pinch onto the revision cloud, taps in the change list (scrolling it on phones), Side by side, Details and Export PNG report, the same comparison on a phone, the end card. Every action goes through the app's normal input; the pointer is shown (a fingertip circle in 9:16).

@@ -44,12 +44,21 @@ awk -v list="$OUT/changes.html" -v bytes="$WASM_BYTES" '
 rm "$OUT/changes.html"
 # The public demo page (lightable.dev/demo/), only once approved videos are
 # in web/demo/ (`node tools/demo.mjs approve`); drafts never go there.
+# The page needs all five feature videos in both shapes, their posters and
+# captions.
 PAGES="/"
-if [ -f web/demo/demo-landscape.mp4 ] && [ -f web/demo/demo-vertical.mp4 ] \
-   && [ -f web/demo/poster-landscape.jpg ] && [ -f web/demo/demo.vtt ]; then
+DEMO_FILES="web/demo/index.html"
+for f in find explain compare report private; do
+  DEMO_FILES="$DEMO_FILES web/demo/$f.vtt"
+  for s in landscape vertical; do
+    DEMO_FILES="$DEMO_FILES web/demo/$f-$s.mp4 web/demo/$f-$s.jpg"
+  done
+done
+DEMO_READY=1
+for file in $DEMO_FILES; do [ -f "$file" ] || DEMO_READY=0; done
+if [ "$DEMO_READY" = 1 ]; then
   mkdir -p "$OUT/demo"
-  cp web/demo/index.html web/demo/demo-landscape.mp4 web/demo/demo-vertical.mp4 \
-     web/demo/poster-landscape.jpg web/demo/poster-vertical.jpg web/demo/demo.vtt "$OUT/demo/"
+  cp $DEMO_FILES "$OUT/demo/"
   PAGES="/ /demo/"
 fi
 {

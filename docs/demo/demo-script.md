@@ -47,6 +47,28 @@ Captions are 4.5 % of the screen height (smaller only to fit two lines),
 at the bottom of the drawing; the app's fits and zooms keep that band clear
 during the demo.
 
+## Feature videos (the demo page)
+
+`?demo&feature=find|explain|compare|report|private` (`--demo --feature
+ID`): 20–30 s each, the same recorder, pointer and rules. The plans are in
+`crates/lightable/src/demo.rs` (`feature_plan`); captions in
+`out/demo/feature-ID.vtt`.
+
+| Video | Steps (gestures) |
+|---|---|
+| find | Rev C alone; drop both revisions; the legend highlighted; "10 changes found between Rev B and Rev C." highlighted; pinch onto the cloud ("The other 9 weren't clouded"); end card |
+| explain | the example's comparison; tap the hole, tap the 20 → 25 mm dimension (each zooms; the headline as the caption); click Details ("Details shows the exact values."); "Lightable describes the geometry it detects." / "You judge what it means."; end card |
+| compare | Rev C alone; drop "bracket.dxf" and "bracket from supplier.dxf" (same date); the app asks which is earlier, click "bracket.dxf is Before"; Side by side; Swap; end card |
+| report | the example's comparison; Details; Export JSON; Export PNG report (the report on screen, "And what was not compared."); end card |
+| private | the privacy line highlighted; "What isn't compared?" (the list scrolled to it, then Details opens there); drop a DWG file, the message, OK; the phone outline; end card |
+
+```bash
+node tools/demo.mjs stills --modes features
+node tools/demo.mjs cut --modes features
+node tools/demo.mjs page            # the page with the cut drafts, checked at 390 px and 1280 px
+node tools/demo.mjs approve --mode features   # finals only, after approval
+```
+
 ## What the demo does not claim
 
 - Lightable does not check whether a revision cloud covers every change.

@@ -38,7 +38,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync,
 } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -47,7 +47,10 @@ const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const OUT = join(ROOT, "out", "demo");
 const REVIEW = join(ROOT, "out", "review");
 const ASSETS = join(ROOT, "crates", "lightable", "assets");
-const TOOL_VERSION = 4;
+const TOOL_VERSION = 6;
+// The demo page's feature videos (`--modes find,explain,...`; `--modes
+// features` for all five).
+const FEATURES = ["find", "explain", "compare", "report", "private"];
 const CLOCK = 30; // the app's frame clock
 
 const args = process.argv.slice(2);
@@ -57,17 +60,42 @@ const opt = (name, fallback) => {
   return i >= 0 ? args[i + 1] : fallback;
 };
 const formats = opt("formats", "landscape,vertical").split(",");
-const modes = opt("modes", command === "stills" ? "normal,narration" : "normal,narration").split(",");
+const modes = opt("modes", "normal,narration").split(",").flatMap((m) => (m === "features" ? FEATURES : [m]));
+// Output names: demo-landscape.mp4, demo-landscape-narration.mp4,
+// demo-landscape-find.mp4, ...
+const suffix = (mode) => (mode === "normal" ? "" : `-${mode}`);
+const captionsFile = (mode) => (mode === "normal" ? "demo.vtt" : mode === "narration" ? "demo-narration.vtt" : `feature-${mode}.vtt`);
 const base = opt("base", "http://localhost:8765/target/web/index.html");
 const note = opt("note", "");
 const review = !args.includes("--no-review");
+// The demo page's videos, posters and captions into `dir`, from the
+// videos `video(feature, format)` names. Posters: a still from each video.
+const POSTER_AT = { find: 13, explain: 6, compare: 14, report: 15, private: 2 };
+function pageFiles(dir, video) {
+  for (const m of FEATURES) {
+    for (const format of ["landscape", "vertical"]) {
+      const src = video(m, format);
+      if (!existsSync(src)) throw new Error(`no video ${src}`);
+      copyFileSync(src, join(dir, `${m}-${format}.mp4`));
+      spawnSync("ffmpeg", ["-v", "error", "-y", "-ss", String(POSTER_AT[m]), "-i", src, "-frames:v", "1", "-q:v", "3",
+        join(dir, `${m}-${format}.jpg`)]);
+    }
+    copyFileSync(join(OUT, `feature-${m}.vtt`), join(dir, `${m}.vtt`));
+  }
+}
 if (command === "approve") {
   const mode = opt("mode", "");
-  if (!["normal", "narration"].includes(mode)) {
-    console.error("usage: node tools/demo.mjs approve --mode normal|narration");
+  if (!["normal", "narration", "features"].includes(mode)) {
+    console.error("usage: node tools/demo.mjs approve --mode normal|narration|features");
     process.exit(2);
   }
   const web = join(ROOT, "web", "demo");
+  if (mode === "features") {
+    // The five feature videos of the demo page: finals only.
+    pageFiles(web, (m, format) => join(OUT, `demo-${format}-${m}.mp4`));
+    console.log("Approved feature finals copied to web/demo/; tools/build_web.sh will publish the page at /demo/.");
+    process.exit(0);
+  }
   const suffix = mode === "narration" ? "-narration" : "";
   for (const format of ["landscape", "vertical"]) {
     const src = join(OUT, `demo-${format}${suffix}.mp4`);
@@ -78,16 +106,11 @@ if (command === "approve") {
       join(web, `poster-${format}.jpg`)]);
   }
   copyFileSync(join(OUT, mode === "narration" ? "demo-narration.vtt" : "demo.vtt"), join(web, "demo.vtt"));
-  // Captions on by default only for the narration version: the normal one
-  // has its captions in the picture.
-  const page = join(web, "index.html");
-  const html = readFileSync(page, "utf8").replaceAll(' label="English" default>', ' label="English">');
-  writeFileSync(page, mode === "narration" ? html.replaceAll(' label="English">', ' label="English" default>') : html);
-  console.log(`Approved ${mode} final copied to web/demo/; tools/build_web.sh will publish it at /demo/.`);
+  console.log(`Approved ${mode} final copied to web/demo/ (the whole demo; the page shows the feature videos).`);
   process.exit(0);
 }
-if (!["stills", "cut", "draft", "final"].includes(command)) {
-  console.error("usage: node tools/demo.mjs stills|cut|draft|final [--modes normal,narration] [--formats landscape,vertical] [--workers N] [--note TEXT]");
+if (!["stills", "cut", "draft", "final", "page"].includes(command)) {
+  console.error("usage: node tools/demo.mjs stills|cut|draft|final|page [--modes normal,narration|features] [--formats landscape,vertical] [--workers N] [--note TEXT]");
   process.exit(2);
 }
 
@@ -246,7 +269,7 @@ async function openDemo(format, mode, dpr, cut = false) {
   await send("Page.bringToFront");
   const [w, h] = FRAME[format];
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: false });
-  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${cut ? "&cut" : ""}`;
+  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${FEATURES.includes(mode) ? `&feature=${mode}` : ""}${cut ? "&cut" : ""}`;
   await send("Page.navigate", { url });
   for (let i = 0; i < 600; i++) {
     if (await evaluate("!document.getElementById('loading')")) break;
@@ -288,7 +311,19 @@ async function openDemo(format, mode, dpr, cut = false) {
   }
   const shots = JSON.parse(await evaluate("window.__lightableDemoShots"));
   const gestures = JSON.parse(await evaluate("window.__lightableDemoGestures"));
-  const files = JSON.parse(await evaluate("window.__lightableDemoFiles")).map((f) => join(ASSETS, f));
+  // The files each drop drops, on disk: copies of the example's files (the
+  // same date, so only their names could tell the order) or written bytes.
+  const fileDir = mkdtempSync(join(tmpdir(), "demo-files-"));
+  const fileSets = {};
+  for (const [set, list] of Object.entries(JSON.parse(await evaluate("window.__lightableDemoFiles")))) {
+    fileSets[set] = list.map((f) => {
+      const path = join(fileDir, f.name);
+      if (f.copy) copyFileSync(join(ASSETS, f.copy), path);
+      else writeFileSync(path, Buffer.from(f.hex, "hex"));
+      utimesSync(path, new Date("2026-01-05T09:00:00Z"), new Date("2026-01-05T09:00:00Z"));
+      return path;
+    });
+  }
   // The report the demo exports is really saved (the browser reports it).
   const exports = () => [...shared.downloads.entries()]
     .filter(([, d]) => d.frame === targetId && d.state === "completed")
@@ -332,15 +367,20 @@ async function openDemo(format, mode, dpr, cut = false) {
       // CSS pixels per app point (the app's zoom; measured, as 1x pages
       // scale differently).
       const z = cssWidth / (latest.screen[2] - latest.screen[0]);
-      const click = !["drop", "pinch"].includes(g.target);
+      const click = !g.target.startsWith("drop") && g.target !== "pinch";
       // A row outside the list's view: the pointer goes to the list and
       // scrolls it (small wheel steps, which egui applies at once) first.
-      const row = latest.targets[g.target];
+      const row = latest.targets[g.target.startsWith("drop") ? "drop" : g.target];
+      const scrolls = g.target.startsWith("row:") || g.target === "not_compared";
       const list = latest.targets.list;
       // In view (a point of slack), or no longer moving as the list scrolls.
-      const stuck = driver.scroll?.last && row && driver.scroll.last === row[1];
-      const inside = (r, o) => stuck || (r[1] >= o[1] - 1 && r[3] <= o[3] + 1);
-      if (!driver.path && !cut && g.target.startsWith("row:") && row && list && !inside(row, list)) {
+      // (Three frames in a row: one scroll step can land a frame late.)
+      if (driver.scroll && row) {
+        driver.scroll.still = driver.scroll.last === row[1] ? (driver.scroll.still ?? 0) + 1 : 0;
+      }
+      const stuck = (driver.scroll?.still ?? 0) >= 3;
+      const inside = (r, o) => stuck || (r[1] >= o[1] - 3 && r[3] <= o[3] + 3 && r[3] <= latest.screen[3]);
+      if (!driver.path && !cut && scrolls && row && list && !inside(row, list)) {
         const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
         driver.scroll ??= { start: t, from: driver.pos ?? centre };
         const k = Math.min(1, (t - driver.scroll.start) / 0.3);
@@ -357,9 +397,13 @@ async function openDemo(format, mode, dpr, cut = false) {
         }
         return events;
       }
-      if (cut && g.target.startsWith("row:") && row && list && !inside(row, list)) {
+      if (cut && scrolls && row && list && !inside(row, list)) {
         // Cut drafts: scroll at once (still for real), then click.
         const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
+        driver.scroll ??= { start: t, from: centre };
+        driver.scroll.last = row[1];
+        // The wheel scrolls what the pointer is over.
+        events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: centre[0], y: centre[1], button: "none" }]);
         const down = row[3] > list[3] ? 7 : -7;
         for (let n = 0; n < 3; n++) {
           events.push(["Input.dispatchMouseEvent", { type: "mouseWheel", x: centre[0], y: centre[1], deltaX: 0, deltaY: down }]);
@@ -376,7 +420,8 @@ async function openDemo(format, mode, dpr, cut = false) {
           to = [latest.pinch[0] * z, latest.pinch[1] * z];
           factor = latest.pinch[2];
         } else {
-          const r = latest.targets[g.target];
+          const r = latest.targets[g.target.startsWith("drop") ? "drop" : g.target];
+          if (r && (r[3] > latest.screen[3] + 1 || r[2] > latest.screen[2] + 1)) throw new Error(`frame ${f}: "${g.target}" is outside the frame (${r})`);
           if (!r) throw new Error(`frame ${f}: "${g.target}" is not on screen (on screen: ${Object.keys(latest.targets).join(", ")}; list ${latest.list}, dropped ${latest.dropped})`);
           to = [((r[0] + r[2]) / 2) * z, ((r[1] + r[3]) / 2) * z];
         }
@@ -386,8 +431,8 @@ async function openDemo(format, mode, dpr, cut = false) {
         driver.path = { from: driver.pos ?? [w - 2, h * 0.6], to, factor, start: click ? Math.max(t, g.at - 0.8) : g.from };
       }
       const { from, to, factor, start } = driver.path;
-      const drag = g.target === "drop";
-      const data = { items: [], files, dragOperationsMask: 1 };
+      const drag = g.target.startsWith("drop");
+      const data = { items: [], files: fileSets[g.target] ?? [], dragOperationsMask: 1 };
       if (t < g.at) {
         let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, g.at - 0.1 - start)));
         k = k * k * (3 - 2 * k);
@@ -504,21 +549,22 @@ function inside(a, b, tol = 1) {
 function overlaps(a, b) {
   return a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 }
-function check(info, format, sample, target) {
+function check(info, format, sample, target, expect = {}) {
   const [x0, y0, x1, y1] = info.screen;
   const sh = y1 - y0;
   const out = {};
   // The pointer reached the control before using it.
   if (sample === "aim") {
     const p = info.pointer;
-    const r = target === "pinch" ? info.pinch && [info.pinch[0] - 3, info.pinch[1] - 3, info.pinch[0] + 3, info.pinch[1] + 3] : info.targets[target];
+    const name = target.startsWith("drop") ? "drop" : target;
+    const r = target === "pinch" ? info.pinch && [info.pinch[0] - 3, info.pinch[1] - 3, info.pinch[0] + 3, info.pinch[1] + 3] : info.targets[name];
     out.pointer = {
       pass: !!(p && r && p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3]),
       detail: p && r ? `pointer at ${p.map(Math.round)} on ${target}` : `pointer ${p ? "shown" : "missing"}, ${target} ${r ? "on screen" : "not on screen"}`,
     };
   }
   // After the drop: the comparison came from the dropped example files.
-  if (info.list && !info.phone) {
+  if (expect.drop && info.list && !info.phone) {
     out.dropped = { pass: info.dropped && info.example_files, detail: info.dropped ? (info.example_files ? "compared the dropped example files" : "dropped files are not the example's") : "not opened by a drop" };
   }
   if (info.caption) {
@@ -589,24 +635,31 @@ async function stills(format, mode) {
   samples.sort((a, b) => a.t - b.t);
   const results = [];
   let lastFrame = -1;
+  // What this video does, so only its own checks apply.
+  const expect = {
+    drop: page.gestures.some((g) => g.target === "drop:example" || g.target === "drop:unnamed"),
+    export: page.gestures.some((g) => g.target === "export_png"),
+  };
   for (const s of samples) {
     const f = Math.max(frameOf(s.t), lastFrame + 1);
     const info = await page.render(f);
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
-    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target) });
+    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target, expect) });
   }
   // The report the demo exported: saved for real.
   // (Chrome finishes writing it in the background.)
   let exported = [];
-  for (let i = 0; i < 300 && exported.length === 0; i++) {
+  for (let i = 0; expect.export && i < 300 && exported.length === 0; i++) {
     exported = page.exports().filter((e) => e.name.endsWith(".png") && existsSync(e.file));
     if (exported.length === 0) await sleep(100);
   }
   exported = exported.map((e) => e.name);
   const last = results.at(-1);
-  last.checks.export = { pass: exported.length === 1, detail: exported.length ? `report saved: ${exported.join(", ")}` : "no report was saved" };
+  if (expect.export) {
+    last.checks.export = { pass: exported.length === 1, detail: exported.length ? `report saved: ${exported.join(", ")}` : "no report was saved" };
+  }
   page.close();
   // Contact sheet of the settled stills, and a phone-sized copy.
   const settled = results.filter((r) => r.sample === "settled" || r.sample === "aim");
@@ -744,7 +797,11 @@ async function video(format, mode, kind, workers, encodeSlot) {
       // Twice the same picture with nothing moving: repeat it (hard links)
       // until the next step (or the segment's end).
       if (prev && prev.hash === hash && prev.still && info.still) {
-        const until = Math.min(seg.end, info.next == null ? seg.end : align(frameOf(info.next)));
+        // Until the next step, or the next moment of a gesture (its start,
+        // its click, its end): a hold must not skip a person's action.
+        const moments = first.gestures.flatMap((g) => [g.from, g.at - 0.8, g.at, g.until]).map(frameOf).filter((m) => m >= f);
+        const until = Math.min(seg.end, info.next == null ? seg.end : align(frameOf(info.next)),
+          ...moments.map((m) => Math.floor(m / step) * step));
         for (; f < until; f += step) {
           linkSync(file, join(frames, `${String(n++).padStart(5, "0")}.png`));
           pngs.set(f, png);
@@ -793,7 +850,7 @@ async function video(format, mode, kind, workers, encodeSlot) {
     p.close();
   }
   const prefix = kind === "final" ? "demo" : kind;
-  const name = `${prefix}-${format}${mode === "narration" ? "-narration" : ""}.mp4`;
+  const name = `${prefix}-${format}${suffix(mode)}.mp4`;
   const list = join(mkdtempSync(join(tmpdir(), "list-")), "list.txt");
   writeFileSync(list, segments.map((s) => `file '${s.clip}'`).join("\n"));
   await ffmpeg(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy",
@@ -824,6 +881,10 @@ function publish(kind, items) {
     if (item.vtt) out.vtt = copy(item.vtt);
     if (item.checks) out.checks = item.checks;
     if (item.stills) out.stills = item.stills.map((s) => ({ ...s, file: copy(join(item.stillsDir, s.file)) }));
+    if (item.pageDir) {
+      cpSync(item.pageDir, join(run, "page"), { recursive: true });
+      out.page = `runs/${entry.id}/page/index.html`;
+    }
     entry.items.push(out);
   }
   const manifestFile = join(REVIEW, "manifest.json");
@@ -836,7 +897,109 @@ function publish(kind, items) {
 
 // --- Main ---------------------------------------------------------------------
 
+// --- The demo page, previewed with drafts and checked on a phone --------
+
+async function pagePreview(from) {
+  const prefix = from === "final" ? "demo" : from;
+  const dir = join(OUT, "page-preview");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(join(ROOT, "web", "demo", "index.html"), join(dir, "index.html"));
+  pageFiles(dir, (m, format) => join(OUT, `${prefix}-${format}-${m}.mp4`));
+  const shots = join(dir, "..", "page-shots");
+  rmSync(shots, { recursive: true, force: true });
+  mkdirSync(shots, { recursive: true });
+  const shared = await sharedBrowser();
+  const results = [];
+  for (const [label, width, height, dpr, mobile] of [["phone", 390, 844, 3, true], ["desktop", 1280, 900, 1, false]]) {
+    const { targetId } = await shared.send("Target.createTarget", { url: "about:blank", newWindow: true });
+    const ws = new WebSocket(`ws://127.0.0.1:${shared.port}/devtools/page/${targetId}`);
+    await new Promise((r) => ws.addEventListener("open", r));
+    let id = 0;
+    const pending = new Map();
+    const requests = [];
+    ws.addEventListener("message", (m) => {
+      const d = JSON.parse(m.data);
+      if (pending.has(d.id)) {
+        pending.get(d.id)(d.result ?? { error: d.error });
+        pending.delete(d.id);
+      }
+      if (d.method === "Network.responseReceived") requests.push({ url: d.params.response.url, status: d.params.response.status });
+    });
+    const send = (method, params = {}) => new Promise((r) => {
+      const n = ++id;
+      pending.set(n, r);
+      ws.send(JSON.stringify({ id: n, method, params }));
+    });
+    const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true })).result?.value;
+    await send("Network.enable");
+    await send("Page.enable");
+    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile });
+    await send("Page.navigate", { url: `${new URL(base).origin}/out/demo/page-preview/index.html` });
+    await sleep(2500);
+    // Every video shown at this size: how large, and whether its file,
+    // poster and captions exist.
+    const videos = await evaluate(`[...document.querySelectorAll("video")].filter((v) => getComputedStyle(v).display !== "none").map((v) => {
+      const r = v.getBoundingClientRect();
+      return { section: v.closest("section")?.id ?? "top", src: v.querySelector("source").getAttribute("src"),
+               poster: v.getAttribute("poster"), track: v.querySelector("track").getAttribute("src"),
+               x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height,
+               muted: v.muted, inline: v.hasAttribute("playsinline"), controls: v.controls };
+    })`);
+    const smallest = await evaluate(`Math.min(...[...document.querySelectorAll("p, li, summary, td")].map((e) => parseFloat(getComputedStyle(e).fontSize)))`);
+    const pageWidth = await evaluate("document.documentElement.scrollWidth");
+    for (const v of videos) {
+      const ok = async (path) => (await fetch(`${new URL(base).origin}/out/demo/page-preview/${path}`, { method: "HEAD" })).ok;
+      const files = (await ok(v.src)) && (await ok(v.poster)) && (await ok(v.track));
+      const vertical = v.src.includes("vertical");
+      // Large: on a phone the vertical video at the width of the screen
+      // less the margins; on a wide screen the landscape video at least
+      // 900 px wide.
+      const large = mobile ? vertical && v.w >= width - 40 : !vertical && v.w >= 900;
+      // A still at the size people see it.
+      await send("Emulation.setScrollbarsHidden", { hidden: true });
+      await evaluate(`scrollTo(0, ${Math.max(0, v.y - 12)})`);
+      await sleep(300);
+      const shot = (await send("Page.captureScreenshot", { format: "jpeg", quality: 80 })).data;
+      const file = `${label}-${v.section}.jpg`;
+      writeFileSync(join(shots, file), Buffer.from(shot, "base64"));
+      results.push({
+        file, time: 0, act: `${v.section} (${label})`, sample: `${width} px`,
+        checks: {
+          size: { pass: large, detail: `${vertical ? "vertical" : "landscape"} video ${Math.round(v.w)} × ${Math.round(v.h)} px on a ${width} px screen` },
+          files: { pass: files, detail: files ? "video, poster and captions found" : "a video, poster or captions file is missing" },
+          player: { pass: v.muted && v.inline && v.controls, detail: "muted, plays inline, with controls" },
+          text: { pass: smallest >= 14, detail: `smallest text ${smallest} px` },
+          width: { pass: pageWidth <= width, detail: pageWidth <= width ? "no sideways scrolling" : `page ${pageWidth} px wide` },
+        },
+      });
+    }
+    // (data: URLs are the browser's own video-control icons, not requests.)
+    const outside = requests.filter((r) => !r.url.startsWith(new URL(base).origin) && !r.url.startsWith("data:"));
+    results.push({ file: results.at(-1).file, time: 0, act: `requests (${label})`, sample: "network",
+      checks: { network: { pass: outside.length === 0, detail: outside.length ? `requests to other sites: ${outside.map((r) => r.url).join(", ")}` : `${requests.length} requests, all to this site` } } });
+    await shared.send("Target.closeTarget", { targetId });
+  }
+  writeFileSync(join(shots, "checks.json"), JSON.stringify(results, null, 1));
+  return { dir, shots, results };
+}
+
 const started = Date.now();
+if (command === "page") {
+  const from = opt("from", "cut");
+  const p = await pagePreview(from);
+  const failed = p.results.flatMap((r) => Object.entries(r.checks).filter(([, c]) => c.pass === false).map(([k, c]) => `${r.act}: ${k} (${c.detail})`));
+  const summary = { command, from, seconds: (Date.now() - started) / 1000, checked: p.results.length, failed };
+  if (review) {
+    summary.review = publish("page", [{
+      label: `Demo page preview (${from === "final" ? "final" : `${from} draft`} videos)`, format: "page", mode: from,
+      pageDir: p.dir, stills: p.results, stillsDir: p.shots,
+    }]);
+  }
+  console.log(JSON.stringify(summary, null, 1));
+  if (browser) (await browser).proc.kill();
+  process.exit(0);
+}
 const report = [];
 const items = [];
 let network = [];
@@ -864,7 +1027,7 @@ await Promise.all(variants.map(({ mode, format }, k) => runVariant(async () => {
   } else {
     const v = await video(format, mode, command, perVideo, encodeSlot);
     network.push(...v.requests);
-    const vtt = join(OUT, mode === "narration" ? "demo-narration.vtt" : "demo.vtt");
+    const vtt = join(OUT, captionsFile(mode));
     report[k] = { label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors };
     items[k] = { label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null };
   }

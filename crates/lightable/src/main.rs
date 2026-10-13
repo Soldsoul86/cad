@@ -11,7 +11,7 @@
 //!                                                (--svg: the overlay as SVG)
 //!     lightable --diff A.dxf B.dxf [--side]      compare A and B in the viewer
 //!     lightable --example [bracket|plan] [--side]  compare a built-in example
-//!     lightable --demo [--narration]            play the demo (voice-over timing)
+//!     lightable --demo [--narration] [--feature ID]  play the demo (voice-over timing, a feature video)
 //!     lightable demo-cues OUT_DIR               subtitles (SRT, WebVTT) and voice-over cue sheet
 //!     lightable --diff A B --report              save the PNG change report and quit
 //!     lightable --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
@@ -149,6 +149,14 @@ mod cli {
                         write("cue-sheet.md", crate::demo::cue_sheet(&plan))?;
                     }
                 }
+                // The feature videos' captions.
+                for f in crate::demo::Feature::ALL {
+                    let plan = crate::demo::feature_plan(&c, f);
+                    let stem = format!("feature-{}", f.id());
+                    write(&format!("{stem}.srt"), crate::demo::srt(&plan.cues))?;
+                    write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;
+                    println!("{stem}: {:.2} s, {} cues", plan.length, plan.cues.len());
+                }
                 Ok(())
             })(),
             [cmd, path] if cmd == "info" => (|| {
@@ -182,6 +190,7 @@ fn main() -> std::process::ExitCode {
     let mut report_and_quit = false;
     let mut demo = false;
     let mut narration = false;
+    let mut feature = None;
     let mut example = None;
     let (bench, paths) = match args.as_slice() {
         [flag, path, rest @ ..] if flag == "--bench" => {
@@ -216,15 +225,18 @@ fn main() -> std::process::ExitCode {
             while let Some(opt) = rest.next() {
                 match (
                     opt.as_str(),
-                    (opt == "--shot").then(|| rest.next()).flatten(),
+                    (opt == "--shot" || opt == "--feature")
+                        .then(|| rest.next())
+                        .flatten(),
                 ) {
+                    ("--feature", Some(id)) => feature = Some(id.clone()),
                     ("--side", _) => side_by_side = true,
                     ("--narration", _) => narration = true,
                     ("--report", _) => report_and_quit = true,
                     ("--shot", Some(out)) => bench = Some(app::Bench::screenshot(out.clone())),
                     _ => {
                         eprintln!(
-                            "usage: lightable --diff A.dxf B.dxf | --example [bracket|plan] | --demo [--narration]  [--side] [--report] [--shot OUT.ppm]"
+                            "usage: lightable --diff A.dxf B.dxf | --example [bracket|plan] | --demo [--narration] [--feature find|explain|compare|report|private]  [--side] [--report] [--shot OUT.ppm]"
                         );
                         return std::process::ExitCode::FAILURE;
                     }
@@ -278,6 +290,8 @@ fn main() -> std::process::ExitCode {
                     narration,
                     record: false,
                     cut: false,
+                    feature,
+                    own: false,
                 },
             )))
         }),
@@ -322,6 +336,11 @@ fn main() {
             narration: flag("narration"),
             record: flag("record"),
             cut: flag("cut"),
+            feature: params
+                .iter()
+                .find_map(|p| p.strip_prefix("feature="))
+                .map(str::to_owned),
+            own: flag("own"),
             ..Default::default()
         };
         let _ = eframe::WebRunner::new()

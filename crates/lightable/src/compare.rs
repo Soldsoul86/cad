@@ -97,6 +97,15 @@ pub struct Compare {
     /// view.
     pub legend_rect: Option<Rect>,
     pub export_rect: Option<Rect>,
+    pub json_rect: Option<Rect>,
+    pub summary_rect: Option<Rect>,
+    pub swap_rect: Option<Rect>,
+    pub not_compared_rect: Option<Rect>,
+    pub privacy_rect: Option<Rect>,
+    /// Recording: the privacy line in the toolbar, and the file names with
+    /// Swap even in 9:16 (the feature videos that show them).
+    pub show_privacy: bool,
+    pub show_files: bool,
     pub row_rects: Vec<(usize, Rect)>,
     /// The part of the change list in view (rows outside it scroll in).
     pub list_rect: Option<Rect>,
@@ -252,6 +261,13 @@ impl Compare {
             files_of: None,
             legend_rect: None,
             export_rect: None,
+            json_rect: None,
+            summary_rect: None,
+            swap_rect: None,
+            not_compared_rect: None,
+            privacy_rect: None,
+            show_privacy: false,
+            show_files: false,
             row_rects: Vec::new(),
             list_rect: None,
             reveal_selected: 0,
@@ -333,7 +349,6 @@ impl Compare {
     }
 
     /// The headline of change `i`.
-    #[cfg(test)]
     pub fn headline(&self, i: usize) -> &str {
         self.diff.changes.get(i).map_or("", |c| c.headline.as_str())
     }
@@ -569,7 +584,9 @@ impl Compare {
                 if ui.button("Zoom extents").clicked() {
                     action.fit = true;
                 }
-                if ui.button("Export JSON").clicked() {
+                let json = ui.button("Export JSON");
+                this.json_rect = Some(json.rect);
+                if json.clicked() {
                     action.message = Some(this.export());
                 }
                 let export = ui
@@ -599,9 +616,18 @@ impl Compare {
             }
         };
         self.export_rect = None;
-        // Recording a video: only the view buttons (they work as usual).
+        // Recording a video: only the view buttons (they work as usual),
+        // and the privacy line where a video is about it.
         if self.record {
             ui.horizontal_wrapped(|ui| view(ui, self, &mut action));
+            if self.show_privacy && crate::app::CAN_CHOOSE_FILES {
+                let line = ui.label(
+                    egui::RichText::new(crate::app::PRIVACY)
+                        .small()
+                        .color(Color32::from_gray(200)),
+                );
+                self.privacy_rect = Some(line.rect);
+            }
             return action;
         }
         if narrow {
@@ -672,15 +698,18 @@ impl Compare {
             }
         };
         ui.horizontal_wrapped(|ui| {
-            ui.label(
-                egui::RichText::new(self.summary())
-                    .size(if self.short || (self.record && self.narrow) {
-                        16.0
-                    } else {
-                        20.0
-                    })
-                    .strong()
-                    .color(Color32::WHITE),
+            self.summary_rect = Some(
+                ui.label(
+                    egui::RichText::new(self.summary())
+                        .size(if self.short || (self.record && self.narrow) {
+                            16.0
+                        } else {
+                            20.0
+                        })
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .rect,
             );
             if let Some(markup) = self.diff.markup_summary().filter(|_| !self.record) {
                 ui.label(egui::RichText::new(markup).color(Color32::from_gray(150)));
@@ -691,7 +720,10 @@ impl Compare {
             } else {
                 ui.add_space(16.0);
             }
-            self.legend_rect = Some(legend(ui));
+            // A 9:16 video about the file names leaves the legend out.
+            if !(self.record && self.narrow && self.show_files) {
+                self.legend_rect = Some(legend(ui));
+            }
             // Recording: no Previous / Next.
             if self.record {
                 return;
@@ -716,7 +748,7 @@ impl Compare {
             );
         }
         // In a 9:16 recording the summary line names the files already.
-        if self.example.is_none() && !(self.record && self.narrow) {
+        if self.example.is_none() && !(self.record && self.narrow && !self.show_files) {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     egui::RichText::new(format!(
@@ -726,11 +758,11 @@ impl Compare {
                     ))
                     .color(Color32::from_gray(200)),
                 );
-                if ui
+                let swap = ui
                     .button("Swap")
-                    .on_hover_text("Compare the other way round")
-                    .clicked()
-                {
+                    .on_hover_text("Compare the other way round");
+                self.swap_rect = Some(swap.rect);
+                if swap.clicked() {
                     action.swap = true;
                 }
             });
@@ -992,9 +1024,14 @@ impl Compare {
         let mut tail_visible = None;
         let mut rows = Vec::new();
         let mut view = None;
+        let mut not_compared = None;
         let bring = self.reveal_selected > 0;
         self.reveal_selected = self.reveal_selected.saturating_sub(1);
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        // A short list (a 9:16 recording) scrolls within its panel instead
+        // of running past the bottom (egui's default minimum is 64 points).
+        egui::ScrollArea::vertical()
+            .min_scrolled_height(24.0)
+            .show(ui, |ui| {
             view = Some(ui.clip_rect());
             let markup_start = d.changes.iter().position(|c| c.markup);
             let design = d.design_changes().count();
@@ -1087,13 +1124,13 @@ impl Compare {
             if d.changes.is_empty() {
                 ui.label("The two drawings are the same in everything compared.");
             }
-            if !details && !d.not_compared.is_empty() && !self.record {
+            if !details && !d.not_compared.is_empty() {
                 ui.add_space(10.0);
-                if ui
+                let link = ui
                     .link(egui::RichText::new("What isn't compared?").small())
-                    .on_hover_text("Opens Details at the list of what this comparison skips")
-                    .clicked()
-                {
+                    .on_hover_text("Opens Details at the list of what this comparison skips");
+                not_compared = Some(link.rect);
+                if link.clicked() {
                     reveal = true;
                 }
             }
@@ -1141,6 +1178,7 @@ impl Compare {
         self.list_tail_visible = tail_visible;
         self.row_rects = rows;
         self.list_rect = view;
+        self.not_compared_rect = not_compared;
         if reveal {
             self.details = true;
             self.used[2] = true;

@@ -4,60 +4,259 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Only this site's own files: the videos, posters and captions are
-       served from lightable.dev itself. No scripts. -->
+       served from lightable.dev itself. No scripts, no tracking, no cookies.
+       Built into lightable.dev/demo/ only once approved final videos are in
+       web/demo/ (`node tools/demo.mjs approve`). Every number on this page
+       comes from the bracket example's comparison; the test
+       `the_demo_page_matches_the_comparison` checks them. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
   <link rel="icon" href="data:,">
   <title>Lightable demo: what changed between two drawing revisions</title>
-  <meta name="description" content="A short demo of Lightable: compare two revisions of a DXF drawing and see every change in plain words, not just the clouded one. Free, open source, runs in your browser.">
+  <meta name="description" content="Compare two revisions of a DXF drawing and see every change in plain words, not just the clouded one. Free, open source, runs in your browser.">
   <link rel="canonical" href="https://lightable.dev/demo/">
   <meta property="og:type" content="video.other">
-  <meta property="og:title" content="Lightable demo: what changed between two drawing revisions">
+  <meta property="og:title" content="Lightable: what changed between two drawing revisions">
   <meta property="og:description" content="The revision cloud marks one change. Lightable finds ten. Free, open source, runs in your browser.">
   <meta property="og:url" content="https://lightable.dev/demo/">
-  <meta property="og:image" content="https://lightable.dev/demo/poster-landscape.jpg">
+  <meta property="og:image" content="https://lightable.dev/demo/find-landscape.jpg">
   <meta property="og:image:width" content="1920">
   <meta property="og:image:height" content="1080">
-  <meta property="og:video" content="https://lightable.dev/demo/demo-landscape.mp4">
+  <meta property="og:video" content="https://lightable.dev/demo/find-landscape.mp4">
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1920">
   <meta property="og:video:height" content="1080">
   <meta name="twitter:card" content="summary_large_image">
   <style>
     :root { color-scheme: dark; }
-    html, body { margin: 0; background: #161616; color: #ddd; font: 16px/1.5 system-ui, -apple-system, sans-serif; }
-    main { max-width: 1100px; margin: 0 auto; padding: 16px; box-sizing: border-box; }
-    h1 { font-size: 22px; margin: 4px 0 12px; }
-    p { margin: 8px 0; color: #bbb; }
-    video { display: block; width: 100%; height: auto; border-radius: 8px; background: #000; }
-    /* Vertical on phones held upright, landscape everywhere else. */
-    .vertical { display: none; max-height: 82vh; width: auto; max-width: 100%; margin: 0 auto; }
+    html, body { margin: 0; background: #161616; color: #ddd; font: 17px/1.55 system-ui, -apple-system, sans-serif; }
+    main { max-width: 1040px; margin: 0 auto; padding: 16px; box-sizing: border-box; }
+    h1 { font-size: 26px; line-height: 1.25; margin: 8px 0 10px; color: #fff; }
+    h2 { font-size: 22px; line-height: 1.3; margin: 0 0 4px; color: #fff; }
+    h3 { font-size: 18px; margin: 18px 0 4px; color: #eee; }
+    p, li { color: #c8c8c8; }
+    p { margin: 6px 0 10px; }
+    ul { padding-left: 22px; margin: 8px 0; }
+    li { margin: 4px 0; }
+    a { color: #8fc4ff; }
+    code { font: 15px ui-monospace, monospace; color: #e8d68a; }
+    section { padding: 28px 0 8px; border-top: 1px solid #2c2c2c; }
+    .lead { font-size: 19px; color: #ddd; }
+    .summary { color: #aaa; margin-top: 0; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
+    .button { display: inline-block; padding: 13px 20px; border-radius: 8px; font-weight: 600;
+              text-decoration: none; font-size: 17px; }
+    .primary { background: #4cb0ff; color: #0b1a26; }
+    .secondary { border: 2px solid #4cb0ff; color: #8fc4ff; }
+    .button:focus-visible, a:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+    /* Videos: as large as the screen allows. Vertical on phones held
+       upright (the full width of the phone), landscape everywhere else. */
+    video { display: block; width: 100%; height: auto; border-radius: 10px; background: #000; margin: 10px 0; }
+    .vertical { display: none; }
     @media (orientation: portrait) and (max-width: 700px) {
       .vertical { display: block; }
       .landscape { display: none; }
     }
-    .try { display: inline-block; margin: 16px 0 8px; padding: 12px 20px; border-radius: 8px;
-           background: #4cb0ff; color: #0b1a26; font-weight: 600; text-decoration: none; font-size: 18px; }
-    .try:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+    table { border-collapse: collapse; width: 100%; font-size: 15px; }
+    td, th { border-bottom: 1px solid #2c2c2c; padding: 6px 4px; text-align: left; vertical-align: top; }
+    th { color: #eee; }
     .small { font-size: 14px; color: #999; }
+    details { margin: 8px 0; }
+    summary { cursor: pointer; color: #eee; font-weight: 600; }
   </style>
 </head>
 <body>
   <main>
-    <h1>The revision cloud marks one change. Lightable finds ten.</h1>
-    <video class="landscape" controls playsinline muted preload="metadata" poster="poster-landscape.jpg"
-           width="1920" height="1080">
-      <source src="demo-landscape.mp4" type="video/mp4">
-      <track kind="captions" src="demo.vtt" srclang="en" label="English">
+    <h1>See what changed between two revisions of a drawing.</h1>
+    <p class="lead">Lightable compares two DXF files and lists every change in plain words, not just the one inside the revision cloud.</p>
+    <video class="landscape" controls playsinline muted preload="metadata" poster="find-landscape.jpg" width="1920" height="1080">
+      <source src="find-landscape.mp4" type="video/mp4">
+      <track kind="captions" src="find.vtt" srclang="en" label="English">
     </video>
-    <video class="vertical" controls playsinline muted preload="metadata" poster="poster-vertical.jpg"
-           width="1080" height="1920">
-      <source src="demo-vertical.mp4" type="video/mp4">
-      <track kind="captions" src="demo.vtt" srclang="en" label="English">
+    <video class="vertical" controls playsinline muted preload="metadata" poster="find-vertical.jpg" width="1080" height="1920">
+      <source src="find-vertical.mp4" type="video/mp4">
+      <track kind="captions" src="find.vtt" srclang="en" label="English">
     </video>
-    <a class="try" href="../">Try it yourself</a>
-    <p>Compare two revisions of a DXF drawing and see every change in plain words. Free and open source.</p>
-    <p class="small">Lightable runs in your browser: the files you open are read there and never uploaded.</p>
+    <div class="buttons">
+      <a class="button primary" href="../">Try the example</a>
+      <a class="button secondary" href="../?own">Compare your own files</a>
+    </div>
+    <p class="small">Free and open source. Runs in your browser: the files you open are read there and never uploaded.</p>
+
+    <section id="find">
+      <h2>1. Find what changed</h2>
+      <p class="summary">Drop in two revisions and see every change on one overlay.</p>
+      <ul>
+        <li>Drag Rev B and Rev C onto the page. Nothing to install.</li>
+        <li>The overlay colours each change: blue added, red deleted, yellow changed.</li>
+        <li>"10 changes found between Rev B and Rev C". The revision cloud marks only one of them.</li>
+      </ul>
+      <p class="small">The video above.</p>
+    </section>
+
+    <section id="explain">
+      <h2>2. Every change explained</h2>
+      <p class="summary">Each change in plain words, with the exact values one tap away.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="explain-landscape.jpg" width="1920" height="1080">
+        <source src="explain-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="explain.vtt" srclang="en" label="English">
+      </video>
+      <video class="vertical" controls playsinline muted preload="none" poster="explain-vertical.jpg" width="1080" height="1920">
+        <source src="explain-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="explain.vtt" srclang="en" label="English">
+      </video>
+      <ul>
+        <li>Tap a change in the list and the drawing zooms to it: "Circle diameter changed from 13.5 mm to 17.5 mm".</li>
+        <li>Details shows the exact values behind each line, such as how far a centre moved and the old and new radius.</li>
+        <li>Lightable describes the geometry it detects. You judge what it means.</li>
+      </ul>
+    </section>
+
+    <section id="compare">
+      <h2>3. Before and after</h2>
+      <p class="summary">Both revisions next to each other, the right way round.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="compare-landscape.jpg" width="1920" height="1080">
+        <source src="compare-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="compare.vtt" srclang="en" label="English">
+      </video>
+      <video class="vertical" controls playsinline muted preload="none" poster="compare-vertical.jpg" width="1080" height="1920">
+        <source src="compare-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="compare.vtt" srclang="en" label="English">
+      </video>
+      <ul>
+        <li>Revision marks in the file names ("Rev B", "_C", "v3") or the file dates decide which file is the earlier one.</li>
+        <li>When the names and dates don't say, Lightable asks which file is earlier.</li>
+        <li>Side by side shows both revisions with one shared zoom; Swap compares the other way round.</li>
+      </ul>
+    </section>
+
+    <section id="report">
+      <h2>4. Share a review report</h2>
+      <p class="summary">A PNG for people and a JSON file for records and scripts.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="report-landscape.jpg" width="1920" height="1080">
+        <source src="report-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="report.vtt" srclang="en" label="English">
+      </video>
+      <video class="vertical" controls playsinline muted preload="none" poster="report-vertical.jpg" width="1080" height="1920">
+        <source src="report-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="report.vtt" srclang="en" label="English">
+      </video>
+      <ul>
+        <li>The PNG report holds the summary, the colour legend, the overlay, the changes (as many as fit, with a count of the rest) and what was not compared.</li>
+        <li>The JSON file lists every change with its exact old and new values.</li>
+        <li>Both are made in your browser and saved as ordinary downloads (Details, then Export).</li>
+      </ul>
+    </section>
+
+    <section id="private">
+      <h2>5. Private, honest, anywhere</h2>
+      <p class="summary">Your files stay on your computer, and Lightable says what it does not check.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="private-landscape.jpg" width="1920" height="1080">
+        <source src="private-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="private.vtt" srclang="en" label="English">
+      </video>
+      <video class="vertical" controls playsinline muted preload="none" poster="private-vertical.jpg" width="1080" height="1920">
+        <source src="private-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="private.vtt" srclang="en" label="English">
+      </video>
+      <ul>
+        <li>"Files are read in this browser, never uploaded."</li>
+        <li>"What isn't compared?" opens the list of what the comparison skips.</li>
+        <li>A DWG file gets a plain message: save it as DXF in your CAD program. It also works on a phone.</li>
+      </ul>
+    </section>
+
+    <section id="why-10">
+      <h2>Why 10 changes?</h2>
+      <p>In the example, one engineering decision changed the bracket: the bolts went from M12 to M16 for a higher load. One decision, several changes in the drawing:</p>
+      <ul>
+        <li>The four clearance holes grew from Ø13.5 to Ø17.5 mm (the medium-series clearance for M16).</li>
+        <li>The bigger holes need more edge distance, so each hole moved 5 mm inward. The edge dimensions went from 20 to 25 mm (two dimensions) and the hole pitch from 120 × 60 to 110 × 50 mm (two more).</li>
+        <li>The hole callout changed from "4x Ø13.5 THRU" to "4x Ø17.5 THRU".</li>
+        <li>The bolt note changed from "BOLTS: 4x M12" to "BOLTS: 4x M16".</li>
+      </ul>
+      <p>That is 4 holes, 4 dimensions, the callout and the note: 10 changes. The drafter clouded only the bolt note, so the holes a mating part has to match went unclouded. The revision letter, the revision-table row, the cloud and the triangle are listed separately as revision markup (8 items).</p>
+    </section>
+
+    <section id="works-with">
+      <h2>Works with</h2>
+      <ul>
+        <li><strong>DXF</strong> from R12 to 2018 (<code>AC1009</code> to <code>AC1032</code>), as text (ASCII) DXF, from any CAD program that exports DXF.</li>
+        <li><strong>Units</strong>: changes are given in the drawing's own units (mm, cm, m, in, ft and others, from the file's units setting); a file without units gets plain numbers.</li>
+        <li><strong>File size</strong>: everyday drawings open in a moment. A 50 MB drawing with 275,000 entities took 34 s to open in Chrome and 47 s in Firefox on a two-core laptop.</li>
+        <li><strong>Not yet</strong>: DWG and binary DXF. Save the drawing as (text) DXF in your CAD program; Lightable says so when you drop one.</li>
+      </ul>
+    </section>
+
+    <section id="how">
+      <h2>How it decides what changed</h2>
+      <p>Lightable compares the drawing data, not pictures of it.</p>
+      <ul>
+        <li>Each entity in Rev B is matched with one in Rev C. When the two files share their internal handles (most edits keep them), matching uses the handles first.</li>
+        <li>Otherwise, or for anything left over, it matches by content: identical entities, entities moved by one shared offset, the same geometry with other properties (layer, colour), and finally nearby entities of the same type and layer. A guess between several candidates is marked uncertain.</li>
+        <li>Numbers closer than a millionth of the drawing's size count as equal, so re-saving a file doesn't produce changes. Handles, timestamps, the order of entities and the way numbers are written are never reported.</li>
+        <li>Shapes saved differently but drawing the same lines (a polyline saved as separate lines) are counted as "redrawn", not as changes.</li>
+        <li>What is left over is added or deleted.</li>
+      </ul>
+      <p><strong>Measured:</strong> on 12 test pairs of scripted edits, all 28 expected changes were found, with none missed and none extra. Three pairs of the same drawing (renumbered, saved as another DXF version, re-saved by another program) report no geometry changes.</p>
+      <p><a href="https://github.com/lightable-dev/lightable/tree/main/crates/lightable-diff">The comparison code</a> · <a href="https://github.com/lightable-dev/lightable/tree/main/tests/diff">the test pairs</a></p>
+    </section>
+
+    <section id="privacy">
+      <h2>Privacy</h2>
+      <ul>
+        <li>Lightable runs in your browser. The files you open are read there and never uploaded.</li>
+        <li>The page's security policy only allows this site's own files, so it cannot send your data anywhere else.</li>
+        <li>Check it yourself: open your browser's developer tools, go to the Network tab, then open two files. No request carries your drawing.</li>
+        <li>No tracking, no analytics, no cookies. The code is open source: <a href="https://github.com/lightable-dev/lightable">github.com/lightable-dev/lightable</a>.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <h2>Honest limits</h2>
+      <p>Not compared yet (each comparison lists these too, under "What isn't compared?"):</p>
+      <ul>
+        <li>text styles</li>
+        <li>dimension styles</li>
+        <li>linetype definitions; the linetype names entities use are compared</li>
+        <li>other tables (APPID, UCS, VIEW, VPORT)</li>
+        <li>drawing settings other than units ($INSUNITS) and linetype scale ($LTSCALE)</li>
+        <li>objects (layouts and page setups, dictionaries, groups, ...)</li>
+        <li>anonymous blocks (dimension pictures, ...); the dimensions themselves are compared</li>
+      </ul>
+      <p>Lightable does not say whether a change is right, whether a drawing is ready to build from, or whether a revision cloud covers every change. It reports what differs in the data; you judge what it means.</p>
+    </section>
+
+    <section id="faq">
+      <h2>Questions</h2>
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. Lightable is open source under the MIT or Apache 2.0 licence.</p>
+      </details>
+      <details>
+        <summary>Do I need to install anything?</summary>
+        <p>No. It runs in the browser on computers and phones. A desktop app can be built from the source code.</p>
+      </details>
+      <details>
+        <summary>Are my drawings uploaded?</summary>
+        <p>No. They are read in your browser and stay on your computer; see Privacy above for how to check.</p>
+      </details>
+      <details>
+        <summary>Which CAD programs does it work with?</summary>
+        <p>Any program that can save a DXF file (R12 to 2018). For a DWG file, save it as DXF first.</p>
+      </details>
+      <details>
+        <summary>Can it tell me whether a change is correct?</summary>
+        <p>No. It lists what changed, exactly; whether that is what was intended is your call.</p>
+      </details>
+      <p><a class="button secondary" href="https://github.com/lightable-dev/lightable/issues/new">Send feedback</a></p>
+      <p class="small">Feedback opens a GitHub issue; nothing is sent until you submit it there.</p>
+    </section>
+
+    <div class="buttons">
+      <a class="button primary" href="../">Try the example</a>
+      <a class="button secondary" href="../?own">Compare your own files</a>
+    </div>
   </main>
 </body>
 </html>

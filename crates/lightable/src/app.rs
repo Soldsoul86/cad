@@ -154,6 +154,11 @@ pub struct Start {
     pub record: bool,
     /// Demo steps cut in without zoom animation (`?demo&cut`, quick drafts).
     pub cut: bool,
+    /// A short feature video instead of the whole demo (`?demo&feature=find`).
+    pub feature: Option<String>,
+    /// Open on the start screen ("Choose two DXF files…"), no example
+    /// (`?own`, the demo page's "Compare your own files").
+    pub own: bool,
 }
 
 /// A smooth move of the view.
@@ -170,6 +175,8 @@ struct Anim {
 struct Demo {
     /// The built-in example whose files are dropped in.
     example: String,
+    /// A feature video instead of the whole demo.
+    feature: Option<crate::demo::Feature>,
     /// Voice-over timing (`?demo&narration`).
     narration: bool,
     /// Recording: demo time is the frame number the recorder sets, at 30
@@ -205,6 +212,8 @@ struct Live {
     /// Where the row being scrolled into view was last frame (scrolling
     /// stops when it no longer moves).
     scrolled: Option<f32>,
+    /// Frames the row has not moved while scrolling (three: the end).
+    unmoved: u8,
 }
 
 /// A file the live demo drops: the example's bytes.
@@ -315,14 +324,35 @@ mod record {
             "__lightableDemoGestures",
             &format!("[{}]", gestures.join(",")),
         );
-        set_text(
-            "__lightableDemoFiles",
-            &format!(
-                "[{},{}]",
-                json_string(example.a_name),
-                json_string(example.b_name)
-            ),
-        );
+        // Per drop: the files, as copies of the example's files on disk
+        // (`copy`) or as bytes (`hex`).
+        let mut sets = Vec::new();
+        for g in &plan.gestures {
+            if let crate::demo::Target::Drop(set) = g.target {
+                let files: Vec<String> = set
+                    .files(example)
+                    .iter()
+                    .map(|(name, bytes, copy)| match copy {
+                        Some(c) => format!(
+                            "{{\"name\":{},\"copy\":{}}}",
+                            json_string(name),
+                            json_string(c)
+                        ),
+                        None => format!(
+                            "{{\"name\":{},\"hex\":\"{}\"}}",
+                            json_string(name),
+                            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                        ),
+                    })
+                    .collect();
+                sets.push(format!(
+                    "{}:[{}]",
+                    json_string(&g.target.name()),
+                    files.join(",")
+                ));
+            }
+        }
+        set_text("__lightableDemoFiles", &format!("{{{}}}", sets.join(",")));
     }
 
     /// What is on screen this frame, as JSON (for the recorder's checks and
@@ -439,8 +469,20 @@ pub struct CadApp {
     drag_pos: crate::files::DragPos,
     /// The comparison open now came from files dropped on the page.
     dropped: bool,
-    /// The colour legend is highlighted from, until (demo time).
-    legend_highlight: Option<(f64, f64)>,
+    /// A target highlighted from, until (demo time): the colour legend, the
+    /// summary line, the privacy line.
+    highlight: Option<(&'static str, f64, f64)>,
+    /// Recording a feature video that shows the privacy line, or the file
+    /// names and Swap (kept across Swap, which compares anew).
+    show_privacy: bool,
+    show_files: bool,
+    /// The two files being compared are a built-in example's (kept while
+    /// the user says which is earlier).
+    files_of: Option<&'static str>,
+    /// Where the order question's two buttons and a problem's OK were
+    /// drawn this frame.
+    order_rects: [Option<Rect>; 2],
+    problem_ok: Option<Rect>,
     /// The demo's phone scene: the layout in a phone outline.
     phone: bool,
     /// Where the demo's gesture targets are on screen (points), from the
@@ -498,6 +540,8 @@ impl CadApp {
             narration,
             record,
             cut,
+            feature,
+            own,
         } = start;
         // The demo opens its example's Rev C on its own and has the two
         // files dropped in.
@@ -505,7 +549,8 @@ impl CadApp {
         let example = if demo { None } else { example };
         // First run, nothing to open: show the default example at once, so
         // the first thing on screen is a comparison.
-        let example = if files.is_empty() && !demo && (example.is_some() || bench.is_none()) {
+        let example = if files.is_empty() && !demo && !own && (example.is_some() || bench.is_none())
+        {
             Some(example.unwrap_or_default())
         } else {
             example
@@ -537,6 +582,7 @@ impl CadApp {
             auto_fit: false,
             demo: demo.then(|| Demo {
                 example: demo_example.unwrap_or_default(),
+                feature: feature.as_deref().and_then(crate::demo::Feature::from_id),
                 narration,
                 record,
                 plan: None,
@@ -557,7 +603,12 @@ impl CadApp {
             last_press: None,
             drag_pos,
             dropped: false,
-            legend_highlight: None,
+            highlight: None,
+            show_privacy: false,
+            show_files: false,
+            order_rects: [None; 2],
+            problem_ok: None,
+            files_of: None,
             phone: false,
             targets: Vec::new(),
             pinch: None,
@@ -695,12 +746,14 @@ impl CadApp {
         self.start_compare(gl, a, b, None, None);
         if let Some(c) = &mut self.compare {
             c.notes = crate::intake::notes(same, c.diff());
+            c.files_of = self.files_of.take();
         }
     }
 
     /// Two files whose names and dates do not say which came first: the
     /// user picks the earlier one.
     fn order_window(&mut self, ui: &mut egui::Ui, gl: Option<&Arc<glow::Context>>) {
+        self.order_rects = [None; 2];
         let Some((a, b, same)) = self.ask_order.take() else {
             return;
         };
@@ -709,6 +762,7 @@ impl CadApp {
             crate::intake::short(&b.0).to_owned(),
         );
         let mut choice = None;
+        let mut rects = [None; 2];
         let width = (ui.ctx().content_rect().width() - 32.0).clamp(240.0, 480.0);
         let modal = egui::Modal::new(egui::Id::new("order")).show(ui.ctx(), |ui| {
             ui.set_width(width);
@@ -722,13 +776,17 @@ impl CadApp {
                 .wrap(),
             );
             ui.add_space(10.0);
-            if ui.button(format!("{na} is Before")).clicked() {
+            let first = ui.button(format!("{na} is Before"));
+            let second = ui.button(format!("{nb} is Before"));
+            rects = [Some(first.rect), Some(second.rect)];
+            if first.clicked() {
                 choice = Some(true);
             }
-            if ui.button(format!("{nb} is Before")).clicked() {
+            if second.clicked() {
                 choice = Some(false);
             }
         });
+        self.order_rects = rects;
         match choice {
             Some(true) => self.compare_files(gl, a, b, same),
             Some(false) => self.compare_files(gl, b, a, same),
@@ -808,7 +866,15 @@ impl CadApp {
             } else {
                 intake::Order::AsGiven
             };
-            let bytes = (read[0].3.clone(), read[1].3.clone());
+            // A built-in example's own files (in either order): its note
+            // too, once they are compared.
+            self.files_of = crate::examples::EXAMPLES
+                .iter()
+                .find(|e| {
+                    let (x, y) = (read[0].3.as_slice(), read[1].3.as_slice());
+                    (e.a, e.b) == (x, y) || (e.b, e.a) == (x, y)
+                })
+                .map(|e| e.id);
             let b = read.pop().map(|r| (r.0, r.1));
             let a = read.pop().map(|r| (r.0, r.1));
             if let (Some(a), Some(b)) = (a, b) {
@@ -817,18 +883,6 @@ impl CadApp {
                     intake::Order::Swapped => self.compare_files(gl, b, a, same),
                     intake::Order::Ask => self.ask_order = Some((a, b, same)),
                 }
-            }
-            // A built-in example's own files: its note too.
-            if order != intake::Order::Ask
-                && let Some(c) = &mut self.compare
-            {
-                c.files_of = crate::examples::EXAMPLES
-                    .iter()
-                    .find(|e| {
-                        (e.a, e.b) == (bytes.0.as_slice(), bytes.1.as_slice())
-                            || (e.b, e.a) == (bytes.0.as_slice(), bytes.1.as_slice())
-                    })
-                    .map(|e| e.id);
             }
             return;
         }
@@ -904,10 +958,12 @@ impl CadApp {
             let (a, b, labels) = c.swapped();
             let notes = c.notes.clone();
             let side = c.side_by_side;
+            let files_of = c.files_of;
             self.start_compare(gl, a, b, labels, None);
             if let Some(c) = &mut self.compare {
                 c.notes = notes;
                 c.side_by_side = side;
+                c.files_of = files_of;
             }
         }
     }
@@ -1028,9 +1084,11 @@ impl CadApp {
 
     /// A file that could not be used: what happened and what to do.
     fn problem_window(&mut self, ui: &mut egui::Ui, gl: Option<&Arc<glow::Context>>) {
+        self.problem_ok = None;
         let Some(p) = self.problem.clone() else {
             return;
         };
+        let mut ok_rect = None;
         let mut close = false;
         let mut choose = false;
         let width = (ui.ctx().content_rect().width() - 32.0).clamp(240.0, 480.0);
@@ -1051,11 +1109,14 @@ impl CadApp {
                 if CAN_CHOOSE_FILES && ui.button("Choose other files…").clicked() {
                     choose = true;
                 }
-                if ui.button("OK").clicked() {
+                let ok = ui.button("OK");
+                ok_rect = Some(ok.rect);
+                if ok.clicked() {
                     close = true;
                 }
             });
         });
+        self.problem_ok = ok_rect;
         if modal.should_close() || close || choose {
             self.problem = None;
         }
@@ -1432,6 +1493,8 @@ impl eframe::App for CadApp {
             }
         }
         if let Some(c) = &mut self.compare {
+            c.show_privacy = self.show_privacy;
+            c.show_files = self.show_files;
             c.row_rects.clear();
             c.legend_rect = None;
             c.list_rect = None;
@@ -1585,7 +1648,16 @@ impl CadApp {
                 let panel = egui::Panel::bottom("changes-below");
                 let panel = if demo {
                     // One-line rows; the drawing keeps most of the frame.
-                    let share = if limited { 0.33 } else { 0.18 };
+                    // Less where a feature video shows extra rows above.
+                    let share = if limited {
+                        0.33
+                    } else if self.show_files {
+                        0.12
+                    } else if self.show_privacy {
+                        0.15
+                    } else {
+                        0.18
+                    };
                     panel.exact_size(screen.height() * share)
                 } else {
                     panel.resizable(true).default_size(screen.height() * 0.35)
@@ -1715,13 +1787,26 @@ impl CadApp {
                     return;
                 }
             };
-            let plan = crate::demo::plan(&c, demo.narration);
+            let plan = match demo.feature {
+                Some(f) => crate::demo::feature_plan(&c, f),
+                None => crate::demo::plan(&c, demo.narration),
+            };
             record::publish_plan(&plan, e);
+            let compared = demo.feature.is_some_and(|f| f.starts_compared());
+            self.show_files = demo.feature == Some(crate::demo::Feature::Compare);
             // Live, a second's pause first; recorded, from the first frame.
             let start = if demo.record { now } else { now + 1.0 };
             demo.plan = Some((plan, start));
-            // Rev C on its own, as it came in.
-            self.load(gl, b.0, b.1, 0);
+            if compared {
+                // The example's comparison, as the app opens.
+                self.open_example(gl, e.id);
+            } else if self.show_files {
+                // "Before and after": the start screen, nothing open (the
+                // names must not give the order away).
+            } else {
+                // Rev C on its own, as it came in.
+                self.load(gl, b.0, b.1, 0);
+            }
             return;
         }
         let Some((plan, start)) = &demo.plan else {
@@ -1747,8 +1832,13 @@ impl CadApp {
         let at = start + shot.at;
         match shot.act {
             Act::Opening => self.pointer_shown = false,
-            Act::Drop => self.pointer_shown = true,
-            Act::Overlay => self.legend_highlight = Some((at + 0.3, at + 3.0)),
+            Act::Drop | Act::Compared => self.pointer_shown = true,
+            Act::Highlight(name) => self.highlight = Some((name, at + 0.3, at + 3.0)),
+            Act::Privacy => {
+                self.pointer_shown = true;
+                self.show_privacy = true;
+                self.highlight = Some(("privacy", at + 0.3, at + 3.0));
+            }
             Act::Phone => {
                 self.phone = true;
                 self.pointer_shown = false;
@@ -1774,11 +1864,13 @@ impl CadApp {
         // What the step is about, for the recorder's checks.
         let c = self.compare.as_ref();
         self.demo_focus = match shot.act {
-            Act::Overlay => c.and_then(|c| c.bounds()),
+            Act::Highlight(_) | Act::Compared => c.and_then(|c| c.bounds()),
             Act::Cloud => c.and_then(|c| c.cloud_bounds_tight()),
             Act::Tap(i) => c.and_then(|c| c.change_bounds(i)),
             Act::SideBySide | Act::Nothing => self.demo_focus,
-            Act::Opening | Act::Drop | Act::Report | Act::Phone | Act::EndCard => None,
+            Act::Opening | Act::Drop | Act::Report | Act::Phone | Act::EndCard | Act::Privacy => {
+                None
+            }
         };
     }
 
@@ -1823,11 +1915,16 @@ impl CadApp {
         // A row outside the list's view: scroll the list first (small wheel
         // steps over the list).
         if live.path.is_none()
-            && let Target::Row(_) = g.target
+            && matches!(g.target, Target::Row(_) | Target::NotCompared)
             && let (Some(row), Some(list)) = (find(&g.target.name()), find("list"))
-            && !list.expand(1.0).contains_rect(row)
-            && live.scrolled != Some(row.min.y)
+            && !(list.expand(1.0).contains_rect(row) && self.screen.contains_rect(row))
+            && live.unmoved < 3
         {
+            live.unmoved = if live.scrolled == Some(row.min.y) {
+                live.unmoved + 1
+            } else {
+                0
+            };
             live.scrolled = Some(row.min.y);
             let over = list.center();
             live.pos = Some(over);
@@ -1843,7 +1940,7 @@ impl CadApp {
         }
         if live.path.is_none() {
             // Where the target is now (last frame).
-            let name = g.target.name();
+            let name = g.target.on_screen();
             let to = if g.target == Target::Pinch {
                 self.pinch
             } else {
@@ -1863,8 +1960,9 @@ impl CadApp {
                 .pos
                 .unwrap_or(egui::pos2(s.max.x - 2.0, s.center().y + s.height() * 0.1));
             live.path = Some((from, to, factor));
+            live.unmoved = 0;
             // Clicks: the pointer takes at most 0.8 s to get there.
-            live.moving_from = if g.target == Target::Drop || g.target == Target::Pinch {
+            live.moving_from = if matches!(g.target, Target::Drop(_) | Target::Pinch) {
                 g.from
             } else {
                 t.max(g.at - 0.8)
@@ -1880,20 +1978,22 @@ impl CadApp {
             let pos = p0 + (p1 - p0) * k;
             live.pos = Some(pos);
             raw.events.push(Event::PointerMoved(pos));
-            if g.target == Target::Drop {
-                raw.hovered_files = vec![egui::HoveredFile::default(); 2];
+            if let Target::Drop(set) = g.target {
+                let n = set.files(crate::examples::find(&demo.example)).len();
+                raw.hovered_files = vec![egui::HoveredFile::default(); n];
             }
             return;
         }
         live.pos = Some(p1);
         raw.events.push(Event::PointerMoved(p1));
         match g.target {
-            Target::Drop => {
+            Target::Drop(set) => {
                 let e = crate::examples::find(&demo.example);
                 raw.hovered_files.clear();
-                raw.dropped_files = [(e.a_name, e.a), (e.b_name, e.b)]
+                raw.dropped_files = set
+                    .files(e)
                     .into_iter()
-                    .map(|(name, bytes)| {
+                    .map(|(name, bytes, _)| {
                         Arc::new(ExampleFile {
                             path: name.into(),
                             bytes,
@@ -1928,8 +2028,14 @@ impl CadApp {
     /// pinch that fits the revision cloud on screen.
     fn find_targets(&mut self, ui: &egui::Ui) {
         let mut targets = Vec::new();
-        if let Some(canvas) = self.canvas_rect {
-            targets.push(("drop".to_owned(), canvas));
+        // Files are dropped on the drawing, or anywhere on the start screen.
+        let open = self.doc.is_some() || self.compare.is_some();
+        match self.canvas_rect.filter(|_| open) {
+            Some(canvas) => targets.push(("drop".to_owned(), canvas)),
+            None => targets.push((
+                "drop".to_owned(),
+                self.screen.shrink(self.screen.height() * 0.15),
+            )),
         }
         self.pinch = None;
         if let Some(c) = self.compare.as_ref().filter(|c| !c.reporting()) {
@@ -1939,6 +2045,10 @@ impl CadApp {
                 ("side_by_side", side),
                 ("details", details),
                 ("export_png", c.export_rect),
+                ("export_json", c.json_rect),
+                ("summary", c.summary_rect),
+                ("swap", c.swap_rect),
+                ("privacy", c.privacy_rect),
             ] {
                 if let Some(rect) = rect.filter(|r| self.screen.contains_rect(*r)) {
                     targets.push((name.to_owned(), rect));
@@ -1951,6 +2061,9 @@ impl CadApp {
             }
             if let Some(list) = c.list_rect.filter(|_| c.show_list) {
                 targets.push(("list".to_owned(), list));
+            }
+            if let Some(link) = c.not_compared_rect {
+                targets.push(("not_compared".to_owned(), link));
             }
             // The pinch: zooming about one fixed point turns the current
             // view into the one that fits the cloud above the caption.
@@ -1979,6 +2092,14 @@ impl CadApp {
                     }
                 }
             }
+        }
+        for (k, rect) in self.order_rects.iter().enumerate() {
+            if let Some(rect) = rect {
+                targets.push((format!("order:{k}"), *rect));
+            }
+        }
+        if let Some(ok) = self.problem_ok {
+            targets.push(("problem_ok".to_owned(), ok));
         }
         self.targets = targets;
     }
@@ -2059,7 +2180,7 @@ impl CadApp {
             self.dropped && c.is_some(),
             c.is_some_and(|c| c.files_of.is_some()),
             self.phone,
-            self.legend_lit(),
+            self.lit().is_some(),
             self.message
                 .as_deref()
                 .map_or("null".to_owned(), record::json_string),
@@ -2097,10 +2218,11 @@ impl CadApp {
         }
     }
 
-    /// The colour legend is highlighted now.
-    fn legend_lit(&self) -> bool {
-        self.legend_highlight
-            .is_some_and(|(a, b)| self.now >= a && self.now < b)
+    /// What is highlighted now.
+    fn lit(&self) -> Option<&'static str> {
+        self.highlight
+            .filter(|(_, a, b)| self.now >= *a && self.now < *b)
+            .map(|(name, _, _)| name)
     }
 
     /// Recording the demo frame by frame (`?demo&record`).
@@ -2204,11 +2326,19 @@ impl CadApp {
             line(m * 0.12, "lightable.dev", m / 17.0, blue);
             return;
         }
-        // The colour legend, briefly highlighted.
-        if self.legend_lit()
-            && let Some(legend) = self.compare.as_ref().and_then(|c| c.legend_rect)
-        {
-            let rect = legend.expand(5.0);
+        // The colour legend (or the summary, or the privacy line), briefly
+        // highlighted.
+        let lit = self.lit().and_then(|name| {
+            let c = self.compare.as_ref()?;
+            match name {
+                "legend" => c.legend_rect,
+                "summary" => c.summary_rect,
+                "privacy" => c.privacy_rect,
+                _ => None,
+            }
+        });
+        if let Some(lit) = lit {
+            let rect = lit.expand(5.0);
             painter.rect_filled(rect, 6.0, Color32::from_rgba_unmultiplied(255, 224, 96, 28));
             painter.rect_stroke(
                 rect,
@@ -2323,7 +2453,10 @@ impl CadApp {
             // Files being dragged: how many.
             if hovered > 0 {
                 let galley = painter.layout_no_wrap(
-                    format!("{hovered} DXF files"),
+                    match hovered {
+                        1 => "1 file".to_owned(),
+                        n => format!("{n} files"),
+                    },
                     FontId::proportional(m * 0.035),
                     Color32::WHITE,
                 );
