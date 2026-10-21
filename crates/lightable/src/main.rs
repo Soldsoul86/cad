@@ -156,21 +156,56 @@ mod cli {
                 // large layout's come from the recording: its numbers are
                 // measured as it plays).
                 for f in crate::demo::Feature::ALL {
-                    if f == crate::demo::Feature::Big {
-                        continue;
-                    }
-                    let e = crate::examples::find(f.example());
-                    let c = crate::compare::Compare::new(
-                        None,
-                        (e.a_name.into(), read(e.a)?),
-                        (e.b_name.into(), read(e.b)?),
-                        Some((e.a_label.into(), e.b_label.into())),
-                        Some(e.id),
-                    )?;
+                    let c = if f == crate::demo::Feature::Big {
+                        // The large layout, made here as for the recorder.
+                        crate::compare::Compare::new(
+                            None,
+                            (
+                                "depot-rev-a.dxf".into(),
+                                read(crate::depot::depot(false).as_bytes())?,
+                            ),
+                            (
+                                "depot-rev-b.dxf".into(),
+                                read(crate::depot::depot(true).as_bytes())?,
+                            ),
+                            None,
+                            None,
+                        )?
+                    } else {
+                        let e = crate::examples::find(f.example());
+                        crate::compare::Compare::new(
+                            None,
+                            (e.a_name.into(), read(e.a)?),
+                            (e.b_name.into(), read(e.b)?),
+                            Some((e.a_label.into(), e.b_label.into())),
+                            Some(e.id),
+                        )?
+                    };
                     let plan = crate::demo::feature_plan(Some(&c), f);
                     let stem = format!("feature-{}", f.id());
-                    write(&format!("{stem}.srt"), crate::demo::srt(&plan.cues))?;
-                    write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;
+                    // (The large layout's captions come from the recording:
+                    // its numbers are measured as it plays.)
+                    if f != crate::demo::Feature::Big {
+                        write(&format!("{stem}.srt"), crate::demo::srt(&plan.cues))?;
+                        write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;
+                    }
+                    // The voice-over: cue sheet and a guide to record to.
+                    // The large layout's counts are known here; its request
+                    // count only as it plays.
+                    let n = c.design_count();
+                    let sheet = crate::demo::voice_sheet(&plan)
+                        .replace(
+                            "{changes}",
+                            &if n == 1 {
+                                "1 change".into()
+                            } else {
+                                format!("{n} changes")
+                            },
+                        )
+                        .replace("{objects}", &crate::demo::count(c.object_count()))
+                        .replace("{requests}", "[as shown on screen]");
+                    write(&format!("{stem}-voice.md"), sheet)?;
+                    write(&format!("{stem}-voice.srt"), crate::demo::srt(&plan.voice))?;
                     println!("{stem}: {:.2} s, {} cues", plan.length, plan.cues.len());
                 }
                 // The large layout the recorder drops (not committed).
@@ -316,6 +351,7 @@ fn main() -> std::process::ExitCode {
                     feature,
                     own: false,
                     machine: None,
+                    stage: None,
                 },
             )))
         }),
@@ -370,6 +406,22 @@ fn main() {
                 .find_map(|p| p.strip_prefix("machine="))
                 .and_then(|m| js_sys::decode_uri_component(&m.replace('+', " ")).ok())
                 .map(String::from),
+            // The brand stage (tools/stage/): `stage&zoom=..&frameh=..&inset=..`.
+            stage: flag("stage").then(|| {
+                let num = |name: &str, fallback: f32| {
+                    params
+                        .iter()
+                        .find_map(|p| p.strip_prefix(name)?.strip_prefix('='))
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .filter(|v| v.is_finite() && *v > 0.0)
+                        .unwrap_or(fallback)
+                };
+                app::Stage {
+                    zoom: num("zoom", 1.75),
+                    frame_height: num("frameh", 540.0),
+                    inset: num("inset", 0.0),
+                }
+            }),
             ..Default::default()
         };
         let _ = eframe::WebRunner::new()

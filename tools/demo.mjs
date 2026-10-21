@@ -58,12 +58,15 @@ const MACHINE = (() => {
 const OUT = join(ROOT, "out", "demo");
 const REVIEW = join(ROOT, "out", "review");
 const ASSETS = join(ROOT, "crates", "lightable", "assets");
-const TOOL_VERSION = 6;
+const TOOL_VERSION = 8;
 // The demo page's feature videos (`--modes find,explain,...`; `--modes
 // features` for all five).
 const FEATURES = ["unclouded", "tiny", "resave", "blocks", "big"];
 const END_CARD = "Free. Open source. Your files are read in your browser, never uploaded. lightable.dev";
 const CLOCK = 30; // the app's frame clock
+// The use-case videos are recorded inside the brand stage (`--plain`: the
+// app alone, as before).
+const isStaged = (mode) => FEATURES.includes(mode) && !process.argv.includes("--plain");
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -271,6 +274,14 @@ async function openDemo(format, mode, dpr, cut = false) {
   const evaluate = async (expression) =>
     (await send("Runtime.evaluate", { expression, returnByValue: true })).result?.value;
   const nudge = async () => {
+    // On the stage: the same Shift tap, given to the app's canvas in its
+    // frame (browser key input goes to the stage page).
+    if (isStaged(mode)) {
+      await evaluate(`(() => { const a = __app(); const c = a.document.getElementById("cad_canvas") ?? a.document;
+        for (const type of ["keydown", "keyup"]) c.dispatchEvent(new a.KeyboardEvent(type, { key: "Shift", code: "ShiftLeft", bubbles: true }));
+        return true; })()`);
+      return;
+    }
     // A Shift tap (no visible effect) makes the app draw a frame.
     await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
@@ -281,12 +292,28 @@ async function openDemo(format, mode, dpr, cut = false) {
   await send("Page.bringToFront");
   const [w, h] = FRAME[format];
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: false });
-  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${FEATURES.includes(mode) ? `&feature=${mode}` : ""}${cut ? "&cut" : ""}&machine=${encodeURIComponent(MACHINE)}`;
+  // (On the stage the app fills its window: no fixed-shape frame.)
+  const query = `demo&record${isStaged(mode) ? "" : `&format=${format}`}${mode === "narration" ? "&narration" : ""}${FEATURES.includes(mode) ? `&feature=${mode}` : ""}${cut ? "&cut" : ""}&machine=${encodeURIComponent(MACHINE)}`;
+  // The use-case videos play inside the brand stage (tools/stage/): the
+  // real app in a window mockup, the motion graphics around it.
+  const staged = isStaged(mode);
+  const url = staged
+    ? `${new URL(base).origin}/tools/stage/index.html?format=${format}&app=${encodeURIComponent(query)}`
+    : `${base}?${query}`;
+  // The app's own globals: in its frame on the stage.
+  const ev = (expression) => evaluate(staged ? expression.replaceAll("window.__lightable", "__app().__lightable") : expression);
   await send("Page.navigate", { url });
   for (let i = 0; i < 600; i++) {
-    if (await evaluate("!document.getElementById('loading')")) break;
+    const loaded = staged
+      // (The frame starts as a blank page, already "complete": wait for the
+      // app's own canvas.)
+      ? "(() => { try { const d = __app().document; return d.readyState === 'complete' && !!d.getElementById('cad_canvas') && !d.getElementById('loading') && __stage.ready(); } catch (e) { return false; } })()"
+      : "!document.getElementById('loading')";
+    if (await evaluate(loaded)) break;
     await sleep(100);
   }
+  // Keys (the nudge) go to the app's frame.
+  if (staged) await evaluate("document.getElementById('app').focus(); __app().focus(); true");
   const tLoaded = Date.now();
   // A window on a high-density screen can report its own pixel density
   // before the emulated one, and the app keeps the canvas size it saw: a
@@ -299,12 +326,12 @@ async function openDemo(format, mode, dpr, cut = false) {
   };
   await remeasure();
   // Browser (CSS) pixels across the page: input events are given in them.
-  const cssWidth = await evaluate("innerWidth");
-  await evaluate("window.__lightableFrame = 0");
+  const cssWidth = await evaluate(staged ? "__app().innerWidth" : "innerWidth");
+  await ev("window.__lightableFrame = 0");
   let length;
   for (let i = 0; i < 600 && !length; i++) {
     await nudge();
-    length = await evaluate("window.__lightableDemoLength");
+    length = await ev("window.__lightableDemoLength");
     if (!length) await sleep(100);
   }
   if (!length) throw new Error(`the demo did not start: ${url} ${errors.join(" | ")}`);
@@ -315,19 +342,19 @@ async function openDemo(format, mode, dpr, cut = false) {
       await nudge();
       await sleep(60);
     }
-    const now = JSON.parse(await evaluate("window.__lightableFrameInfo"));
+    const now = JSON.parse(await ev("window.__lightableFrameInfo"));
     const ratio = cssWidth / (now.screen[2] - now.screen[0]);
     if (Math.abs(ratio - now.zoom) < 0.01) break;
     if (i >= 10) throw new Error(`the page is drawn at the wrong scale (${ratio} CSS pixels a point, zoom ${now.zoom})`);
     await remeasure();
   }
-  const shots = JSON.parse(await evaluate("window.__lightableDemoShots"));
-  const gestures = JSON.parse(await evaluate("window.__lightableDemoGestures"));
+  const shots = JSON.parse(await ev("window.__lightableDemoShots"));
+  const gestures = JSON.parse(await ev("window.__lightableDemoGestures"));
   // The files each drop drops, on disk: copies of the example's files (the
   // same date, so only their names could tell the order) or written bytes.
   const fileDir = mkdtempSync(join(tmpdir(), "demo-files-"));
   const fileSets = {};
-  for (const [set, list] of Object.entries(JSON.parse(await evaluate("window.__lightableDemoFiles")))) {
+  for (const [set, list] of Object.entries(JSON.parse(await ev("window.__lightableDemoFiles")))) {
     fileSets[set] = list.map((f) => {
       const path = join(fileDir, f.name);
       // (The large layout comes from out/demo/usecases, made by
@@ -346,8 +373,8 @@ async function openDemo(format, mode, dpr, cut = false) {
   PROFILE.load = (PROFILE.load ?? 0) + (tLoaded - tLaunched);
   PROFILE.start = (PROFILE.start ?? 0) + (Date.now() - tLoaded);
   let last = -1;
-  const draws = async () => (await evaluate("window.__lightableDraws")) ?? 0;
-  const info = async () => JSON.parse(await evaluate("window.__lightableFrameInfo"));
+  const draws = async () => (await ev("window.__lightableDraws")) ?? 0;
+  const info = async () => JSON.parse(await ev("window.__lightableFrameInfo"));
   // Waits for the app to draw after `before` draws; nudges if it does not.
   const drawn = async (before) => {
     for (let i = 0; i < 4000; i++) {
@@ -357,7 +384,7 @@ async function openDemo(format, mode, dpr, cut = false) {
       if ((await draws()) > before) return;
       await sleep(5);
     }
-    const state = await evaluate("JSON.stringify({frame: window.__lightableFrame, rendered: window.__lightableRendered, draws: window.__lightableDraws})");
+    const state = await ev("JSON.stringify({frame: window.__lightableFrame, rendered: window.__lightableRendered, draws: window.__lightableDraws})");
     writeFileSync(join(tmpdir(), "demo-stall.png"), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
     throw new Error(`the app stopped drawing (${state}): ${errors.join(" | ")}`);
   };
@@ -369,8 +396,13 @@ async function openDemo(format, mode, dpr, cut = false) {
     // (A second of slack: a click can come late after the list scrolls.)
     Math.ceil(((g.until + 1) * CLOCK) / step) * step + 3 * step,
   ]);
-  const driver = { next: 0, path: null, pos: null, zoomed: 0, dragging: false };
+  const driver = { next: 0, path: null, pos: null, zoomed: 0, dragging: false, presses: [], hover: null, drop: null, dropped: null, dropAnswered: null };
   let latest = null; // the last frame's info
+  // On the stage: where the app's frame is this frame (CSS px, after the
+  // camera), and what was found dishonest.
+  let M = null;
+  const honesty = [];
+  const stageTray = staged ? JSON.parse(await evaluate("JSON.stringify(__stage.tray())")) : null;
   // The input events for frame f (CSS pixels), from the plan's gestures and
   // where their targets were on the last frame.
   function eventsFor(f, cut) {
@@ -378,10 +410,14 @@ async function openDemo(format, mode, dpr, cut = false) {
     const events = [];
     for (;;) {
       const g = gestures[driver.next];
-      if (!g || t < (cut ? g.at : g.from)) return events;
+      if (!g || t < (cut && !staged ? g.at : g.from)) return events;
       // CSS pixels per app point (the app's zoom; measured, as 1x pages
       // scale differently).
-      const z = cssWidth / (latest.screen[2] - latest.screen[0]);
+      const z = (staged ? M.w : cssWidth) / (latest.screen[2] - latest.screen[0]);
+      const P = (x, y) => (staged ? [M.x + x * z, M.y + y * z] : [x * z, y * z]);
+      // (On the stage, cut drafts keep the person's motion: only the app's
+      // zooms are cut.)
+      const instant = cut && !staged;
       const click = !g.target.startsWith("drop") && g.target !== "pinch";
       // A row outside the list's view: the pointer goes to the list and
       // scrolls it (small wheel steps, which egui applies at once) first.
@@ -395,8 +431,9 @@ async function openDemo(format, mode, dpr, cut = false) {
       }
       const stuck = (driver.scroll?.still ?? 0) >= 3;
       const inside = (r, o) => stuck || (r[1] >= o[1] - 3 && r[3] <= o[3] + 3 && r[3] <= latest.screen[3]);
-      if (!driver.path && !cut && scrolls && row && list && !inside(row, list)) {
-        const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
+      driver.hover = null;
+      if (!driver.path && !instant && scrolls && row && list && !inside(row, list)) {
+        const centre = P((list[0] + list[2]) / 2, (list[1] + list[3]) / 2);
         driver.scroll ??= { start: t, from: driver.pos ?? centre };
         const k = Math.min(1, (t - driver.scroll.start) / 0.3);
         const e = k * k * (3 - 2 * k);
@@ -416,9 +453,9 @@ async function openDemo(format, mode, dpr, cut = false) {
         }
         return events;
       }
-      if (cut && scrolls && row && list && !inside(row, list)) {
+      if (instant && scrolls && row && list && !inside(row, list)) {
         // Cut drafts: scroll at once (still for real), then click.
-        const centre = [((list[0] + list[2]) / 2) * z, ((list[1] + list[3]) / 2) * z];
+        const centre = P((list[0] + list[2]) / 2, (list[1] + list[3]) / 2);
         driver.scroll ??= { start: t, from: centre };
         driver.scroll.last = row[1];
         // The wheel scrolls what the pointer is over.
@@ -436,27 +473,34 @@ async function openDemo(format, mode, dpr, cut = false) {
         let factor = 1;
         if (g.target === "pinch") {
           if (!latest.pinch) throw new Error(`frame ${f}: no revision cloud to pinch`);
-          to = [latest.pinch[0] * z, latest.pinch[1] * z];
+          to = P(latest.pinch[0], latest.pinch[1]);
           factor = latest.pinch[2];
         } else {
           const r = latest.targets[g.target.startsWith("drop") ? "drop" : g.target];
           if (r && (r[3] > latest.screen[3] + 1 || r[2] > latest.screen[2] + 1)) throw new Error(`frame ${f}: "${g.target}" is outside the frame (${r})`);
           if (!r) throw new Error(`frame ${f}: "${g.target}" is not on screen (on screen: ${Object.keys(latest.targets).join(", ")}; list ${latest.list}, dropped ${latest.dropped})`);
-          to = [((r[0] + r[2]) / 2) * z, ((r[1] + r[3]) / 2) * z];
+          to = P((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
         }
         // The first gesture comes in from the right-hand edge.
-        const [w, h] = [latest.screen[2] * z, latest.screen[3] * z];
+        const [w, h] = staged ? FRAME[format] : [latest.screen[2] * z, latest.screen[3] * z];
         // Clicks: the pointer takes at most 0.8 s to get there, and at
         // least 0.45 s plus the 0.3 s pause, even when that makes the click
         // late (a list that had to scroll first): never a jump.
-        const at = click && !cut ? Math.max(g.at, t + 0.75) : g.at;
+        const at = click && !instant ? Math.max(g.at, t + 0.75) : g.at;
         driver.path = { from: driver.pos ?? [w - 2, h * 0.6], to, factor, at, start: click ? Math.max(t, at - 0.8) : g.from };
+        // On the stage a drop has two legs: to the file cards (the pointer
+        // picks them up: the real drag starts there), then to the window.
+        if (staged && g.target.startsWith("drop")) {
+          driver.path.tray = stageTray;
+          driver.path.pickup = g.from + 0.85;
+          driver.drop = { from: g.from, pickup: driver.path.pickup, at: g.at, point: to, names: (fileSets[g.target] ?? []).map((f) => basename(f)) };
+        }
       }
       const { from, factor, start, at } = driver.path;
       // Aimed at where the control is now (a scrolled list can still be
       // settling).
       const live = click && latest.targets[g.target];
-      if (live && !cut) driver.path.to = [((live[0] + live[2]) / 2) * z, ((live[1] + live[3]) / 2) * z];
+      if (live && !instant) driver.path.to = P((live[0] + live[2]) / 2, (live[1] + live[3]) / 2);
       const to = driver.path.to;
       const drag = g.target.startsWith("drop");
       const data = { items: [], files: fileSets[g.target] ?? [], dragOperationsMask: 1 };
@@ -465,8 +509,23 @@ async function openDemo(format, mode, dpr, cut = false) {
         // control (its hover look shows) before pressing.
         let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, at - 0.3 - start)));
         k = k * k * (3 - 2 * k);
-        const pos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
-        if (drag) {
+        let pos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
+        const smooth = (v) => { const c = Math.min(1, Math.max(0, v)); return c * c * (3 - 2 * c); };
+        if (drag && driver.path.tray) {
+          const { tray, pickup } = driver.path;
+          if (t < pickup) {
+            // To the cards, a short pause on them.
+            const k1 = smooth((t - (start + 0.1)) / Math.max(1e-3, pickup - 0.15 - (start + 0.1)));
+            pos = [from[0] + (tray[0] - from[0]) * k1, from[1] + (tray[1] - from[1]) * k1];
+            events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: pos[0], y: pos[1], button: "none" }]);
+          } else {
+            // Carried to the window: the real drag.
+            const k2 = smooth((t - pickup) / Math.max(1e-3, at - 0.3 - pickup));
+            pos = [tray[0] + (to[0] - tray[0]) * k2, tray[1] + (to[1] - tray[1]) * k2];
+            events.push(["Input.dispatchDragEvent", { type: driver.dragging ? "dragOver" : "dragEnter", x: pos[0], y: pos[1], data }]);
+            driver.dragging = true;
+          }
+        } else if (drag) {
           events.push(["Input.dispatchDragEvent", { type: driver.dragging ? "dragOver" : "dragEnter", x: pos[0], y: pos[1], data }]);
           driver.dragging = true;
         } else {
@@ -474,6 +533,8 @@ async function openDemo(format, mode, dpr, cut = false) {
           // brought to the front (a parallel worker) can make this one
           // forget where the mouse is.
           events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: pos[0], y: pos[1], button: "none" }]);
+          // Paused on the control it is about to press: its hover look.
+          if (click && t >= at - 0.3) driver.hover = g.target;
         }
         driver.pos = pos;
         return events;
@@ -484,6 +545,7 @@ async function openDemo(format, mode, dpr, cut = false) {
         events.push(["Input.dispatchDragEvent", { type: "dragOver", x, y, data }]);
         events.push(["Input.dispatchDragEvent", { type: "drop", x, y, data }]);
         driver.dragging = false;
+        driver.dropped = t;
       } else {
         if (!driver.pos || x !== driver.pos[0] || y !== driver.pos[1]) {
           events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" }]);
@@ -502,6 +564,7 @@ async function openDemo(format, mode, dpr, cut = false) {
           driver.zoomed = 0;
         } else {
           events.push(["Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 }]);
+          driver.presses.push({ t, x, y, target: g.target });
           events.push(["Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 }]);
         }
       }
@@ -513,7 +576,9 @@ async function openDemo(format, mode, dpr, cut = false) {
   // Draws frame f: its input events first (each drawn), or a nudge; then
   // again while the app is busy (files being read, the report captured).
   async function draw(f, cut) {
-    await evaluate(`window.__lightableFrame = ${f}`);
+    await ev(`window.__lightableFrame = ${f}`);
+    // The stage's camera for this frame first: where input lands.
+    if (staged) M = JSON.parse(await evaluate(`JSON.stringify(__stage.camera(${f}))`));
     const events = latest ? eventsFor(f, cut) : [];
     if (events.length === 0) {
       const before = await draws();
@@ -526,7 +591,7 @@ async function openDemo(format, mode, dpr, cut = false) {
       await drawn(before);
     }
     for (let i = 0; i < 6000; i++) {
-      if ((await evaluate("window.__lightableRendered")) === f) break;
+      if ((await ev("window.__lightableRendered")) === f) break;
       await sleep(5);
     }
     let now = await info();
@@ -541,12 +606,96 @@ async function openDemo(format, mode, dpr, cut = false) {
     }
     latest = now;
     last = f;
-    return now;
+    if (!staged) return now;
+    // The decorations around the frame, from what really happened.
+    const t = f / CLOCK;
+    const input = {
+      pointer: driver.pos, hover: !!driver.hover, drop: driver.drop,
+      down: driver.presses.some((p) => t - p.t >= 0 && t - p.t < 0.12),
+      presses: driver.presses.map(({ t: pt, x, y, target }) => ({ t: pt, x, y, target })),
+    };
+    const report = JSON.parse(await evaluate(`__stage.paint(${f}, ${JSON.stringify(input)})`));
+    const found = honest(t, now, report);
+    // A frame with input (the pointer moving, a press) is never held.
+    if (events.length) report.animating = true;
+    return framed(now, report, found);
+  }
+
+  // Each decoration must line up with the real app event it shows.
+  function honest(t, info, report) {
+    const found = [];
+    const fail = (kind, detail) => found.push(`${kind}: ${detail}`);
+    if (report.caption && report.caption.text !== info.caption_text) fail("caption", `stage shows "${report.caption.text}", app "${info.caption_text}"`);
+    if (report.pulse && info.selected !== report.pulse.row) fail("highlight", `pulse on change ${report.pulse.row}, app selected ${info.selected}`);
+    for (const rt of report.ripples) {
+      if (!driver.presses.some((p) => Math.abs(p.t - rt) < 1e-6)) fail("ripple", `ripple at ${rt.toFixed(2)} s with no press`);
+    }
+    if (report.cards) {
+      if (!driver.drop || report.cards.names.join("|") !== driver.drop.names.join("|")) fail("cards", `card names ${report.cards.names} are not the dropped files`);
+      if (report.cards.phase === "carried" && !driver.dragging) fail("cards", "cards carried with no drag under way");
+    }
+    if (report.landing && !(driver.dropped != null && t >= driver.dropped - 1e-6 && t < driver.dropped + 0.61)) fail("landing", `landing pulse at ${t.toFixed(2)} s, drop at ${driver.dropped}`);
+    if (report.hover) {
+      const r = info.targets[driver.hover];
+      const p = info.pointer;
+      if (!(r && p && p[0] >= r[0] && p[0] <= r[2] && p[1] >= r[1] && p[1] <= r[3])) fail("hover", `hover lift off its control ${driver.hover}`);
+    }
+    // Every press answered by the app (the change selected, the view
+    // changed) within a second; the drop by a comparison of those files.
+    for (const p of driver.presses) {
+      if (p.answered != null) continue;
+      const ok = p.target.startsWith("row:") ? info.selected === Number(p.target.slice(4))
+        : p.target === "details" ? info.view === "details"
+          : p.target === "side_by_side" ? info.view === "side_by_side" : true;
+      if (ok) p.answered = t;
+      else if (t - p.t > 1.0) {
+        p.answered = -1;
+        fail("click", `${p.target} pressed at ${p.t.toFixed(2)} s: the app did not respond`);
+      }
+    }
+    if (driver.dropped != null && driver.dropAnswered == null) {
+      const names = driver.drop?.names ?? [];
+      if (info.files && names.every((n) => info.files.includes(n))) driver.dropAnswered = t;
+      else if (t - driver.dropped > 4) {
+        driver.dropAnswered = -1;
+        fail("drop", `dropped ${names} at ${driver.dropped.toFixed(2)} s: not compared`);
+      }
+    }
+    honesty.push(...found.map((d) => ({ t, detail: d })));
+    return found;
+  }
+
+  // The frame's info in the stage frame's CSS pixels, for the checks.
+  function framed(info, report, found) {
+    const k = M.w / (info.screen[2] - info.screen[0]);
+    const P = (x, y) => [M.x + x * k, M.y + y * k];
+    const R = (r) => r && [...P(r[0], r[1]), ...P(r[2], r[3])];
+    return {
+      ...info,
+      screen: [0, 0, w, h],
+      app: [M.x, M.y, M.x + M.w, M.y + M.h],
+      canvas: R(info.canvas),
+      focus: info.focus.map(R),
+      targets: Object.fromEntries(Object.entries(info.targets).map(([n, r]) => [n, R(r)])),
+      pointer: info.pointer && P(info.pointer[0], info.pointer[1]),
+      pinch: info.pinch && [...P(info.pinch[0], info.pinch[1]), info.pinch[2]],
+      caption: report.caption && { size: report.caption.size * h, rect: report.caption.rect, rows: report.caption.rows },
+      still: info.still && !report.animating,
+      stage: report,
+      honesty: found,
+    };
   }
   return {
-    url, length, shots, gestures, requests, errors, exports,
+    url, length, shots, gestures, requests, errors, exports, staged, honesty,
     get last() {
       return last;
+    },
+    // What really happened, for the sound: presses, the pickup and the drop.
+    events() {
+      const out = driver.presses.map((p) => ({ type: "click", t: p.t }));
+      if (driver.drop && last / CLOCK >= driver.drop.pickup) out.push({ type: "pickup", t: driver.drop.pickup });
+      if (driver.dropped != null) out.push({ type: "drop", t: driver.dropped });
+      return out;
     },
     // Whether the next frame (`step` on) presses gesture `gi`'s control:
     // the click can come later than planned (after the list scrolled).
@@ -649,7 +798,9 @@ function check(info, format, sample, target, expect = {}) {
   if (format === "vertical") {
     if (info.canvas && !info.end_card && !info.phone) {
       const [c0, c1, c2, c3] = info.canvas;
-      const share = ((c2 - c0) * (c3 - c1)) / ((x1 - x0) * sh);
+      // (On the stage: of the app's window, as a full-frame recording.)
+      const whole = info.app ? (info.app[2] - info.app[0]) * (info.app[3] - info.app[1]) : (x1 - x0) * sh;
+      const share = ((c2 - c0) * (c3 - c1)) / whole;
       // Details open (under a second, before "Export PNG report"): its
       // extra toolbar row is the real layout; reported, not judged.
       // The large layout's timing and request lines are what its video
@@ -664,6 +815,10 @@ function check(info, format, sample, target, expect = {}) {
     } else {
       out.drawing = { pass: null, detail: info.report ? "report layout" : info.phone ? "phone" : "end card" };
     }
+  }
+  // Decorations that do not line up with the app's real events.
+  if (info.honesty) {
+    out.honesty = { pass: info.honesty.length === 0, detail: info.honesty.length ? info.honesty.join("; ") : "decorations match the app's events" };
   }
   return out;
 }
@@ -691,6 +846,8 @@ async function stills(format, mode) {
     samples.push({ t: g.at - 1 / CLOCK, step, act, sample: "aim", target: g.target, gi });
     if (g.until > g.at) samples.push({ t: (g.at + g.until) / 2, step, act, sample: "mid" });
   }
+  // On the stage: the sting too (the storyboard's first panel).
+  if (page.staged) samples.push({ t: 0.6, step: 0, act: "Sting", sample: "sting" });
   samples.sort((a, b) => a.t - b.t);
   const results = [];
   let lastFrame = -1;
@@ -707,7 +864,7 @@ async function stills(format, mode) {
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
-    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target, { ...expect, view: s.view }) });
+    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, caption: info.caption_text ?? null, checks: check(info, format, s.sample, s.target, { ...expect, view: s.view }) });
   }
   // The report the demo exported: saved for real.
   // (Chrome finishes writing it in the background.)
@@ -718,6 +875,11 @@ async function stills(format, mode) {
   }
   exported = exported.map((e) => e.name);
   const last = results.at(-1);
+  // Every frame drawn, not only the stills: decorations against events.
+  if (page.staged) {
+    const all = page.honesty;
+    last.checks.decorations = { pass: all.length === 0, detail: all.length ? all.map((h) => `${h.t.toFixed(2)} s ${h.detail}`).join("; ") : `every frame: decorations match the app's events (${page.events().length} real events)` };
+  }
   if (expect.export) {
     last.checks.export = { pass: exported.length === 1, detail: exported.length ? `report saved: ${exported.join(", ")}` : "no report was saved" };
   }
@@ -734,7 +896,58 @@ async function stills(format, mode) {
   spawnSync("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "contact.png"), "-vf", "scale=390:-1", join(dir, "contact-phone.png")]);
   rmSync(tmp, { recursive: true, force: true });
   writeFileSync(join(dir, "checks.json"), JSON.stringify(results, null, 1));
-  return { dir, results, requests: page.requests, errors: page.errors, url: page.url };
+  // The storyboard: one still per scene (the sting, then each step's
+  // settled moment), labelled.
+  let board = null;
+  if (page.staged) {
+    const scenes = [];
+    const sting = results.find((r) => r.sample === "sting");
+    if (sting) scenes.push({ file: sting.file, label: "Sting" });
+    let n = 0;
+    for (const r of results.filter((r) => r.sample === "settled")) {
+      const shot = page.shots[r.step];
+      if (!shot?.scene) continue;
+      n++;
+      // The caption as it was on screen (numbers as measured).
+      const said = r.caption && shot.scene !== "end" ? `: ${r.caption}` : "";
+      scenes.push({ file: r.file, label: `${n}. ${shot.scene[0].toUpperCase()}${shot.scene.slice(1)}${said}` });
+    }
+    board = storyboard(dir, format, scenes);
+  }
+  return { dir, results, requests: page.requests, errors: page.errors, url: page.url, board };
+}
+
+// A labelled contact sheet of scene stills (storyboard.png in `dir`): laid
+// out as a page in the brand's type and photographed by headless Chrome
+// (this ffmpeg has no text filter).
+function storyboard(dir, format, scenes) {
+  const cols = format === "landscape" ? 3 : 4;
+  const cell = format === "landscape" ? 640 : 300;
+  const font = join(ROOT, "docs", "brand", "fonts", "Lato-Regular.ttf");
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const cellH = Math.round(cell * (format === "landscape" ? 9 / 16 : 16 / 9));
+  const labelH = format === "landscape" ? 52 : 64;
+  const rows = Math.ceil(scenes.length / cols);
+  const width = cols * cell + (cols + 1) * 10;
+  const height = rows * (cellH + labelH) + (rows + 1) * 10;
+  const html = `<!doctype html><meta charset="utf-8"><style>
+    @font-face { font-family: Lato; src: url("file://${font}"); }
+    body { margin: 0; background: #0b0f14; font: ${format === "landscape" ? 17 : 14}px/1.3 Lato, sans-serif; color: #eef2f6; }
+    .g { display: grid; grid-template-columns: repeat(${cols}, ${cell}px); gap: 10px; padding: 10px; }
+    .c { background: #161c24; } .c img { display: block; width: ${cell}px; height: ${cellH}px; }
+    .c p { margin: 0; padding: 6px 8px; height: ${labelH - 12}px; overflow: hidden; }
+    .c b { color: #f5d02a; font-weight: 400; }
+  </style><div class="g">${scenes.map((sc) => {
+    const [head, ...rest] = sc.label.split(": ");
+    return `<div class="c"><img src="file://${join(dir, sc.file)}"><p><b>${esc(head)}</b>${rest.length ? " " + esc(rest.join(": ")) : ""}</p></div>`;
+  }).join("")}</div>`;
+  const page = join(dir, "storyboard.html");
+  writeFileSync(page, html);
+  const out = join(dir, "storyboard.png");
+  spawnSync(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files",
+    `--screenshot=${out}`, `--window-size=${width},${height}`, `file://${page}`], { stdio: "ignore" });
+  spawnSync("ffmpeg", ["-v", "error", "-y", "-i", out, "-vf", "scale=390:-1", join(dir, "storyboard-phone.png")]);
+  return { file: out, phone: join(dir, "storyboard-phone.png"), scenes };
 }
 
 // --- Videos: segments, cache, holds ---------------------------------------
@@ -823,7 +1036,9 @@ async function video(format, mode, kind, workers, encodeSlot) {
   async function segmentWork(page, seg) {
     // Reuse when the current build draws the cached probe frames alike.
     if (existsSync(seg.clip) && existsSync(seg.meta)) {
-      const { probes } = JSON.parse(readFileSync(seg.meta, "utf8"));
+      const { probes, events, honesty } = JSON.parse(readFileSync(seg.meta, "utf8"));
+      seg.events = events ?? [];
+      seg.honesty = honesty ?? [];
       let same = probes.every(([f]) => f > page.last);
       for (const [f, file] of probes) {
         if (!same) break;
@@ -885,10 +1100,14 @@ async function video(format, mode, kind, workers, encodeSlot) {
     });
     // Encode in the background while rendering goes on: the numbered frames
     // exactly as before (a concat list with durations shifted frames by one).
+    // What really happened in this segment (for the sound), and anything
+    // dishonest found while drawing it.
+    seg.events = page.staged ? page.events().filter((e) => frameOf(e.t) >= seg.start && frameOf(e.t) < seg.end) : [];
+    seg.honesty = page.staged ? page.honesty.filter((h) => frameOf(h.t) >= seg.start && frameOf(h.t) < seg.end) : [];
     encodes.push(encodeSlot(() => timed("encode", async () => {
       await ffmpeg(["-v", "error", "-y", "-framerate", String(q.fps), "-i", join(frames, "%05d.png"),
         ...q.encode, "-r", String(q.fps), "-an", seg.clip]);
-      writeFileSync(seg.meta, JSON.stringify({ probes }));
+      writeFileSync(seg.meta, JSON.stringify({ probes, events: seg.events, honesty: seg.honesty }));
       rmSync(frames, { recursive: true, force: true });
     })));
     return page;
@@ -930,12 +1149,67 @@ async function video(format, mode, kind, workers, encodeSlot) {
   const name = `${prefix}-${format}${suffix(mode)}.mp4`;
   const list = join(mkdtempSync(join(tmpdir(), "list-")), "list.txt");
   writeFileSync(list, segments.map((s) => `file '${s.clip}'`).join("\n"));
+  const staged = first.staged;
+  const silent = staged ? join(tmpdir(), `silent-${process.pid}-${name}`) : join(OUT, name);
   await ffmpeg(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy",
-    "-movflags", "+faststart", join(OUT, name)]);
+    "-movflags", "+faststart", silent]);
+  let sound = null;
+  let honesty = [];
+  if (staged) {
+    // The sting, the reveal and the end card from the plan; the presses,
+    // the pickup and the drop as they really happened.
+    const at = (scene) => shots.find((s) => s.scene === scene)?.at;
+    const events = [{ type: "sting", t: 0 }, { type: "reveal", t: at("reveal") + 0.1 }, { type: "end", t: at("end") }];
+    const seen = new Set();
+    for (const e of segments.flatMap((sg) => sg.events ?? [])) {
+      const key = `${e.type}@${Math.round(e.t * 100)}`;
+      if (!seen.has(key)) events.push(e), seen.add(key);
+    }
+    honesty = segments.flatMap((sg) => sg.honesty ?? []);
+    sound = await mixSound(silent, join(OUT, name), total / CLOCK, events.filter((e) => e.t != null && !Number.isNaN(e.t)));
+    rmSync(silent, { force: true });
+  }
   return {
     name, file: join(OUT, name), segments: segments.length, reused: segments.filter((s) => s.cached).length,
-    ...counts, requests, errors,
+    ...counts, requests, errors, sound, honesty,
   };
+}
+
+// The sound of a use-case video (tools/gen_sound.py's own music and UI
+// sounds), mixed with ffmpeg: `out` with music and UI sounds, `-nomusic`
+// with UI sounds only, and both stems in out/demo/audio/ for a voice-over
+// recorded separately. Captions stay in the picture in every version.
+async function mixSound(silent, out, length, events) {
+  const dir = join(OUT, "sound");
+  if (!existsSync(join(dir, "music.wav"))) {
+    const r = spawnSync(join(ROOT, "tools", ".venv", "bin", "python"), [join(ROOT, "tools", "gen_sound.py"), dir]);
+    if (r.status !== 0) throw new Error(`gen_sound.py: ${r.stderr}`);
+  }
+  const stems = join(OUT, "audio");
+  mkdirSync(stems, { recursive: true });
+  const base = basename(out, ".mp4");
+  const sfx = join(stems, `${base}-sfx.wav`);
+  const music = join(stems, `${base}-music.wav`);
+  const level = { sting: 0.5, pickup: 0.4, drop: 0.7, click: 0.4, reveal: 0.4, end: 0.5 };
+  const inputs = events.flatMap((e) => ["-i", join(dir, `${e.type}.wav`)]);
+  const parts = events.map((e, k) => {
+    const ms = Math.max(0, Math.round(e.t * 1000));
+    return `[${k}:a]adelay=${ms}:all=1,volume=${level[e.type]}[e${k}]`;
+  });
+  await ffmpeg(["-v", "error", "-y", ...inputs, "-filter_complex",
+    `${parts.join(";")};${events.map((_, k) => `[e${k}]`).join("")}amix=inputs=${events.length}:normalize=0:duration=longest,` +
+    `apad=whole_dur=${length},atrim=0:${length},aformat=sample_rates=48000:channel_layouts=stereo[out]`,
+    "-map", "[out]", sfx]);
+  // The music low (room for a voice), in and out softly.
+  await ffmpeg(["-v", "error", "-y", "-i", join(dir, "music.wav"), "-af",
+    `atrim=0:${length},volume=0.2,afade=t=in:st=0:d=0.8,afade=t=out:st=${Math.max(0, length - 2)}:d=2`, music]);
+  await ffmpeg(["-v", "error", "-y", "-i", silent, "-i", sfx, "-i", music, "-filter_complex",
+    "[1:a][2:a]amix=inputs=2:normalize=0[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+    "-shortest", "-movflags", "+faststart", out]);
+  const plain = out.replace(/\.mp4$/, "-nomusic.mp4");
+  await ffmpeg(["-v", "error", "-y", "-i", silent, "-i", sfx, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
+    "-b:a", "160k", "-shortest", "-movflags", "+faststart", plain]);
+  return { music: out, nomusic: plain, stems: [music, sfx], events };
 }
 
 // --- Review page ------------------------------------------------------------
@@ -1079,6 +1353,8 @@ if (command === "page") {
 }
 const report = [];
 const items = [];
+const boards = [];
+const extra = [];
 let network = [];
 if (command !== "stills" || review) {
   // Subtitles from the same plan the app plays.
@@ -1101,12 +1377,18 @@ await Promise.all(variants.map(({ mode, format }, k) => runVariant(async () => {
     const failed = s.results.flatMap((r) => Object.entries(r.checks).filter(([, c]) => c.pass === false).map(([key]) => `${r.file}: ${key}`));
     report[k] = { label, seconds: (Date.now() - t0) / 1000, stills: s.results.length, failed, errors: s.errors };
     items[k] = { label, format, mode, contact: join(s.dir, "contact.png"), phone: join(s.dir, "contact-phone.png"), stills: s.results, stillsDir: s.dir };
+    if (s.board) {
+      boards[k] = { label, format, mode, contact: s.board.file, phone: s.board.phone, stillsDir: s.dir,
+        stills: s.board.scenes.map((sc) => ({ ...s.results.find((r) => r.file === sc.file), label: sc.label })) };
+    }
   } else {
     const v = await video(format, mode, command, perVideo, encodeSlot);
     network.push(...v.requests);
     const vtt = join(OUT, captionsFile(mode));
-    report[k] = { label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors };
-    items[k] = { label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null };
+    report[k] = { label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors,
+      ...(v.sound ? { sounds: v.sound.events.length, dishonest: v.honesty.map((h) => `${h.t.toFixed(2)} s ${h.detail}`) } : {}) };
+    items[k] = { label: v.sound ? `${label} (music + UI sounds)` : label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null };
+    if (v.sound) extra.push({ label: `${label} (UI sounds, no music)`, format, mode, video: v.sound.nomusic, vtt: existsSync(vtt) ? vtt : null });
   }
 })));
 const origin = new URL(base).origin;
@@ -1118,7 +1400,8 @@ const summary = {
     withBody: network.filter((r) => r.method !== "GET" || r.body > 0).map((r) => `${r.method} ${r.url}`),
   },
 };
-if (review) summary.review = publish(command, items);
+if (review && boards.some(Boolean)) summary.storyboards = publish("storyboard", boards.filter(Boolean));
+if (review) summary.review = publish(command, [...items, ...extra]);
 if (args.includes("--profile")) summary.profile = PROFILE;
 summary.workers = WORKERS;
 console.log(JSON.stringify(summary, null, 1));

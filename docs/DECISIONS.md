@@ -1228,6 +1228,52 @@ reading big files off the main thread, keyboard pan and zoom).
     Items), read from the installed apps' interface strings and the
     vendors' documentation, without changing any browser setting.
 
+## Brand-ambassador videos: a presentation layer around the real app
+
+1. **The app's output stays real; the brand is a stage around it.**
+   `tools/stage/` shows the real app (the web build, in an iframe) inside a
+   browser-window mockup on the brand background and draws the motion
+   graphics in HTML/CSS around it. The app runs `?stage`: it lays itself
+   out for the window (zoom, the top-left inset), keeps the caption's place
+   clear but lets the stage set the words, and leaves the pointer and the
+   end card to the stage. Nothing the app shows is redrawn.
+2. **Deterministic frames.** Every stage animation is a pure function of
+   the recorder's frame (Web Animations with `currentTime` set per frame,
+   and plain maths for the pointer, cards and pulses); nothing runs on the
+   wall clock. Input reaches the app through the stage page (Chrome routes
+   mouse and drag events into the frame); keys (the recorder's nudge) are
+   dispatched inside the frame.
+3. **Brand kit** (`docs/brand/`, made by `tools/gen_brand.py`): an original
+   mark (two sheets on a light table, the overlap lit), the wordmark in
+   Lato outlined, the app's own colours, caption, motion, sting and
+   end-card rules. **Lato is under the SIL Open Font Licence 1.1**, which
+   is not in this project's licence list: it is used only in the videos
+   and the brand files, never bundled in the app (the app keeps Ubuntu and
+   Hack). Copied unmodified from RDoc's darkfish template (version 1.105)
+   with its licence text.
+4. **Story:** each use-case video is hook (the problem in one line, after a
+   1.2 s sting), action (the real files, a real drop), reveal, proof, payoff
+   (a one-line claim), end card; 29–35 s. The plan tags each step with its
+   scene (`demo::Scene`); Tiny and Blocks now drop their files too.
+5. **Honesty is checked, not promised.** Decorations show only actions
+   that happen: the file cards carry the real file names and are carried
+   only while the real drag is under way; the landing pulse is at the real
+   drop; ripples are where the recorder really pressed; the highlight pulse
+   is only around the change the app has selected; the hover lift only on
+   the control the pointer is over; the caption is the app's own text. The
+   recorder checks every drawn frame and that every press and the drop were
+   answered by the app (the change selected, the view changed, those files
+   compared). The progressive list reveal is done by the app itself (stage
+   mode), rows real.
+6. **Sound:** our own (`tools/gen_sound.py`), mixed with ffmpeg at the
+   events that really happened (presses, pickup, drop) and the plan's
+   sting, reveal and end card. Each video: music + UI sounds, UI sounds
+   only, and stems for a voice-over recorded later. Voice-over lines per
+   step (`Step::says`), at most 2.8 words a second, in
+   `docs/demo/voiceover.md` (a test keeps them equal to the plans).
+7. **Storyboards** are the stills: the sting and each step's settled frame,
+   labelled with its scene and caption, published as their own review run.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

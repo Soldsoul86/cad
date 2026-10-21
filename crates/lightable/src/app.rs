@@ -162,6 +162,23 @@ pub struct Start {
     /// The machine a recording is made on (`?machine=`), named next to any
     /// time measured in it; without it, "this device".
     pub machine: Option<String>,
+    /// Recording inside the brand stage (`?stage`, tools/stage/): the
+    /// stage draws the captions, the pointer and the end card around the
+    /// real app, which lays itself out for the window it is shown in.
+    pub stage: Option<Stage>,
+}
+
+/// How the brand stage shows the app (`?stage&zoom=..&frameh=..&inset=..`,
+/// in CSS pixels of the stage's frame).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Stage {
+    /// The app's zoom (CSS pixels a point), fitted to its window.
+    pub zoom: f32,
+    /// The height of the whole video frame: captions are sized for it.
+    pub frame_height: f32,
+    /// How far the app's left edge must keep its controls in, so the
+    /// frame's top-left 10 % stays clear.
+    pub inset: f32,
 }
 
 /// A smooth move of the view.
@@ -304,11 +321,20 @@ mod record {
             .shots
             .iter()
             .map(|s| {
+                // The scene and the caption as planned (the end card's
+                // words, which the stage shows), for the brand stage.
+                let caption = if s.act == crate::demo::Act::EndCard {
+                    crate::demo::END_CARD
+                } else {
+                    s.caption.as_deref().unwrap_or("")
+                };
                 format!(
-                    "{{\"at\":{},\"desc\":{},\"view\":{}}}",
+                    "{{\"at\":{},\"desc\":{},\"view\":{},\"scene\":{},\"caption\":{}}}",
                     s.at,
                     json_string(&format!("{s:?}")),
-                    s.view.map_or("null".to_owned(), |v| json_string(v.name()))
+                    s.view.map_or("null".to_owned(), |v| json_string(v.name())),
+                    s.scene.map_or("null".to_owned(), |v| json_string(v.name())),
+                    json_string(caption)
                 )
             })
             .collect();
@@ -550,6 +576,11 @@ pub struct CadApp {
     show_network: bool,
     /// Where times are measured: "this device", or the recording machine.
     machine: String,
+    /// Recording inside the brand stage.
+    stage: Option<Stage>,
+    /// When the comparison appeared (demo time): the stage reveals the
+    /// change list row by row from then.
+    compare_since: Option<f64>,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -601,6 +632,7 @@ impl CadApp {
             feature,
             own,
             machine,
+            stage,
         } = start;
         // The demo opens its example's Rev C on its own and has the two
         // files dropped in.
@@ -679,6 +711,8 @@ impl CadApp {
             requests_at_open: None,
             show_network: false,
             machine: machine.unwrap_or_else(|| "this device".to_owned()),
+            stage,
+            compare_since: None,
         }
     }
 
@@ -1587,6 +1621,8 @@ impl eframe::App for CadApp {
                     .1
                     .width()
                     / 320.0
+            } else if let Some(s) = self.stage {
+                s.zoom
             } else {
                 1.75
             };
@@ -1609,6 +1645,9 @@ impl eframe::App for CadApp {
             .timing
             .filter(|_| !self.recording() || self.show_network);
         let reveal_redrawn = self.lit() == Some("redrawn");
+        if self.compare.is_none() {
+            self.compare_since = None;
+        }
         if let Some(c) = &mut self.compare {
             // (In recordings, only the large layout's video shows it: in a
             // 9:16 frame it would take the drawing's room.)
@@ -1630,6 +1669,11 @@ impl eframe::App for CadApp {
             });
             // The demo's "redrawn the same" step brings that line into view.
             c.reveal_redrawn = reveal_redrawn;
+            // On the stage the list comes in row by row.
+            if self.stage.is_some() && recording {
+                let since = *self.compare_since.get_or_insert(self.now);
+                c.reveal_age = Some(self.now - since);
+            }
             c.network_line = network;
             c.show_privacy = self.show_privacy;
             c.show_files = self.show_files;
@@ -1763,7 +1807,11 @@ impl CadApp {
         }
         // Recording: the frame's top-left 10 % kept clear (a video player
         // puts buttons there).
-        let inset = if recording { screen.width() * 0.1 } else { 0.0 };
+        let inset = match self.stage {
+            Some(s) if recording => s.inset / s.zoom,
+            _ if recording => screen.width() * 0.1,
+            _ => 0.0,
+        };
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add_space(inset);
@@ -1952,16 +2000,12 @@ impl CadApp {
                 None => crate::demo::plan(&c, demo.narration),
             };
             record::publish_plan(&plan, e);
-            let compared = demo.feature.is_some_and(|f| f.starts_compared());
             let empty = demo.feature.is_some_and(|f| f.starts_empty());
             self.show_network = demo.feature == Some(crate::demo::Feature::Big);
             // Live, a second's pause first; recorded, from the first frame.
             let start = if demo.record { now } else { now + 1.0 };
             demo.plan = Some((plan, start));
-            if compared {
-                // The example's comparison, as the app opens.
-                self.open_example(gl, e.id);
-            } else if empty {
+            if empty {
                 // The start screen, nothing open.
             } else {
                 // Rev C on its own, as it came in.
@@ -1992,7 +2036,7 @@ impl CadApp {
         let at = start + shot.at;
         match shot.act {
             Act::Opening => self.pointer_shown = false,
-            Act::Drop | Act::Compared => self.pointer_shown = true,
+            Act::Drop => self.pointer_shown = true,
             Act::Highlight(name) => self.highlight = Some((name, at + 0.3, at + 3.0)),
             Act::Phone => {
                 self.phone = true;
@@ -2029,7 +2073,7 @@ impl CadApp {
         self.demo_focus = match shot.act {
             // (Details' "redrawn the same" line: the drawing stays as it was.)
             Act::Highlight("redrawn") => self.demo_focus,
-            Act::Highlight(_) | Act::Compared => c.and_then(|c| c.bounds()),
+            Act::Highlight(_) => c.and_then(|c| c.bounds()),
             Act::Cloud => c.and_then(|c| c.cloud_bounds_tight()),
             Act::Close(i) => c.and_then(|c| c.change_bounds(i)),
             Act::Tap(i) => c.and_then(|c| c.change_bounds(i)),
@@ -2290,6 +2334,30 @@ impl CadApp {
                 )));
             }
         }
+        // The selected change, where it is drawn (the first pane), and the
+        // files compared: the stage's highlights and file cards must match.
+        let mut selected = "null".to_owned();
+        let mut selected_rect = "null".to_owned();
+        let mut files = "null".to_owned();
+        if let Some(c) = self.compare.as_ref() {
+            let (a, b) = c.file_names();
+            files = format!("[{},{}]", record::json_string(a), record::json_string(b));
+            if let Some(i) = c.selected() {
+                selected = i.to_string();
+                if let (Some(canvas), Some(b)) = (canvas, c.change_bounds(i))
+                    && let Some(pane) = c.panes(canvas).first()
+                {
+                    let mut v = self.view;
+                    v.size = [f64::from(pane.width()), f64::from(pane.height())];
+                    let p0 = v.to_screen([b.min[0], b.max[1]]);
+                    let p1 = v.to_screen([b.max[0], b.min[1]]);
+                    selected_rect = r(Rect::from_min_max(
+                        egui::pos2(pane.min.x + p0[0] as f32, pane.min.y + p0[1] as f32),
+                        egui::pos2(pane.min.x + p1[0] as f32, pane.min.y + p1[1] as f32),
+                    ));
+                }
+            }
+        }
         let caption = self
             .caption_box
             .get()
@@ -2323,7 +2391,7 @@ impl CadApp {
             .map(|(n, rect)| format!("{}:{}", record::json_string(n), r(*rect)))
             .collect();
         let json = format!(
-            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{},\"view\":\"{}\",\"text_overlaps\":{},\"cut_rows\":{},\"caption_text\":{}}}",
+            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{},\"view\":\"{}\",\"text_overlaps\":{},\"cut_rows\":{},\"caption_text\":{},\"selected\":{selected},\"selected_rect\":{selected_rect},\"files\":{files},\"stage\":{}}}",
             ui.ctx().zoom_factor(),
             r(screen),
             canvas.map_or("null".to_owned(), r),
@@ -2355,6 +2423,7 @@ impl CadApp {
             self.caption
                 .as_deref()
                 .map_or("null".to_owned(), record::json_string),
+            self.stage.is_some(),
         );
         record::publish_frame_info(&json);
     }
@@ -2424,6 +2493,13 @@ impl CadApp {
         self.demo.as_ref().is_some_and(|d| d.record)
     }
 
+    /// The height captions are sized for (points): the screen, or on the
+    /// stage the whole video frame (the app's window is smaller).
+    fn caption_reference(&self, screen: Rect) -> f32 {
+        self.stage
+            .map_or(screen.height(), |s| s.frame_height / s.zoom)
+    }
+
     /// How much of the drawing's bottom a caption covers (points): the
     /// demo's fits and zooms keep it clear. Captions sit above the bottom
     /// 15 % of the frame (where a video player puts its controls).
@@ -2434,7 +2510,7 @@ impl CadApp {
         {
             return 0.0;
         }
-        let size = caption_size(self.screen.height());
+        let size = caption_size(self.caption_reference(self.screen));
         let Some(canvas) = self.canvas_rect else {
             return f64::from(size * 3.3);
         };
@@ -2454,6 +2530,17 @@ impl CadApp {
         }
         if let Some(n) = self.requests_since_open() {
             out = out.replace("{requests}", &n.to_string());
+        }
+        if let Some(c) = &self.compare {
+            let n = c.design_count();
+            out = out.replace(
+                "{changes}",
+                &if n == 1 {
+                    "1 change".to_owned()
+                } else {
+                    format!("{n} changes")
+                },
+            );
         }
         out
     }
@@ -2532,6 +2619,10 @@ impl CadApp {
             painter.rect_filled(rect, 10.0, Color32::from_rgba_unmultiplied(0, 0, 0, 225));
             painter.galley(rect.min + egui::vec2(20.0, 14.0), galley, Color32::WHITE);
         }
+        // The stage shows its own end card.
+        if self.end_card && self.stage.is_some() {
+            return;
+        }
         if self.end_card {
             painter.rect_filled(
                 screen,
@@ -2595,7 +2686,7 @@ impl CadApp {
                 self.canvas_rect.unwrap_or(screen)
             };
             // Two lines at most: smaller only if it does not fit.
-            let mut size = caption_size(screen.height());
+            let mut size = caption_size(self.caption_reference(screen));
             let layout = |size: f32| {
                 let pad = egui::vec2(size * 0.35, size * 0.3);
                 let galley = painter.layout(
@@ -2607,7 +2698,7 @@ impl CadApp {
                 (galley, pad)
             };
             let (mut galley, mut pad) = layout(size);
-            let smallest = CAPTION_MIN * screen.height();
+            let smallest = CAPTION_MIN * self.caption_reference(screen);
             while galley.rows.len() > 2 && size > smallest {
                 size = (size * 0.95).max(smallest);
                 (galley, pad) = layout(size);
@@ -2615,20 +2706,24 @@ impl CadApp {
             let boxed = galley.size() + 2.0 * pad;
             // At the bottom of the drawing (above the frame's bottom 15 %),
             // in the band the demo's zooms keep clear.
-            let bottom = caption_bottom(screen, area, caption_size(screen.height()));
+            let bottom = caption_bottom(screen, area, caption_size(self.caption_reference(screen)));
             let rect =
                 Rect::from_center_size(egui::pos2(area.center().x, bottom - boxed.y / 2.0), boxed);
-            painter.rect_filled(
-                rect,
-                size * 0.3,
-                Color32::from_rgba_unmultiplied(0, 0, 0, 240),
-            );
             let rows = galley.rows.len();
-            painter.galley(rect.min + pad, galley, Color32::WHITE);
+            // On the stage, only where: the stage sets the words itself.
+            if self.stage.is_none() {
+                painter.rect_filled(
+                    rect,
+                    size * 0.3,
+                    Color32::from_rgba_unmultiplied(0, 0, 0, 240),
+                );
+                painter.galley(rect.min + pad, galley, Color32::WHITE);
+            }
             self.caption_box.set(Some((size, rect, rows)));
         }
-        // The pointer: an arrow in 16:9, a fingertip in 9:16.
-        if let Some(pos) = self.pointer_pos(ui) {
+        // The pointer: an arrow in 16:9, a fingertip in 9:16 (on the stage,
+        // the stage's own).
+        if let Some(pos) = self.pointer_pos(ui).filter(|_| self.stage.is_none()) {
             let pressed = ui.input(|i| i.pointer.primary_down());
             let since = self.last_press.map_or(f64::INFINITY, |t| self.now - t);
             if screen.height() > screen.width() * 1.2 {

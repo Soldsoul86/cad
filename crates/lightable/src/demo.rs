@@ -14,9 +14,6 @@ use crate::compare::Compare;
 pub enum Act {
     /// Rev C open on its own, as it came in.
     Opening,
-    /// The example's two revisions compared (as the app opens), for the
-    /// feature videos that start there.
-    Compared,
     /// Something on screen highlighted for 2.7 s (a target's name).
     Highlight(&'static str),
     /// The two files are dragged in and dropped (a gesture).
@@ -157,6 +154,38 @@ impl View {
     }
 }
 
+/// A use-case video's story, step by step: the problem in one line, the
+/// real files dropped in, the result, the proof (zooms, exact values), a
+/// one-line claim, the end card. The brand stage uses it for its camera
+/// and its storyboards; it changes nothing in the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scene {
+    Hook,
+    Action,
+    Reveal,
+    Proof,
+    Payoff,
+    End,
+}
+
+impl Scene {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Scene::Hook => "hook",
+            Scene::Action => "action",
+            Scene::Reveal => "reveal",
+            Scene::Proof => "proof",
+            Scene::Payoff => "payoff",
+            Scene::End => "end",
+        }
+    }
+}
+
+/// The brand stage's intro sting (seconds) over the start of a use-case
+/// video: the first step holds that much longer, and its caption and voice
+/// come in after it.
+pub const STING: f64 = 1.2;
+
 /// One moment of the demo.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shot {
@@ -167,6 +196,8 @@ pub struct Shot {
     pub caption: Option<String>,
     /// What the screen shows at the end of the step (a step's first shot).
     pub view: Option<View>,
+    /// The step's part of the story (use-case videos; a step's first shot).
+    pub scene: Option<Scene>,
 }
 
 /// A subtitle: text shown (or spoken) from `start` to `end` seconds.
@@ -187,6 +218,9 @@ pub struct Plan {
     /// Voice-over timing: no captions in the picture, the voice carries
     /// the words (the cues are the voice-over lines).
     pub narration: bool,
+    /// The use-case videos' voice-over lines (to be recorded over the
+    /// captioned video), one per step, timed within it.
+    pub voice: Vec<Cue>,
 }
 
 /// The end card's text, as on screen.
@@ -265,11 +299,24 @@ struct Step {
     /// What the screen shows at the step's end, when not what its act
     /// implies (a click inside the step changes the view).
     view: Option<View>,
+    /// Its part of the story, and its voice-over line (use-case videos).
+    scene: Option<Scene>,
+    voice: Option<String>,
 }
 
 impl Step {
     fn shows(mut self, view: View) -> Step {
         self.view = Some(view);
+        self
+    }
+
+    fn scene(mut self, scene: Scene) -> Step {
+        self.scene = Some(scene);
+        self
+    }
+
+    fn says(mut self, voice: impl Into<String>) -> Step {
+        self.voice = Some(voice.into());
         self
     }
 }
@@ -294,6 +341,8 @@ fn step(act: Act, seconds: f64, caption: String) -> Step {
         gestures: Vec::new(),
         then: Vec::new(),
         view: None,
+        scene: None,
+        voice: None,
     }
 }
 
@@ -394,9 +443,18 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
         cues: Vec::new(),
         length: 0.0,
         narration,
+        voice: Vec::new(),
     };
+    let mut shown = View::Start;
     for (k, mut s) in steps.into_iter().enumerate() {
         let mut seconds = s.seconds;
+        // A caption-only step leaves the screen as it was.
+        let view = s.view.unwrap_or(if s.act == Act::Nothing {
+            shown
+        } else {
+            view_after(s.act)
+        });
+        shown = view;
         if narration {
             let line = VOICEOVER[k].1;
             seconds = seconds.max(LEAD + words(line) as f64 / SPEAK + SETTLE);
@@ -436,11 +494,25 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
         } else {
             Some(s.caption)
         };
+        // The voice-over line, inside the step (the first after the sting).
+        if let Some(line) = &s.voice {
+            let lead = if k == 0 && s.scene == Some(Scene::Hook) {
+                STING + 0.1
+            } else {
+                0.2
+            };
+            plan.voice.push(Cue {
+                start: t + lead,
+                end: t + seconds - 0.2,
+                text: line.replace('\u{a0}', " "),
+            });
+        }
         plan.shots.push(Shot {
             at: t,
             act: s.act,
             caption: caption.or(Some(String::new())),
-            view: Some(s.view.unwrap_or(view_after(s.act))),
+            view: Some(view),
+            scene: s.scene,
         });
         for (offset, act, caption) in s.then {
             plan.shots.push(Shot {
@@ -448,6 +520,7 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
                 act,
                 caption: caption.filter(|_| !narration),
                 view: None,
+                scene: None,
             });
         }
         for (from, at, until, target) in s.gestures {
@@ -515,11 +588,6 @@ impl Feature {
             Feature::Blocks => "flat",
             Feature::Big => "",
         }
-    }
-
-    /// Videos that start on the example's comparison, as the app opens.
-    pub fn starts_compared(&self) -> bool {
-        matches!(self, Feature::Tiny | Feature::Blocks)
     }
 
     /// Videos that start on the empty start screen.
@@ -593,13 +661,48 @@ pub fn count(n: usize) -> String {
 
 /// A use-case video for this comparison (its example). `c` is `None` for
 /// the large layout until its files have been dropped and compared; its
-/// numbers come in then (`{objects}`, `{seconds}`, `{requests}` are filled
-/// in as the captions are shown, from what was measured).
+/// numbers come in then (`{changes}`, `{objects}`, `{seconds}`,
+/// `{requests}` are filled in as the captions are shown, from what was
+/// measured). Each tells one story: hook, action (the real files dropped
+/// in), reveal, proof, payoff, end card; 20–35 s with the stage's sting.
 pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
-    let end = step(Act::EndCard, 3.0, END_CARD.into());
+    let end = step(Act::EndCard, 3.0, END_CARD.into()).scene(Scene::End);
     let changes = |n: usize| match n {
         1 => "1 change".to_owned(),
         n => format!("{n} changes"),
+    };
+    // The hook: the opening drawing (or the start screen) under the
+    // stage's sting, then the problem in one line.
+    let hook = |caption: String| {
+        step(Act::Opening, 3.5 + STING, caption.clone())
+            .scene(Scene::Hook)
+            .says(caption)
+    };
+    // (Two legs on the stage: to the file cards, then to the window.)
+    let drop = |files: Files, seconds: f64, caption: &str| {
+        Step {
+            gestures: vec![(0.3, 2.3, 2.3, Target::Drop(files))],
+            ..step(Act::Drop, seconds, caption.into())
+        }
+        .scene(Scene::Action)
+        .says(caption)
+    };
+    let payoff = |caption: &str| {
+        step(Act::Nothing, 3.0, caption.into())
+            .scene(Scene::Payoff)
+            .says(caption)
+    };
+    let found = |c: &Compare| {
+        let (a, b) = c.labels();
+        format!("{} found between {a} and {b}.", changes(c.design_count()))
+    };
+    let tap = |i: usize, seconds: f64, caption: String| {
+        Step {
+            gestures: vec![click(0.0, 0.8, Target::Row(i))],
+            ..step(Act::Tap(i), seconds, caption.clone())
+        }
+        .scene(Scene::Proof)
+        .says(caption)
     };
     let steps = match (f, c) {
         (Feature::Big, c) => {
@@ -607,161 +710,146 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
             // compared, so the plan's gestures do not change).
             let first = c.map_or(Some(0), |c| find(c, |_| true));
             vec![
+                hook("A large layout, two revisions. What changed?".into()).shows(View::Start),
+                drop(
+                    Files::Big,
+                    5.0,
+                    "Drop in both. Read and compared in this browser.",
+                ),
                 step(
-                    Act::Opening,
-                    3.0,
-                    "Two revisions of a large warehouse layout.".into(),
+                    Act::Highlight("summary"),
+                    5.0,
+                    "{changes} found among {objects} objects.".into(),
                 )
-                .shows(View::Start),
-                Step {
-                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Big))],
-                    ..step(
-                        Act::Drop,
-                        6.0,
-                        "Drop in both. Read and compared in this browser.".into(),
-                    )
-                },
+                .scene(Scene::Reveal)
+                .says("{changes} found among {objects} objects."),
                 step(
                     Act::Highlight("timing"),
-                    5.0,
-                    "{objects} objects read and compared in seconds.".into(),
-                ),
+                    4.0,
+                    "Read and compared in seconds.".into(),
+                )
+                .scene(Scene::Proof)
+                .says("Read and compared in seconds, on the machine shown."),
                 step(
                     Act::Highlight("network"),
-                    5.0,
+                    4.5,
                     "Requests logged since the files opened: {requests}.".into(),
-                ),
+                )
+                .scene(Scene::Proof)
+                .says("Requests the browser logged after the files opened: {requests}."),
                 match first {
-                    Some(i) => Step {
-                        gestures: vec![click(0.0, 0.8, Target::Row(i))],
-                        ..step(
-                            Act::Tap(i),
-                            5.0,
-                            c.map_or(String::new(), |c| {
-                                text_change(&c.diff().changes[i]).map_or_else(
-                                    || on_layer(c, i),
-                                    |w| format!("Text changed: {w}."),
-                                )
-                            }),
-                        )
-                    },
-                    None => step(Act::Nothing, 5.0, "Each change, in plain words.".into()),
+                    Some(i) => tap(
+                        i,
+                        4.5,
+                        c.map_or(String::new(), |c| {
+                            text_change(&c.diff().changes[i])
+                                .map_or_else(|| on_layer(c, i), |w| format!("Text changed: {w}."))
+                        }),
+                    ),
+                    None => step(Act::Nothing, 4.5, "Each change, in plain words.".into())
+                        .scene(Scene::Proof),
                 },
+                payoff("Big drawings, compared in your browser."),
                 end,
             ]
         }
         (_, None) => vec![end],
         (Feature::Unclouded, Some(c)) => {
-            let (_, b) = c.labels();
-            let (a, b2) = c.labels();
             let n = c.design_count();
+            let k = c.clouded_count();
             let mut v = vec![
-                step(
-                    Act::Opening,
-                    3.0,
-                    format!("{b} of the gearbox cover. What changed?"),
-                ),
-                Step {
-                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
-                    ..step(Act::Drop, 4.0, "Drop in both revisions.".into())
-                },
-                step(
-                    Act::Highlight("summary"),
-                    4.0,
-                    format!("{} found between {a} and {b2}.", changes(n)),
-                ),
+                hook(format!(
+                    "The cloud marks {}. Is that everything?",
+                    changes(k)
+                )),
+                drop(Files::Example, 4.0, "Drop in both revisions."),
+                step(Act::Highlight("summary"), 4.0, found(c))
+                    .scene(Scene::Reveal)
+                    .says(found(c)),
             ];
             if c.cloud_bounds().is_some() {
-                let k = c.clouded_count();
-                v.push(Step {
-                    gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
-                    ..step(
-                        Act::Cloud,
-                        5.0,
-                        format!(
-                            "The cloud marks {}; {} others weren't clouded.",
-                            changes(k),
-                            n - k
-                        ),
-                    )
-                });
+                let line = format!(
+                    "The cloud marks {}; {} others weren't clouded.",
+                    changes(k),
+                    n - k
+                );
+                v.push(
+                    Step {
+                        gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
+                        ..step(Act::Cloud, 5.0, line.clone())
+                    }
+                    .scene(Scene::Proof)
+                    .says(line),
+                );
             }
-            let picks = c.demo_picks();
-            if let Some(&hole) = picks.first() {
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(hole))],
-                    ..step(
-                        Act::Tap(hole),
-                        5.0,
-                        clauses(c.headline(hole)).swap_remove(0),
-                    )
-                });
+            if let Some(&hole) = c.demo_picks().first() {
+                v.push(tap(hole, 5.0, clauses(c.headline(hole)).swap_remove(0)));
             }
             if let Some(edge) = find(c, |ch| ch.layer() == "SECTION") {
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(edge))],
-                    ..step(Act::Tap(edge), 4.0, on_layer(c, edge))
-                });
+                v.push(tap(edge, 4.0, on_layer(c, edge)));
             }
+            v.push(payoff("Every change listed, clouded or not."));
             v.push(end);
             v
         }
         (Feature::Tiny, Some(c)) => {
-            let mut v = vec![step(
-                Act::Compared,
-                4.0,
-                format!("Locating plate: {}, all tiny.", changes(c.design_count())),
-            )];
+            let mut v = vec![
+                hook("Tiny changes are easy to miss by eye.".into()),
+                drop(Files::Example, 4.0, "Drop in both revisions."),
+                step(Act::Highlight("summary"), 4.0, found(c))
+                    .scene(Scene::Reveal)
+                    .says(found(c)),
+            ];
             if let Some(hole) = find(c, |ch| ch.entity_type == "CIRCLE") {
                 let ch = &c.diff().changes[hole];
                 let (_, exact) = lightable_diff::words::exact(ch, c.diff().units.as_deref());
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(hole))],
-                    ..step(Act::Tap(hole), 4.0, c.headline(hole).to_owned())
-                });
-                v.push(Step {
-                    // (After the step has set what to zoom onto.)
-                    gestures: vec![(0.3, 1.1, 2.3, Target::Pinch)],
-                    ..step(
-                        Act::Close(hole),
-                        4.0,
-                        "Zoomed in close on that hole.".into(),
-                    )
-                });
+                v.push(tap(hole, 3.5, c.headline(hole).to_owned()));
+                v.push(
+                    Step {
+                        // (After the step has set what to zoom onto.)
+                        gestures: vec![(0.3, 1.1, 2.3, Target::Pinch)],
+                        ..step(
+                            Act::Close(hole),
+                            3.5,
+                            "Zoomed in close on that hole.".into(),
+                        )
+                    }
+                    .scene(Scene::Proof)
+                    .says("Zoomed in close on that hole."),
+                );
+                let line = format!("Details: {}.", lower(&exact));
                 v.push(
                     Step {
                         gestures: vec![click(0.0, 0.7, Target::Details)],
-                        ..step(Act::Nothing, 5.0, format!("Details: {}.", lower(&exact)))
+                        ..step(Act::Nothing, 4.5, line.clone())
                     }
-                    .shows(View::Details),
+                    .shows(View::Details)
+                    .scene(Scene::Proof)
+                    .says(line),
                 );
             }
             if let Some(note) = find(c, |ch| ch.entity_type == "TEXT")
                 && let Some(words) = text_change(&c.diff().changes[note])
             {
-                v.push(
-                    Step {
-                        gestures: vec![click(0.0, 0.8, Target::Row(note))],
-                        ..step(Act::Tap(note), 5.0, format!("Tolerance note: {words}."))
-                    }
-                    .shows(View::Details),
-                );
+                v.push(tap(note, 4.5, format!("Tolerance note: {words}.")).shows(View::Details));
             }
+            v.push(payoff("Small changes, exact values."));
             v.push(end);
             v
         }
         (Feature::Resave, Some(c)) => {
             let d = c.diff();
             let mut v = vec![
-                step(
-                    Act::Opening,
-                    3.0,
-                    "Simulated re-export of Rev D as Rev E.".into(),
-                ),
                 Step {
-                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
-                    ..step(Act::Drop, 4.0, "Drop in Rev D and Rev E.".into())
-                },
+                    then: vec![(
+                        2.4 + STING / 2.0,
+                        Act::Nothing,
+                        Some("What really changed?".into()),
+                    )],
+                    ..hook("Simulated re-export of Rev D as Rev E.".into())
+                }
+                .says("A simulated re-export of Rev D. What changed?"),
+                drop(Files::Example, 4.0, "Drop in Rev D and Rev E."),
                 Step {
                     then: vec![(
                         2.5,
@@ -773,64 +861,64 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                         5.0,
                         format!("{} found.", capital(&changes(c.design_count()))),
                     )
-                },
+                }
+                .scene(Scene::Reveal)
+                .says(format!(
+                    "{} found. New handles, shuffled order, older DXF version.",
+                    capital(&changes(c.design_count()))
+                )),
             ];
             if let Some(i) = find(c, |_| true) {
                 let words = text_change(&d.changes[i]).unwrap_or_else(|| c.headline(i).into());
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(i))],
-                    ..step(Act::Tap(i), 5.0, format!("The one real change: {words}."))
-                });
+                v.push(tap(i, 5.0, format!("The one real change: {words}.")));
             }
+            let line = format!("{} objects redrawn the same: not changes.", d.redrawn.len());
             v.push(
                 Step {
                     gestures: vec![click(0.0, 0.7, Target::Details)],
-                    ..step(
-                        Act::Highlight("redrawn"),
-                        5.0,
-                        format!("{} objects redrawn the same: not changes.", d.redrawn.len()),
-                    )
+                    ..step(Act::Highlight("redrawn"), 5.0, line.clone())
                 }
-                .shows(View::Details),
+                .shows(View::Details)
+                .scene(Scene::Proof)
+                .says(line),
             );
+            v.push(payoff("Real changes only, not file noise."));
             v.push(end);
             v
         }
         (Feature::Blocks, Some(c)) => {
             let d = c.diff();
-            let mut v = vec![step(
-                Act::Compared,
-                4.0,
-                format!(
-                    "Apartment plan, Rev A to Rev B: {}.",
-                    changes(c.design_count())
-                ),
-            )];
+            let mut v = vec![
+                hook("A block edit changes every copy of it.".into()),
+                drop(Files::Example, 4.0, "Drop in both revisions."),
+                step(Act::Highlight("summary"), 4.0, found(c))
+                    .scene(Scene::Reveal)
+                    .says(found(c)),
+            ];
             if let Some(i) = find(c, |ch| matches!(ch.place, lightable_diff::Place::Block(_))) {
                 let refs = d.changes[i].used_by_new.len();
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(i))],
-                    ..step(
-                        Act::Tap(i),
-                        6.0,
-                        format!("Door block edited: shown at all {refs} doors."),
-                    )
-                });
+                v.push(tap(
+                    i,
+                    5.5,
+                    format!("Door block edited: shown at all {refs} doors."),
+                ));
             }
             if let Some(i) = find(c, |ch| ch.layer() == "WALLS") {
-                v.push(Step {
-                    gestures: vec![click(0.0, 0.8, Target::Row(i))],
-                    ..step(Act::Tap(i), 5.0, on_layer(c, i))
-                });
+                v.push(tap(i, 5.0, on_layer(c, i)));
             }
-            v.push(Step {
-                gestures: vec![click(0.0, 0.7, Target::SideBySide)],
-                ..step(
-                    Act::SideBySide,
-                    5.0,
-                    "Before and after, side by side.".into(),
-                )
-            });
+            v.push(
+                Step {
+                    gestures: vec![click(0.0, 0.7, Target::SideBySide)],
+                    ..step(
+                        Act::SideBySide,
+                        5.0,
+                        "Before and after, side by side.".into(),
+                    )
+                }
+                .scene(Scene::Proof)
+                .says("Before and after, side by side."),
+            );
+            v.push(payoff("One block edit, shown wherever it's used."));
             v.push(end);
             v
         }
@@ -949,6 +1037,32 @@ pub fn cue_sheet(plan: &Plan) -> String {
     }
     out.push_str(&format!(
         "\nVideo length {} (the end card is held after the last line).\n",
+        clock(plan.length, '.')
+    ));
+    out
+}
+
+/// A use-case video's voice-over cue sheet: each step's scene, when its
+/// line is spoken, the caption on screen, and the line.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub fn voice_sheet(plan: &Plan) -> String {
+    let mut out =
+        String::from("| # | Scene | Start | End | On screen | Say |\n|---|---|---|---|---|---|\n");
+    let steps: Vec<&Shot> = plan.shots.iter().filter(|s| s.scene.is_some()).collect();
+    for (n, cue) in plan.voice.iter().enumerate() {
+        let shot = steps.iter().rev().find(|s| s.at <= cue.start);
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |\n",
+            n + 1,
+            shot.and_then(|s| s.scene).map_or("", |s| s.name()),
+            clock(cue.start, '.'),
+            clock(cue.end, '.'),
+            shot.and_then(|s| s.caption.as_deref()).unwrap_or(""),
+            cue.text
+        ));
+    }
+    out.push_str(&format!(
+        "\nVideo length {} with the stage's {STING} s sting; the end card is held after the last line.\n",
         clock(plan.length, '.')
     ));
     out
@@ -1179,8 +1293,11 @@ mod tests {
         assert!(line(8).contains("read in your browser, never uploaded"));
     }
 
-    /// The use-case videos: 20–30 s, short captions (two lines in 9:16),
-    /// gestures one at a time, numbers from each example's comparison.
+    /// The use-case videos: 20–35 s with the stage's sting, short captions
+    /// (two lines in 9:16), gestures one at a time, numbers from each
+    /// example's comparison; each tells hook, action, reveal, proof,
+    /// payoff, end, with a voice-over line per step that can be spoken in
+    /// its time.
     #[test]
     fn use_case_videos_say_what_their_comparisons_found() {
         let mut said = std::collections::HashMap::new();
@@ -1190,7 +1307,35 @@ mod tests {
             } else {
                 feature_plan(Some(&compare(f.example(), true)), f)
             };
-            assert!((20.0..=30.0).contains(&p.length), "{f:?}: {}", p.length);
+            assert!((20.0..=35.0).contains(&p.length), "{f:?}: {}", p.length);
+            let scenes: Vec<Scene> = p.shots.iter().filter_map(|s| s.scene).collect();
+            assert_eq!(
+                scenes.len(),
+                p.shots.iter().filter(|s| s.view.is_some()).count()
+            );
+            let order = |s: &Scene| *s as usize;
+            assert!(
+                scenes.windows(2).all(|w| order(&w[0]) <= order(&w[1])),
+                "{f:?} {scenes:?}"
+            );
+            for scene in [
+                Scene::Hook,
+                Scene::Action,
+                Scene::Reveal,
+                Scene::Proof,
+                Scene::Payoff,
+                Scene::End,
+            ] {
+                assert!(scenes.contains(&scene), "{f:?} has no {scene:?}");
+            }
+            // Every step but the end card has a line to say, at most 2.8
+            // words a second, after the sting.
+            assert_eq!(p.voice.len(), scenes.len() - 1, "{f:?}");
+            assert!(p.voice[0].start > STING);
+            for cue in &p.voice {
+                let rate = cue.text.split_whitespace().count() as f64 / (cue.end - cue.start);
+                assert!(rate <= 2.8, "{f:?}: {} ({rate:.1} words/s)", cue.text);
+            }
             for cue in p.cues.iter().filter(|c| c.text != END_CARD) {
                 assert!(cue.text.len() <= 55, "{f:?}: {}", cue.text);
             }
@@ -1240,8 +1385,45 @@ mod tests {
         ));
         assert!(has(
             Feature::Big,
-            "{objects} objects read and compared in seconds."
+            "{changes} found among {objects} objects."
         ));
+        assert!(has(
+            Feature::Unclouded,
+            "The cloud marks 1 change. Is that everything?"
+        ));
+        assert!(has(
+            Feature::Unclouded,
+            "Every change listed, clouded or not."
+        ));
+        assert!(has(
+            Feature::Resave,
+            "Simulated re-export of Rev D as Rev E."
+        ));
+        assert!(has(Feature::Resave, "What really changed?"));
+        assert!(has(
+            Feature::Blocks,
+            "One block edit, shown wherever it's used."
+        ));
+    }
+
+    /// docs/demo/voiceover.md has each use-case video's voice-over sheet,
+    /// as the plans make it (the large layout's counts filled in).
+    #[test]
+    fn the_voice_over_scripts_match_the_plans() {
+        let doc = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/demo/voiceover.md"),
+        )
+        .unwrap();
+        for f in Feature::ALL {
+            if f == Feature::Big {
+                continue;
+            }
+            let sheet = voice_sheet(&feature_plan(Some(&compare(f.example(), true)), f));
+            assert!(
+                doc.contains(sheet.trim()),
+                "{f:?}: run `lightable demo-cues out/demo` and update the doc"
+            );
+        }
     }
 
     /// The demo page (`web/demo/index.html`) states the comparison's own

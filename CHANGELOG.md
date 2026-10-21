@@ -1,5 +1,14 @@
 # Changelog
 
+## Brand-ambassador videos (unreleased)
+
+- Brand kit (`docs/brand/`): logo mark, wordmark, lockup, palette, Lato (OFL 1.1, videos only), caption, motion, sting and end-card rules.
+- The brand stage (`tools/stage/`): the real app in a browser-window mockup on the brand background; intro sting, kinetic captions with numbers in yellow, file cards with the real names carried by the real drag, landing pulse, eased pointer with hover lift and click ripples, highlight pulses on the selected change, a subtle camera push-in, the end card. Driven by the recorder's frame clock.
+- The app's stage mode (`?stage`): fits its window, keeps captions' place, reveals the change list row by row.
+- Each use-case video tells hook, action, reveal, proof, payoff, end card; voice-over lines and cue sheets per video.
+- Our own music and UI sounds, mixed with ffmpeg at the real events; versions with and without music, and stems.
+- `tools/demo.mjs`: storyboards, and checks that every decoration lines up with the real app event it shows.
+
 ## Use-case videos (unreleased)
 
 - Five use-case videos, each on its own generated drawing with a written inventory of expected changes: unclouded changes, tiny changes, re-export noise, blocks, a 23,000-object layout.

@@ -105,6 +105,9 @@ pub struct Compare {
     /// it), and whether to scroll it into view this frame.
     pub redrawn_rect: Option<Rect>,
     pub reveal_redrawn: bool,
+    /// On the brand stage: seconds since the comparison appeared; the rows
+    /// of the change list fade in one after another (all of them real).
+    pub reveal_age: Option<f64>,
     pub privacy_rect: Option<Rect>,
     /// How long reading and comparing the user's files took, and (the
     /// large layout's video) the network requests since; shown under the
@@ -265,6 +268,7 @@ impl Compare {
             not_compared_rect: None,
             redrawn_rect: None,
             reveal_redrawn: false,
+            reveal_age: None,
             privacy_rect: None,
             timing_line: None,
             network_line: None,
@@ -353,6 +357,22 @@ impl Compare {
         self.reveal_selected = 2;
         self.used[0] = true;
         self.zoom_for(i)
+    }
+
+    /// The later drawing's objects (model space entities).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub fn object_count(&self) -> usize {
+        self.drawings.1.entities.len()
+    }
+
+    /// The change selected in the list.
+    pub fn selected(&self) -> Option<usize> {
+        self.current
+    }
+
+    /// The two files' names, earlier first.
+    pub fn file_names(&self) -> (&str, &str) {
+        (&self.a_name, &self.b_name)
     }
 
     /// The headline of change `i`.
@@ -1083,8 +1103,13 @@ impl Compare {
                 if c.markup {
                     text = text.color(Color32::from_gray(170));
                 }
+                // Row by row on the stage: 0.15 s apart, each over 0.3 s.
+                let alpha = self.reveal_age.map_or(1.0, |age| {
+                    ((age - 0.15 * i as f64) / 0.3).clamp(0.0, 1.0) as f32
+                });
                 let response = ui
                     .horizontal(|ui| {
+                        ui.multiply_opacity(alpha);
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 2.0, kind_color(c));
