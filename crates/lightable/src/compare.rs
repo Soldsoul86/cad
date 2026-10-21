@@ -101,6 +101,10 @@ pub struct Compare {
     pub summary_rect: Option<Rect>,
     pub swap_rect: Option<Rect>,
     pub not_compared_rect: Option<Rect>,
+    /// The "objects redrawn the same" line in Details (the demo highlights
+    /// it), and whether to scroll it into view this frame.
+    pub redrawn_rect: Option<Rect>,
+    pub reveal_redrawn: bool,
     pub privacy_rect: Option<Rect>,
     /// How long reading and comparing the user's files took, and (the
     /// large layout's video) the network requests since; shown under the
@@ -259,6 +263,8 @@ impl Compare {
             summary_rect: None,
             swap_rect: None,
             not_compared_rect: None,
+            redrawn_rect: None,
+            reveal_redrawn: false,
             privacy_rect: None,
             timing_line: None,
             network_line: None,
@@ -335,8 +341,10 @@ impl Compare {
             return None;
         }
         // At least a quarter of the drawing, so the change is seen in its
-        // surroundings.
-        Some(dview::zoom_box(c.bounds?, self.extent, 0.25))
+        // surroundings; a tenth for text, so the words can be read.
+        let text = matches!(c.entity_type.as_str(), "TEXT" | "MTEXT" | "ATTRIB");
+        let fraction = if text { 0.1 } else { 0.25 };
+        Some(dview::zoom_box(c.bounds?, self.extent, fraction))
     }
 
     /// Selects change `i`; returns where to zoom.
@@ -1039,6 +1047,7 @@ impl Compare {
         let mut cut_rows = 0;
         let mut view = None;
         let mut not_compared = None;
+        let mut redrawn = None;
         let bring = self.reveal_selected > 0;
         self.reveal_selected = self.reveal_selected.saturating_sub(1);
         // A short list (a 9:16 recording) scrolls within its panel instead
@@ -1176,9 +1185,21 @@ impl Compare {
                     }
                 }
                 if !d.redrawn.is_empty() {
-                    egui::CollapsingHeader::new(format!("Same drawing, other entities ({})", d.redrawn.len()))
+                    // A wrapping line (a collapsing header's title cannot
+                    // wrap and would widen the panel), then the list.
+                    ui.add_space(6.0);
+                    let line = ui.label(format!(
+                        "{} objects redrawn the same: not changes",
+                        d.redrawn.len()
+                    ));
+                    redrawn = Some(line.rect);
+                    if self.reveal_redrawn {
+                        line.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    egui::CollapsingHeader::new("Which objects")
+                        .id_salt("redrawn")
                         .show(ui, |ui| {
-                            ui.small("Drawn identically by other entities in the other file (for example a polyline saved as separate lines). Not counted as changes.");
+                            ui.small("Drawn identically by other objects in the other file (for example a polyline saved as separate lines). Not counted as changes.");
                             for c in &d.redrawn {
                                 ui.small(format!(
                                     "{} {}{}",
@@ -1197,6 +1218,7 @@ impl Compare {
         self.cut_rows = cut_rows;
         self.list_rect = view;
         self.not_compared_rect = not_compared;
+        self.redrawn_rect = redrawn;
         if reveal {
             self.details = true;
             self.used[2] = true;

@@ -14,4 +14,4 @@ Written by tools/gen_usecases.py from the edits it makes, before the files are c
 
 ## Not changes
 
-- 23182 objects in Rev B (model space entities); the files are made by this script and not committed
+- 23182 objects in Rev B (model space entities); the files are written by crates/lightable/src/depot.rs (deterministic) and not committed

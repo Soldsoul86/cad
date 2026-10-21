@@ -12,7 +12,8 @@
 //!     lightable --diff A.dxf B.dxf [--side]      compare A and B in the viewer
 //!     lightable --example [bracket|plan] [--side]  compare a built-in example
 //!     lightable --demo [--narration] [--feature ID]  play the demo (voice-over timing, a feature video)
-//!     lightable demo-cues OUT_DIR               subtitles (SRT, WebVTT) and voice-over cue sheet
+//!     lightable demo-cues OUT_DIR               subtitles (SRT, WebVTT), voice-over cue sheet,
+//!                                                and the large layout (OUT_DIR/usecases)
 //!     lightable --diff A B --report              save the PNG change report and quit
 //!     lightable --diff A.dxf B.dxf --shot OUT.ppm   ... save a screenshot and quit
 //!
@@ -23,6 +24,8 @@
 mod app;
 mod compare;
 mod demo;
+#[cfg(not(target_arch = "wasm32"))]
+mod depot;
 mod examples;
 mod feedback;
 mod files;
@@ -170,6 +173,13 @@ mod cli {
                     write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;
                     println!("{stem}: {:.2} s, {} cues", plan.length, plan.cues.len());
                 }
+                // The large layout the recorder drops (not committed).
+                let big = dir.join("usecases");
+                std::fs::create_dir_all(&big).map_err(|e| format!("{}: {e}", big.display()))?;
+                for (rev_b, name) in [(false, "depot-rev-a.dxf"), (true, "depot-rev-b.dxf")] {
+                    std::fs::write(big.join(name), crate::depot::depot(rev_b))
+                        .map_err(|e| format!("{name}: {e}"))?;
+                }
                 Ok(())
             })(),
             [cmd, path] if cmd == "info" => (|| {
@@ -305,6 +315,7 @@ fn main() -> std::process::ExitCode {
                     cut: false,
                     feature,
                     own: false,
+                    machine: None,
                 },
             )))
         }),
@@ -354,6 +365,11 @@ fn main() {
                 .find_map(|p| p.strip_prefix("feature="))
                 .map(str::to_owned),
             own: flag("own"),
+            machine: params
+                .iter()
+                .find_map(|p| p.strip_prefix("machine="))
+                .and_then(|m| js_sys::decode_uri_component(&m.replace('+', " ")).ok())
+                .map(String::from),
             ..Default::default()
         };
         let _ = eframe::WebRunner::new()

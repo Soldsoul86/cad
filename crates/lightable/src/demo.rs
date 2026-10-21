@@ -471,7 +471,8 @@ pub enum Feature {
     Unclouded,
     /// Shows tiny changes with their exact values (locating plate).
     Tiny,
-    /// Ignores re-export noise: one real change (drive shaft re-saved).
+    /// Ignores re-export noise: one real change (drive shaft Rev E, saved by
+    /// another program).
     Resave,
     /// A block definition edit shown at every reference (floor plan).
     Blocks,
@@ -622,12 +623,12 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                 step(
                     Act::Highlight("timing"),
                     5.0,
-                    "{objects} objects compared in {seconds} s.".into(),
+                    "{objects} objects read and compared in seconds.".into(),
                 ),
                 step(
                     Act::Highlight("network"),
                     5.0,
-                    "Network requests since opening the files: {requests}.".into(),
+                    "Requests logged since the files opened: {requests}.".into(),
                 ),
                 match first {
                     Some(i) => Step {
@@ -635,7 +636,12 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                         ..step(
                             Act::Tap(i),
                             5.0,
-                            c.map_or(String::new(), |c| on_layer(c, i)),
+                            c.map_or(String::new(), |c| {
+                                text_change(&c.diff().changes[i]).map_or_else(
+                                    || on_layer(c, i),
+                                    |w| format!("Text changed: {w}."),
+                                )
+                            }),
                         )
                     },
                     None => step(Act::Nothing, 5.0, "Each change, in plain words.".into()),
@@ -749,15 +755,11 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                 step(
                     Act::Opening,
                     3.0,
-                    "A drawing re-saved by another program.".into(),
+                    "Rev E was saved by another program.".into(),
                 ),
                 Step {
                     gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
-                    ..step(
-                        Act::Drop,
-                        4.0,
-                        "Drop in the original and the re-saved copy.".into(),
-                    )
+                    ..step(Act::Drop, 4.0, "Drop in Rev D and Rev E.".into())
                 },
                 Step {
                     then: vec![(
@@ -783,7 +785,7 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                 Step {
                     gestures: vec![click(0.0, 0.7, Target::Details)],
                     ..step(
-                        Act::Nothing,
+                        Act::Highlight("redrawn"),
                         5.0,
                         format!("{} objects redrawn the same: not changes.", d.redrawn.len()),
                     )
@@ -1237,7 +1239,7 @@ mod tests {
         ));
         assert!(has(
             Feature::Big,
-            "{objects} objects compared in {seconds} s."
+            "{objects} objects read and compared in seconds."
         ));
     }
 
@@ -1302,6 +1304,11 @@ mod tests {
         assert!(page.contains("<code>AC1009</code> to <code>AC1032</code>"));
         // No scripts on the page.
         assert!(!page.contains("<script"));
+        // The large layout claims no more than its counter shows, and says
+        // how to check the rest; a time names its machine.
+        assert!(page.contains("Check it yourself") && page.contains("Resource Timing"));
+        assert!(!page.contains("nothing is sent anywhere"));
+        assert!(page.contains("MacBook Air with a 2-core Intel Core i3"));
         // The use cases' numbers, from their comparisons.
         let cover = compare("cover", true);
         assert_eq!((cover.design_count(), cover.clouded_count()), (14, 1));

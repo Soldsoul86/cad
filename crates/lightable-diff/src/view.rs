@@ -254,7 +254,7 @@ pub fn overlay(a: &Scene, b: &Scene, diff: &Diff) -> Scene {
     out
 }
 
-/// Moves an old text a line and a half below (or above, or further) where
+/// Moves an old text two lines below (or above, or further) where
 /// it was, in its own direction, to the first place clear of `taken`, and
 /// returns a line striking it through: "25" in place, "20" struck through
 /// beside it, both readable.
@@ -273,7 +273,7 @@ fn old_text_aside(item: &mut Item, taken: &[Bounds]) -> Option<Item> {
         }
         shape
     };
-    let shape = [1.5, -1.5, 2.7, -2.7, 3.9, -3.9]
+    let shape = [2.0, -2.0, 3.2, -3.2, 4.4, -4.4]
         .into_iter()
         .map(place)
         .find(|shape| {
@@ -281,7 +281,7 @@ fn old_text_aside(item: &mut Item, taken: &[Bounds]) -> Option<Item> {
                 .bounds()
                 .is_some_and(|b| !taken.iter().any(|x| x.intersects(&b)))
         })
-        .unwrap_or_else(|| place(1.5));
+        .unwrap_or_else(|| place(2.0));
     item.shape = shape;
     let Shape::Text(t) = &item.shape else {
         return None;

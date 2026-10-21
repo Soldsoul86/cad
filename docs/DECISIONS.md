@@ -1160,6 +1160,50 @@ reading big files off the main thread, keyboard pan and zoom).
    and checks it at 390 px (video size, files, text size, no sideways
    scrolling, no requests to other sites) and at 1280 px.
 
+## Use-case videos: one capability each, proved on its own drawing
+
+1. **Five use cases replace the five feature tours**, each on a new,
+   generated, licence-clean drawing with an expected-change inventory
+   written from the edits before anything is compared
+   (`tools/gen_usecases.py`, `crates/lightable/src/depot.rs`; checked by
+   `crates/lightable-diff/tests/examples.rs`): unclouded changes (gearbox
+   cover, 14 changes, 1 clouded), tiny changes (locating plate, 0.5 mm and
+   ±0.1 → ±0.05), re-export noise (drive shaft Rev D, and Rev E saved by
+   another program: 1 design change, 17 redrawn), blocks (flat, door block
+   shown at 7 doors, one wall 300 mm), a big drawing (23,181 / 23,182
+   objects, 3 changes).
+2. **Files are named as people name them** ("shaft-rev-d.dxf",
+   "shaft-rev-e.dxf"), so the normal revision-order rule decides; the
+   recorder never special-cases a video.
+3. **The large layout is generated in Rust**, deterministically (no
+   randomness), so its test always runs, in CI too; `lightable demo-cues`
+   writes the copies the recorder drops. The files are not committed.
+4. **Old text never overlaps new text**: a changed "before" text that
+   would sit on a changed "after" text is drawn struck through, moved
+   aside to the first free spot (2, 3.2 or 4.4 text heights above or
+   below). The recorder checks every frame for overlapping changed text.
+5. **Details use plain labels and units**: "Object: circle (handle A5),
+   layer HOLES", "Diameter 13.5 → 17.5 mm; centre moved 5 mm left, 5 mm
+   up" (diameter when the headline says diameter).
+6. **Framing**: captions end above the bottom 15 % of the frame; the
+   top-left 10 % holds no control the video uses; headlines wrap, never
+   end in "…". The recorder checks all three and that each settled frame
+   shows the step's view (overlay, side by side, details, report).
+7. **Pointer**: clicks get at least 0.45 s of eased movement and a 0.3 s
+   pause, even when that makes a click late after the list had to scroll;
+   the pointer follows a row that is still settling; scrolling is faster
+   when the row is far.
+8. **The no-upload claim is only what is measured.** On screen: "Requests
+   the browser logged since the files were opened: N (Resource Timing)".
+   The page names what that counts, reports the recorder's own DevTools
+   log (no request to another site, none with a body), and has a "Check
+   it yourself" box with the Network-tab steps. The heading no longer says
+   "nothing uploaded".
+9. **Every time names its machine.** The on-screen timing line ends "on
+   this device", or in recordings on the recording machine (`?machine=`,
+   from `sysctl`: "a MacBook Air (2-core Intel i3), while
+   recording"). Captions say "in seconds", without a number.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

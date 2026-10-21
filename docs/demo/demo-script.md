@@ -47,20 +47,24 @@ Captions are 4.5 % of the screen height (smaller only to fit two lines),
 at the bottom of the drawing; the app's fits and zooms keep that band clear
 during the demo.
 
-## Feature videos (the demo page)
+## Use-case videos (the demo page)
 
-`?demo&feature=find|explain|compare|report|private` (`--demo --feature
-ID`): 20–30 s each, the same recorder, pointer and rules. The plans are in
+`?demo&feature=unclouded|tiny|resave|blocks|big` (`--demo --feature
+ID`): 20–30 s each, the same recorder, pointer and rules; each proves one
+capability on its own drawing (made by `tools/gen_usecases.py`; the large
+layout by `crates/lightable/src/depot.rs`), with an expected-change
+inventory next to it in `crates/lightable/assets`. The plans are in
 `crates/lightable/src/demo.rs` (`feature_plan`); captions in
-`out/demo/feature-ID.vtt`.
+`out/demo/feature-ID.vtt` (the big one's from the recording, since its
+numbers are measured as it plays).
 
-| Video | Steps (gestures) |
-|---|---|
-| find | Rev C alone; drop both revisions; the legend highlighted; "10 changes found between Rev B and Rev C." highlighted; pinch onto the cloud ("The other 9 weren't clouded"); end card |
-| explain | the example's comparison; tap the hole, tap the 20 → 25 mm dimension (each zooms; the headline as the caption); click Details ("Details shows the exact values."); "Lightable describes the geometry it detects." / "You judge what it means."; end card |
-| compare | Rev C alone; drop "bracket.dxf" and "bracket from supplier.dxf" (same date); the app asks which is earlier, click "bracket.dxf is Before"; Side by side; Swap; end card |
-| report | the example's comparison; Details; Export JSON; Export PNG report (the report on screen, "And what was not compared."); end card |
-| private | the privacy line highlighted; "What isn't compared?" (the list scrolled to it, then Details opens there); drop a DWG file, the message, OK; the phone outline; end card |
+| Video | Drawing | Steps |
+|---|---|---|
+| unclouded | gearbox cover, Rev B → Rev C | 14 changes, 1 clouded; the holes, the callout and the section edges were not; tap them; Details |
+| tiny | locating plate, Rev B → Rev C | pinch onto the dowel hole; "moved 0.5 mm right"; Details with the exact values; the tolerance note ±0.1 → ±0.05 |
+| resave | drive shaft, Rev D → Rev E (saved by another program) | drop both (the names give the order); 1 change, Ra 1.6 → Ra 0.8; 17 objects redrawn the same |
+| blocks | flat, Rev A → Rev B | the door block edit at all 7 doors; the wall moved 300 mm; Side by side |
+| big | warehouse layout, 23,181 / 23,182 objects | drop both; the timing line (with the machine) and the request counter (Resource Timing); a change |
 
 ```bash
 node tools/demo.mjs stills --modes features
@@ -70,6 +74,11 @@ node tools/demo.mjs approve --mode features   # finals only, after approval
 ```
 
 ## What the demo does not claim
+
+- The big video's counter counts the browser's Resource Timing entries
+  after the files were opened, nothing more; the page explains how to
+  check every request in the Network tab. Times are measured on the
+  recording machine while recording, and say so.
 
 - Lightable does not check whether a revision cloud covers every change.
   The cloud sentence is narration about this example, computed for the

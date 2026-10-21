@@ -159,6 +159,9 @@ pub struct Start {
     /// Open on the start screen ("Choose two DXF files…"), no example
     /// (`?own`, the demo page's "Compare your own files").
     pub own: bool,
+    /// The machine a recording is made on (`?machine=`), named next to any
+    /// time measured in it; without it, "this device".
+    pub machine: Option<String>,
 }
 
 /// A smooth move of the view.
@@ -545,6 +548,8 @@ pub struct CadApp {
     requests_at_open: Option<usize>,
     /// Show the request count (the large layout's video).
     show_network: bool,
+    /// Where times are measured: "this device", or the recording machine.
+    machine: String,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -595,6 +600,7 @@ impl CadApp {
             cut,
             feature,
             own,
+            machine,
         } = start;
         // The demo opens its example's Rev C on its own and has the two
         // files dropped in.
@@ -672,6 +678,7 @@ impl CadApp {
             timing: None,
             requests_at_open: None,
             show_network: false,
+            machine: machine.unwrap_or_else(|| "this device".to_owned()),
         }
     }
 
@@ -1593,22 +1600,36 @@ impl eframe::App for CadApp {
             .requests_since_open()
             .filter(|_| self.show_network)
             .map(|n| {
-                format!("Network requests since the files were opened: {n} (the browser's count)")
+                // Exactly what is counted: entries in the browser's
+                // Resource Timing list (fetches, scripts, images and other
+                // resources the page loads).
+                format!("Requests the browser logged since the files opened: {n} (Resource Timing)")
             });
         let timing = self
             .timing
             .filter(|_| !self.recording() || self.show_network);
+        let reveal_redrawn = self.lit() == Some("redrawn");
         if let Some(c) = &mut self.compare {
             // (In recordings, only the large layout's video shows it: in a
             // 9:16 frame it would take the drawing's room.)
 
+            // (Recordings give the objects in a caption: the line stays
+            // short enough for a 9:16 frame.)
+            let recording = self.demo.as_ref().is_some_and(|d| d.record);
             c.timing_line = timing.map(|(s, a, b)| {
-                format!(
-                    "Read and compared in {s:.1} s ({} and {} objects)",
-                    crate::demo::count(a),
-                    crate::demo::count(b)
-                )
+                let objects = if recording {
+                    String::new()
+                } else {
+                    format!(
+                        " ({} and {} objects)",
+                        crate::demo::count(a),
+                        crate::demo::count(b)
+                    )
+                };
+                format!("Read and compared in {s:.1} s on {}{objects}", self.machine)
             });
+            // The demo's "redrawn the same" step brings that line into view.
+            c.reveal_redrawn = reveal_redrawn;
             c.network_line = network;
             c.show_privacy = self.show_privacy;
             c.show_files = self.show_files;
@@ -2006,6 +2027,8 @@ impl CadApp {
         // What the step is about, for the recorder's checks.
         let c = self.compare.as_ref();
         self.demo_focus = match shot.act {
+            // (Details' "redrawn the same" line: the drawing stays as it was.)
+            Act::Highlight("redrawn") => self.demo_focus,
             Act::Highlight(_) | Act::Compared => c.and_then(|c| c.bounds()),
             Act::Cloud => c.and_then(|c| c.cloud_bounds_tight()),
             Act::Close(i) => c.and_then(|c| c.change_bounds(i)),
@@ -2546,6 +2569,7 @@ impl CadApp {
                 "privacy" => c.privacy_rect,
                 "timing" => c.timing_rect,
                 "network" => c.network_rect,
+                "redrawn" => c.redrawn_rect,
                 _ => None,
             }
         });

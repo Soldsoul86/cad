@@ -1,10 +1,11 @@
 """The demo page's five use-case examples (millimetres, $INSUNITS = 4).
 
-Usage: tools/.venv/bin/python tools/gen_usecases.py crates/lightable/assets out/demo/usecases
+Usage: tools/.venv/bin/python tools/gen_usecases.py crates/lightable/assets
 
-Writes four small pairs into the first folder (built into the app as
-examples) and the large one into the second (not committed: dropped into
-the page by tools/demo.mjs). Next to each pair, an expected-change
+Writes four small pairs into the folder (built into the app as examples).
+The large layout (5) is written by crates/lightable/src/depot.rs instead,
+so its test needs no generated files; `lightable demo-cues out/demo` writes
+the copies tools/demo.mjs drops. Next to each pair, an expected-change
 inventory (`<name>-inventory.json` and `.md`) is written here, from the
 edits this script makes, before anything is compared; the tests in
 crates/lightable-diff/tests/examples.rs check the comparison against it.
@@ -15,15 +16,15 @@ crates/lightable-diff/tests/examples.rs check the comparison against it.
    is clouded.
 2. plate: a precision locating plate. One dowel hole moves 0.5 mm, its
    dimension follows, the position tolerance note goes from ±0.1 to ±0.05.
-3. shaft: a stepped shaft, and the same drawing "re-saved by another
-   program": new handles, shuffled order, saved as R2000, one outline
+3. shaft: a stepped shaft, Rev D, and Rev E saved by another program:
+   new handles, shuffled order, saved as R2000, one outline
    polyline split into lines and arcs, and exactly one real change (the
    surface finish note).
 4. flat: an apartment floor plan with door, window and furniture blocks.
    The door block definition is edited (the leaf drawn with its
    thickness) and one partition wall moves 300 mm.
 5. depot: a large warehouse layout (tens of thousands of objects) with
-   three changes.
+   three changes (crates/lightable/src/depot.rs).
 
 Everything is generated here with ezdxf (MIT): ours to ship under the
 project's licence.
@@ -38,9 +39,7 @@ import ezdxf
 from ezdxf.enums import TextEntityAlignment
 
 ASSETS = Path(sys.argv[1])
-BIG = Path(sys.argv[2])
 ASSETS.mkdir(parents=True, exist_ok=True)
-BIG.mkdir(parents=True, exist_ok=True)
 LEFT = TextEntityAlignment.LEFT
 MID = TextEntityAlignment.MIDDLE_CENTER
 STYLE = {"dimtxt": 3.5, "dimasz": 3, "dimexe": 2, "dimexo": 2, "dimgap": 1, "dimlfac": 1}
@@ -307,11 +306,11 @@ def plate():
 
 # --- 3. Re-export noise ------------------------------------------------------
 
-def shaft(version, order_seed, finish, split_outline, handles=None):
+def shaft(version, order_seed, finish, split_outline, handles=None, revised=False):
     """The shaft drawing. Each part is a function; `order_seed` shuffles the
     order they are written in (so handles and entity order differ),
     `split_outline` writes the outline as lines and arcs."""
-    s = Sheet("DRIVE SHAFT", "LT-0020", "A",
+    s = Sheet("DRIVE SHAFT", "LT-0020", "D",
               [("OUTLINE", 7), ("CENTER", 6), ("HIDDEN", 5), ("NOTES", 2), ("DIMS", 3)], version=version,
               handles=handles)
     y0 = 160
@@ -354,19 +353,23 @@ def shaft(version, order_seed, finish, split_outline, handles=None):
         random.Random(order_seed).shuffle(order)
     for i in order:
         parts[i]()
+    if revised:
+        s.revision("E", "SURFACE FINISH Ra 0.8")
     return s
 
 
 def reexport():
-    shaft("R2018", None, "Ra 1.6", False).doc.saveas(ASSETS / "shaft-rev-a.dxf")
-    shaft("R2000", 7, "Ra 0.8", True, handles="7000").doc.saveas(ASSETS / "shaft-resaved.dxf")
+    shaft("R2018", None, "Ra 1.6", False).doc.saveas(ASSETS / "shaft-rev-d.dxf")
+    shaft("R2000", 7, "Ra 0.8", True, handles="7000", revised=True).doc.saveas(ASSETS / "shaft-rev-e.dxf")
     write_inventory(
         "shaft",
-        "Drive shaft LT-0020 and the same drawing re-saved by another program: every handle renumbered, the "
+        "Drive shaft LT-0020, Rev D, and Rev E saved by another program: every handle renumbered, the "
         "entities in another order, saved as DXF R2000 instead of R2018, the outline polyline split into "
         "separate lines. One real change: the surface finish note, Ra 1.6 -> Ra 0.8.",
         [{"id": "E1", "type": "TEXT", "layer": "NOTES",
           "words": ["Text changed from SURFACE FINISH Ra 1.6 to SURFACE FINISH Ra 0.8"]}],
+        [{"id": "M1", "type": "TEXT", "layer": "TITLE", "words": ["Text changed from REV D to REV E"]},
+         {"id": "M2", "layer": "TITLE", "words": ["added"], "note": "revision-table row E"}],
         notes=["handles renumbered, entity order shuffled, file version R2018 -> R2000",
                "the outline polyline (16 vertices) written as 16 lines: drawn the same (redrawn)"])
 
@@ -466,63 +469,8 @@ def flat():
         notes=["the door block is shown by 7 references (INSERT); each shows the edit"])
 
 
-# --- 5. Large layout -------------------------------------------------------------
-
-def depot():
-    """A distribution centre: 52 rack rows of 110 bays, each bay a frame
-    (polyline), two beam lines and a location label, plus columns on a
-    12 m grid: tens of thousands of objects, written as plain entities."""
-    doc = ezdxf.new("R2018", setup=True)
-    doc.header["$INSUNITS"] = 4
-    for name, color in [("RACKS", 7), ("BEAMS", 8), ("LABELS", 2), ("COLUMNS", 4), ("BUILDING", 7)]:
-        doc.layers.add(name, color=color)
-    msp = doc.modelspace()
-    rows, bays = 52, 110
-    bay_w, bay_d, aisle = 2700, 1100, 3200
-    labels = {}
-    frames = {}
-    for r in range(rows):
-        # Back-to-back pairs of rows with an aisle between pairs.
-        y = (r // 2) * (2 * bay_d + aisle) + (r % 2) * bay_d
-        for b in range(bays):
-            x = b * bay_w
-            frames[(r, b)] = msp.add_lwpolyline([(x, y), (x + bay_w, y), (x + bay_w, y + bay_d), (x, y + bay_d)],
-                                                close=True, dxfattribs={"layer": "RACKS"})
-            msp.add_line((x + 50, y + 100), (x + bay_w - 50, y + 100), dxfattribs={"layer": "BEAMS"})
-            msp.add_line((x + 50, y + bay_d - 100), (x + bay_w - 50, y + bay_d - 100), dxfattribs={"layer": "BEAMS"})
-            t = msp.add_text(f"{chr(65 + r % 26)}{r // 26 + 1}-{b + 1:03d}", height=180,
-                             dxfattribs={"layer": "LABELS"})
-            t.set_placement((x + bay_w / 2, y + bay_d / 2), align=TextEntityAlignment.MIDDLE_CENTER)
-            labels[(r, b)] = t
-    width = bays * bay_w
-    depth = (rows // 2) * (2 * bay_d + aisle)
-    msp.add_lwpolyline([(-6000, -6000), (width + 6000, -6000), (width + 6000, depth + 6000), (-6000, depth + 6000)],
-                       close=True, dxfattribs={"layer": "BUILDING"})
-    for gx in range(0, width + 1, 12000):
-        for gy in range(0, depth + 1, 12000):
-            msp.add_circle((gx, gy - 400), 250, dxfattribs={"layer": "COLUMNS"})
-    doc.saveas(BIG / "depot-rev-a.dxf")
-    # Rev B: one bay relabelled, one bay frame moved 300 mm (a fire-escape
-    # gap), one column added.
-    labels[(17, 64)].dxf.text = "QC-01"
-    f = frames[(30, 12)]
-    f.set_points([(p[0] + 300, p[1]) for p in f.get_points("xy")], format="xy")
-    msp.add_circle((width + 3000, depth / 2), 250, dxfattribs={"layer": "COLUMNS"})
-    doc.saveas(BIG / "depot-rev-b.dxf")
-    n = len(msp)
-    write_inventory(
-        "depot",
-        f"Distribution centre layout, Rev A -> Rev B ({n} objects in Rev B): one location label renamed, one "
-        "bay frame moved 300 mm, one column added.",
-        [{"id": "E1", "type": "TEXT", "layer": "LABELS", "words": ["Text changed from R1-065 to QC-01"]},
-         {"id": "E2", "type": "LWPOLYLINE", "layer": "RACKS", "words": ["moved 300 mm right"]},
-         {"id": "E3", "type": "CIRCLE", "layer": "COLUMNS", "words": ["added"]}],
-        notes=[f"{n} objects in Rev B (model space entities); the files are made by this script and not committed"])
-
-
 if __name__ == "__main__":
     cover()
     plate()
     reexport()
     flat()
-    depot()

@@ -282,7 +282,7 @@ fn the_use_case_examples_match_their_inventories() {
     for (name, a, b) in [
         ("cover", "cover-rev-b.dxf", "cover-rev-c.dxf"),
         ("plate", "plate-rev-b.dxf", "plate-rev-c.dxf"),
-        ("shaft", "shaft-rev-a.dxf", "shaft-resaved.dxf"),
+        ("shaft", "shaft-rev-d.dxf", "shaft-rev-e.dxf"),
         ("flat", "flat-rev-a.dxf", "flat-rev-b.dxf"),
     ] {
         let d = diff(a, b);
@@ -291,9 +291,9 @@ fn the_use_case_examples_match_their_inventories() {
     }
     // The re-saved shaft: renumbered and reordered, one outline written as
     // lines, and still exactly one change.
-    let d = diff("shaft-rev-a.dxf", "shaft-resaved.dxf");
+    let d = diff("shaft-rev-d.dxf", "shaft-rev-e.dxf");
     assert!(!d.handles_trusted);
-    assert_eq!(d.changes.len(), 1);
+    assert_eq!(d.design_changes().count(), 1);
     assert_eq!(d.equivalent, 17);
     // The door block edit is shown by all seven doors.
     let d = diff("flat-rev-a.dxf", "flat-rev-b.dxf");
@@ -306,19 +306,17 @@ fn the_use_case_examples_match_their_inventories() {
     }
 }
 
-/// The large layout (made by tools/gen_usecases.py into out/demo/usecases,
-/// not committed): checked when it has been generated.
+/// The large layout, generated here from the same code `lightable
+/// demo-cues` writes the recorder's files with (deterministic, no files
+/// needed), matches its inventory.
+#[path = "../../lightable/src/depot.rs"]
+mod depot;
+
 #[test]
-fn the_large_layout_matches_its_inventory_when_generated() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../out/demo/usecases");
-    let (a, b) = (dir.join("depot-rev-a.dxf"), dir.join("depot-rev-b.dxf"));
-    if !a.exists() || !b.exists() {
-        eprintln!("skipped: run tools/gen_usecases.py to make the large layout");
-        return;
-    }
-    let (a, _) = lightable_dxf::read_file(a).unwrap();
-    let (b, _) = lightable_dxf::read_file(b).unwrap();
-    assert!(b.entities.len() > 20_000, "{}", b.entities.len());
+fn the_large_layout_matches_its_inventory() {
+    let (a, _) = lightable_dxf::read_str(&depot::depot(false)).unwrap();
+    let (b, _) = lightable_dxf::read_str(&depot::depot(true)).unwrap();
+    assert_eq!((a.entities.len(), b.entities.len()), (23_181, 23_182));
     let d = lightable_diff::diff(&a, &b, &DiffOptions::default());
     check_inventory(&d, &assets().join("depot-inventory.json"));
 }

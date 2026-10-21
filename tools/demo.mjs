@@ -44,6 +44,17 @@ import { cpus, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
+// The machine recordings are made on, named next to any time measured in
+// them (the app's timing line): "a MacBook Air (2-core Intel i3), while
+// recording".
+const MACHINE = (() => {
+  const sysctl = (k) => spawnSync("sysctl", ["-n", k], { encoding: "utf8" }).stdout?.trim() || "";
+  const brand = sysctl("machdep.cpu.brand_string") || cpus()[0]?.model || "";
+  const chip = brand.match(/Core\(TM\) (i\d-\w+)/)?.[1] ? `Intel ${brand.match(/Core\(TM\) (i\d)-/)[1]}` : brand.replace(/\(R\)|\(TM\)|CPU.*$/g, "").trim();
+  const cores = Number(sysctl("hw.physicalcpu")) || cpus().length;
+  const model = sysctl("hw.model").replace(/\d+,\d+$/, "").replace(/^MacBook(Air|Pro)$/, "MacBook $1");
+  return `${model ? `a ${model}` : "this computer"} (${cores}-core ${chip}), while recording`;
+})();
 const OUT = join(ROOT, "out", "demo");
 const REVIEW = join(ROOT, "out", "review");
 const ASSETS = join(ROOT, "crates", "lightable", "assets");
@@ -270,7 +281,7 @@ async function openDemo(format, mode, dpr, cut = false) {
   await send("Page.bringToFront");
   const [w, h] = FRAME[format];
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: false });
-  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${FEATURES.includes(mode) ? `&feature=${mode}` : ""}${cut ? "&cut" : ""}`;
+  const url = `${base}?demo&record&format=${format}${mode === "narration" ? "&narration" : ""}${FEATURES.includes(mode) ? `&feature=${mode}` : ""}${cut ? "&cut" : ""}&machine=${encodeURIComponent(MACHINE)}`;
   await send("Page.navigate", { url });
   for (let i = 0; i < 600; i++) {
     if (await evaluate("!document.getElementById('loading')")) break;
@@ -355,7 +366,8 @@ async function openDemo(format, mode, dpr, cut = false) {
   // each step of the pinch, and a few frames after): never skipped.
   const busyFrames = (step) => gestures.map((g) => [
     Math.floor((g.from * CLOCK) / step) * step - step,
-    Math.ceil((g.until * CLOCK) / step) * step + 3 * step,
+    // (A second of slack: a click can come late after the list scrolls.)
+    Math.ceil(((g.until + 1) * CLOCK) / step) * step + 3 * step,
   ]);
   const driver = { next: 0, path: null, pos: null, zoomed: 0, dragging: false };
   let latest = null; // the last frame's info
@@ -394,7 +406,11 @@ async function openDemo(format, mode, dpr, cut = false) {
         if (k >= 1) {
           driver.scroll.last = row[1];
           const down = row[3] > list[3] ? 7 : -7;
-          for (let n = 0; n < 3; n++) {
+          // Faster when the row is far off (done in about six frames), so
+          // the pointer still has time to move to it and pause.
+          const far = row[3] > list[3] ? row[3] - list[3] : list[1] - row[1];
+          const steps = Math.min(10, Math.max(3, Math.ceil(far / 7 / 6)));
+          for (let n = 0; n < steps; n++) {
             events.push(["Input.dispatchMouseEvent", { type: "mouseWheel", x: pos[0], y: pos[1], deltaX: 0, deltaY: down }]);
           }
         }
@@ -430,16 +446,24 @@ async function openDemo(format, mode, dpr, cut = false) {
         }
         // The first gesture comes in from the right-hand edge.
         const [w, h] = [latest.screen[2] * z, latest.screen[3] * z];
-        // Clicks: the pointer takes at most 0.8 s to get there.
-        driver.path = { from: driver.pos ?? [w - 2, h * 0.6], to, factor, start: click ? Math.max(t, g.at - 0.8) : g.from };
+        // Clicks: the pointer takes at most 0.8 s to get there, and at
+        // least 0.45 s plus the 0.3 s pause, even when that makes the click
+        // late (a list that had to scroll first): never a jump.
+        const at = click && !cut ? Math.max(g.at, t + 0.75) : g.at;
+        driver.path = { from: driver.pos ?? [w - 2, h * 0.6], to, factor, at, start: click ? Math.max(t, at - 0.8) : g.from };
       }
-      const { from, to, factor, start } = driver.path;
+      const { from, factor, start, at } = driver.path;
+      // Aimed at where the control is now (a scrolled list can still be
+      // settling).
+      const live = click && latest.targets[g.target];
+      if (live && !cut) driver.path.to = [((live[0] + live[2]) / 2) * z, ((live[1] + live[3]) / 2) * z];
+      const to = driver.path.to;
       const drag = g.target.startsWith("drop");
       const data = { items: [], files: fileSets[g.target] ?? [], dragOperationsMask: 1 };
-      if (t < g.at) {
+      if (t < at) {
         // Eased, arriving 0.3 s before the click: a short pause on the
         // control (its hover look shows) before pressing.
-        let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, g.at - 0.3 - start)));
+        let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, at - 0.3 - start)));
         k = k * k * (3 - 2 * k);
         const pos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
         if (drag) {
@@ -520,6 +544,11 @@ async function openDemo(format, mode, dpr, cut = false) {
     url, length, shots, gestures, requests, errors, exports,
     get last() {
       return last;
+    },
+    // Whether the next frame (`step` on) presses gesture `gi`'s control:
+    // the click can come later than planned (after the list scrolled).
+    clicksNext(gi, step = 1) {
+      return driver.next > gi || (driver.next === gi && driver.path && (last + step) / CLOCK >= driver.path.at);
     },
     // Draws frame `f` (frames must go forward) and returns what is on
     // screen. Frames skipped on the way are drawn too where a gesture needs
@@ -620,10 +649,14 @@ function check(info, format, sample, target, expect = {}) {
       const share = ((c2 - c0) * (c3 - c1)) / ((x1 - x0) * sh);
       // Details open (under a second, before "Export PNG report"): its
       // extra toolbar row is the real layout; reported, not judged.
+      // The large layout's timing and request lines are what its video
+      // shows: in 9:16 they take the drawing's room; reported too.
       const details = !!info.targets.export_png;
+      const lines = !!(info.targets.timing || info.targets.network);
+      const why = details ? " (Details open, not checked)" : lines ? " (timing and request lines shown, not checked)" : "";
       out.drawing = {
-        pass: details ? null : share >= 0.6,
-        detail: `drawing ${(share * 100).toFixed(0)} % of the frame${details ? " (Details open, not checked)" : ""}`,
+        pass: details || lines ? null : share >= 0.6,
+        detail: `drawing ${(share * 100).toFixed(0)} % of the frame${why}`,
       };
     } else {
       out.drawing = { pass: null, detail: info.report ? "report layout" : info.phone ? "phone" : "end card" };
@@ -648,11 +681,11 @@ async function stills(format, mode) {
   });
   // Each gesture: the pointer on its way, and on its target just before it
   // acts (checked); a pinch half-way.
-  for (const g of page.gestures) {
+  for (const [gi, g] of page.gestures.entries()) {
     const step = stepAt(g.at);
     const act = actName(page.shots[step].desc);
     samples.push({ t: (g.from + g.at) / 2, step, act, sample: "moving" });
-    samples.push({ t: g.at - 1 / CLOCK, step, act, sample: "aim", target: g.target });
+    samples.push({ t: g.at - 1 / CLOCK, step, act, sample: "aim", target: g.target, gi });
     if (g.until > g.at) samples.push({ t: (g.at + g.until) / 2, step, act, sample: "mid" });
   }
   samples.sort((a, b) => a.t - b.t);
@@ -664,8 +697,10 @@ async function stills(format, mode) {
     export: page.gestures.some((g) => g.target === "export_png"),
   };
   for (const s of samples) {
-    const f = Math.max(frameOf(s.t), lastFrame + 1);
-    const info = await page.render(f);
+    let f = Math.max(frameOf(s.t), lastFrame + 1);
+    let info = await page.render(f);
+    // Aim: the frame just before the press, wherever it really came.
+    while (s.sample === "aim" && !page.clicksNext(s.gi) && f < frameOf(s.t) + 5 * CLOCK) info = await page.render(++f);
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
