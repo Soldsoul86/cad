@@ -16,7 +16,7 @@ crates/lightable-diff/tests/examples.rs check the comparison against it.
    is clouded.
 2. plate: a precision locating plate. One dowel hole moves 0.5 mm, its
    dimension follows, the position tolerance note goes from ±0.1 to ±0.05.
-3. shaft: a stepped shaft, Rev D, and Rev E saved by another program:
+3. shaft: a stepped shaft, Rev D, and Rev E as a simulated re-export:
    new handles, shuffled order, saved as R2000, one outline
    polyline split into lines and arcs, and exactly one real change (the
    surface finish note).
@@ -363,7 +363,7 @@ def reexport():
     shaft("R2000", 7, "Ra 0.8", True, handles="7000", revised=True).doc.saveas(ASSETS / "shaft-rev-e.dxf")
     write_inventory(
         "shaft",
-        "Drive shaft LT-0020, Rev D, and Rev E saved by another program: every handle renumbered, the "
+        "Drive shaft LT-0020, Rev D, and Rev E as a simulated re-export (no CAD program was used): every handle renumbered, the "
         "entities in another order, saved as DXF R2000 instead of R2018, the outline polyline split into "
         "separate lines. One real change: the surface finish note, Ra 1.6 -> Ra 0.8.",
         [{"id": "E1", "type": "TEXT", "layer": "NOTES",

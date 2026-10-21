@@ -88,4 +88,4 @@ dimension pictures in anonymous blocks).
 | "Details: the technical data, and what was not compared." | The Details toggle shows exact values, entity type, handle, layer, and "Not compared yet". | Yes |
 | "Download the review report as PNG or JSON." | Both exports exist under Details; the demo shows the PNG layout without saving. | Yes |
 | "Lightable shows what changed. Whether it is right is still your call." | No design, safety or manufacturing checks exist. | Yes |
-| "Your files never leave your computer." | The web page has no upload path; its Content-Security-Policy allows requests only to its own origin, and the browser tests record no request carrying file data. | Yes |
+| "Your files are read in your browser, never uploaded." | The web page has no upload path; its Content-Security-Policy allows requests only to its own origin, and the browser tests record no request carrying file data. | Yes |

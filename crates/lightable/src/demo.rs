@@ -190,7 +190,8 @@ pub struct Plan {
 }
 
 /// The end card's text, as on screen.
-pub const END_CARD: &str = "Free. Open source. Your files never leave your computer. lightable.dev";
+pub const END_CARD: &str =
+    "Free. Open source. Your files are read in your browser, never uploaded. lightable.dev";
 
 /// How long a caption needs to be read: 3 words a second, plus a second;
 /// at least 3 seconds (used by the app's tests of caption lengths).
@@ -228,7 +229,7 @@ pub const VOICEOVER: [(&str, &str); 9] = [
     ("Phone", "It works on your phone too."),
     (
         "End card",
-        "Lightable. Free, open source, and your files never leave your computer. lightable.dev",
+        "Lightable. Free, open source, and your files are read in your browser, never uploaded. lightable.dev",
     ),
 ];
 
@@ -471,8 +472,8 @@ pub enum Feature {
     Unclouded,
     /// Shows tiny changes with their exact values (locating plate).
     Tiny,
-    /// Ignores re-export noise: one real change (drive shaft Rev E, saved by
-    /// another program).
+    /// Ignores re-export noise: one real change (drive shaft Rev E, a
+    /// simulated re-export of Rev D).
     Resave,
     /// A block definition edit shown at every reference (floor plan).
     Blocks,
@@ -755,7 +756,7 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                 step(
                     Act::Opening,
                     3.0,
-                    "Rev E was saved by another program.".into(),
+                    "Simulated re-export of Rev D as Rev E.".into(),
                 ),
                 Step {
                     gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
@@ -765,7 +766,7 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
                     then: vec![(
                         2.5,
                         Act::Nothing,
-                        Some("New handles, new order, R2000: not changes.".into()),
+                        Some("New handles, shuffled order, older DXF version.".into()),
                     )],
                     ..step(
                         Act::Highlight("summary"),
@@ -1175,7 +1176,7 @@ mod tests {
             .count();
         assert_eq!(edges, 2);
         assert!(line(4).contains("edge dimensions from 20 to 25"));
-        assert!(line(8).contains("never leave your computer"));
+        assert!(line(8).contains("read in your browser, never uploaded"));
     }
 
     /// The use-case videos: 20–30 s, short captions (two lines in 9:16),
@@ -1309,6 +1310,17 @@ mod tests {
         assert!(page.contains("Check it yourself") && page.contains("Resource Timing"));
         assert!(!page.contains("nothing is sent anywhere"));
         assert!(page.contains("MacBook Air with a 2-core Intel Core i3"));
+        // One privacy wording everywhere, with the reasons and the check.
+        assert!(page.contains("Your files are read in your browser, never uploaded."));
+        assert!(page.contains("connect-src 'self'") && page.contains("GitHub Pages"));
+        assert!(page.contains("Show features for web developers"));
+        assert!(END_CARD.contains("Your files are read in your browser, never uploaded."));
+        assert_eq!(
+            crate::app::PRIVACY,
+            "Your files are read in your browser, never uploaded."
+        );
+        // The re-export is labelled as simulated.
+        assert!(page.contains("simulated re-export"));
         // The use cases' numbers, from their comparisons.
         let cover = compare("cover", true);
         assert_eq!((cover.design_count(), cover.clouded_count()), (14, 1));

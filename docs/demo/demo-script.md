@@ -26,7 +26,7 @@ the example's).
 | 24 s | Clicks "Side by side" (24.7 s) | "Before and after, side by side." |
 | 28 s | Clicks "Details" (28.6 s), then "Export PNG report" (29.5 s): the report is made and really saved (recording: into the recorder's folder; live: made but not downloaded), and stays on screen | "Share a review report." |
 | 32 s | The same comparison in a phone outline, laid out as on a phone (320 points wide) | "Works on your phone too." |
-| 36–40 s | End card | "Free. Open source. Your files never leave your computer. lightable.dev" |
+| 36–40 s | End card | "Free. Open source. Your files are read in your browser, never uploaded. lightable.dev" |
 
 "10 changes" is `Diff::design_changes().count()`; the summary line above
 the caption says "10 changes found between bracket-rev-b.dxf and
@@ -62,7 +62,7 @@ numbers are measured as it plays).
 |---|---|---|
 | unclouded | gearbox cover, Rev B → Rev C | 14 changes, 1 clouded; the holes, the callout and the section edges were not; tap them; Details |
 | tiny | locating plate, Rev B → Rev C | pinch onto the dowel hole; "moved 0.5 mm right"; Details with the exact values; the tolerance note ±0.1 → ±0.05 |
-| resave | drive shaft, Rev D → Rev E (saved by another program) | drop both (the names give the order); 1 change, Ra 1.6 → Ra 0.8; 17 objects redrawn the same |
+| resave | drive shaft, Rev D → Rev E (a simulated re-export: new handles, shuffled order, older DXF version) | drop both (the names give the order); 1 change, Ra 1.6 → Ra 0.8; Details: "17 objects redrawn the same: not changes" |
 | blocks | flat, Rev A → Rev B | the door block edit at all 7 doors; the wall moved 300 mm; Side by side |
 | big | warehouse layout, 23,181 / 23,182 objects | drop both; the timing line (with the machine) and the request counter (Resource Timing); a change |
 

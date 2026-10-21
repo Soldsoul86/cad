@@ -25,7 +25,7 @@ every fact below against the comparison of the two example files.
 | Side by side | "See before and after, side by side." | Click Side by side |
 | Report | "Then share a review report." | Click Details, then Export PNG report; the report on screen |
 | Phone | "It works on your phone too." | The comparison in a phone outline |
-| End card | "Lightable. Free, open source, and your files never leave your computer. lightable.dev" | End card |
+| End card | "Lightable. Free, open source, and your files are read in your browser, never uploaded. lightable.dev" | End card |
 
 ## Fact check against the comparison
 
@@ -40,7 +40,7 @@ every fact below against the comparison of the two example files.
 | "the edge dimensions from 20 to 25" | Two dimensions "changed from 20 mm to 25 mm" | Correct |
 | "Tap one to zoom to it" | A click on a row selects it and zooms there | Correct |
 | "share a review report" | Details, then Export PNG report (also JSON) | Correct (two clicks, not one) |
-| "your files never leave your computer" | The page reads files in the browser and sends nothing (the recorder checks the network) | Correct |
+| "your files are read in your browser, never uploaded" | The page reads files in the browser and sends nothing (the recorder checks the network) | Correct |
 
 ## Cue sheet (narration video)
 
@@ -58,7 +58,7 @@ second, so a clip can run a little long into the gap before the next.
 | 6 | Side by side | 00:00:38.900 | 00:00:41.700 | See before and after, side by side. |
 | 7 | Report | 00:00:42.900 | 00:00:44.900 | Then share a review report. |
 | 8 | Phone | 00:00:46.900 | 00:00:49.300 | It works on your phone too. |
-| 9 | End card | 00:00:50.900 | 00:00:55.700 | Lightable. Free, open source, and your files never leave your computer. lightable.dev |
+| 9 | End card | 00:00:50.900 | 00:00:55.700 | Lightable. Free, open source, and your files are read in your browser, never uploaded. lightable.dev |
 
 Video length 00:00:56.400 (the end card is held after the last line).
 

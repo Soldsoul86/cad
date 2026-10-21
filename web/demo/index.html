@@ -84,7 +84,7 @@
       <a class="button primary" href="../">Try the example</a>
       <a class="button secondary" href="../?own">Compare your own files</a>
     </div>
-    <p class="small">Free and open source. Runs in your browser: the files you open are read there and never uploaded.</p>
+    <p class="small">Free and open source. Your files are read in your browser, never uploaded. <a href="#privacy">Why?</a></p>
 
     <section id="unclouded">
       <h2>1. The changes the cloud leaves out</h2>
@@ -117,7 +117,7 @@
 
     <section id="resave">
       <h2>3. Re-export noise ignored</h2>
-      <p class="summary"><strong>Use case:</strong> a drive shaft, Rev D, and Rev E saved by another program. <strong>Proves:</strong> only real changes are reported.</p>
+      <p class="summary"><strong>Use case:</strong> a drive shaft, Rev D, and Rev E as a simulated re-export: new handles, shuffled order, older DXF version. <strong>Proves:</strong> only real changes are reported.</p>
       <video class="landscape" controls playsinline muted preload="none" poster="resave-landscape.jpg" width="1920" height="1080">
         <source src="resave-landscape.mp4" type="video/mp4">
         <track kind="captions" src="resave.vtt" srclang="en" label="English">
@@ -127,7 +127,7 @@
         <track kind="captions" src="resave.vtt" srclang="en" label="English">
       </video>
       <ul>
-        <li>Rev E has every handle renumbered, its objects in another order, an older DXF version (R2000 instead of R2018) and its outline split into 16 separate lines.</li>
+        <li>Rev E is simulated by the script that makes these examples, not saved by a CAD program: every handle renumbered, its objects in another order, an older DXF version (R2000 instead of R2018) and its outline split into 16 separate lines.</li>
         <li>Lightable reports 1 change, the surface finish Ra 1.6 → Ra 0.8. The new revision letter and revision-table row are listed separately as revision markup.</li>
         <li>The 17 objects drawn the same but written differently are listed separately as "redrawn", not as changes.</li>
       </ul>
@@ -168,16 +168,7 @@
         <li>On screen: how many requests the browser logged in its Resource Timing list after the files were opened (fetches, scripts, images and other resources the page loads). In the video: 0.</li>
         <li>While recording, the recording tool also logged every request the browser made, through the browser's developer tools: none went to another site, and none carried a request body.</li>
       </ul>
-      <div class="check">
-        <h3>Check it yourself</h3>
-        <ol>
-          <li>Open <a href="../?own">Lightable</a> in Chrome, Edge, Firefox or Safari and open the developer tools (F12, or Cmd+Option+I on a Mac; in Safari, first turn on the Develop menu in its settings).</li>
-          <li>Choose the <strong>Network</strong> tab, then clear the list.</li>
-          <li>Drop or choose two DXF files and wait for the list of changes.</li>
-          <li>Look at the Network tab: no new request appears while the files are read and compared. An upload would show here as a request with your file in it.</li>
-        </ol>
-        <p class="small">The counter in the video counts Resource Timing entries only. The Network tab shows every request the page makes, so it is the stronger check.</p>
-      </div>
+      <p>To see every request the page makes yourself, follow the steps in <a href="#check">Check it yourself</a>.</p>
     </section>
 
     <section id="why-10">
@@ -218,12 +209,28 @@
 
     <section id="privacy">
       <h2>Privacy</h2>
+      <p><strong>Your files are read in your browser, never uploaded.</strong> Why that is true:</p>
       <ul>
-        <li>Lightable runs in your browser. The files you open are read there and never uploaded.</li>
-        <li>The page's security policy only allows this site's own files, so it cannot send your data anywhere else.</li>
-        <li>Check it yourself: open your browser's developer tools, go to the Network tab, then open two files. No request carries your drawing.</li>
-        <li>No tracking, no analytics, no cookies. The code is open source: <a href="https://github.com/lightable-dev/lightable">github.com/lightable-dev/lightable</a>.</li>
+        <li><strong>There is no server to receive them.</strong> lightable.dev is a static site on GitHub Pages: it only serves the app's own files and has no program that accepts uploads. The code that reads and compares your drawings runs in your browser.</li>
+        <li><strong>The security policy blocks sending data elsewhere.</strong> The page's Content-Security-Policy lets it connect only to lightable.dev itself (<code>connect-src 'self'</code>) and allows no form submissions (<code>form-action 'none'</code>), so the browser refuses requests to any other site.</li>
+        <li><strong>The code is open source:</strong> <a href="https://github.com/lightable-dev/lightable">github.com/lightable-dev/lightable</a>. No tracking, no analytics, no cookies.</li>
       </ul>
+      <div class="check" id="check">
+        <h3>Check it yourself</h3>
+        <ol>
+          <li>Open <a href="../?own">Lightable</a>. Then open the developer tools before you choose any files (the Network tab only lists requests made while it is open):
+            <ul>
+              <li><strong>Chrome:</strong> the ⋮ menu › More Tools › Developer Tools (or F12; Cmd+Option+I on a Mac). Choose the <strong>Network</strong> tab.</li>
+              <li><strong>Firefox:</strong> the ☰ menu › More Tools › Web Developer Tools (or F12; Cmd+Option+I on a Mac). Choose the <strong>Network</strong> tab.</li>
+              <li><strong>Safari:</strong> first choose Safari › Settings › Advanced and turn on <strong>Show features for web developers</strong>. Then choose Develop › Show Web Inspector, and the <strong>Network</strong> tab.</li>
+            </ul>
+          </li>
+          <li>Clear the list with the Network tab's <strong>Clear</strong> button (in Safari: <strong>Clear Network Items</strong>).</li>
+          <li>Drop or choose two DXF files and wait for the list of changes.</li>
+          <li>Look at the Network tab: no new request appears while the files are read and compared. An upload would show here as a request carrying your file.</li>
+        </ol>
+        <p class="small">Checked in Chrome 155, Firefox 158 and Safari 18.6 on a Mac. The counter in the big-drawing video counts the browser's Resource Timing entries only; the Network tab shows every request, so it is the stronger check.</p>
+      </div>
     </section>
 
     <section id="limits">
@@ -253,7 +260,7 @@
       </details>
       <details>
         <summary>Are my drawings uploaded?</summary>
-        <p>No. They are read in your browser and stay on your computer; see Privacy above for how to check.</p>
+        <p>No. Your files are read in your browser, never uploaded. See <a href="#privacy">Privacy</a> for why, and how to check.</p>
       </details>
       <details>
         <summary>Which CAD programs does it work with?</summary>

@@ -78,14 +78,16 @@ pub static EXAMPLES: [Example; 6] = [
     },
     Example {
         id: "shaft",
-        title: "Drive shaft, Rev D to Rev E (saved by another program)",
+        title: "Drive shaft, Rev D to Rev E (simulated re-export)",
         a_label: "Rev D",
         b_label: "Rev E",
         a_name: "shaft-rev-d.dxf",
         b_name: "shaft-rev-e.dxf",
         a: include_bytes!("../assets/shaft-rev-d.dxf"),
         b: include_bytes!("../assets/shaft-rev-e.dxf"),
-        note: Some("Example: Rev E was saved by another program, with one real change."),
+        note: Some(
+            "Example: simulated re-export: new handles, shuffled order, older DXF version; one real change.",
+        ),
         cloud_by_design: false,
     },
     Example {

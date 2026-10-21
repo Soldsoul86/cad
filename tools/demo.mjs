@@ -62,7 +62,7 @@ const TOOL_VERSION = 6;
 // The demo page's feature videos (`--modes find,explain,...`; `--modes
 // features` for all five).
 const FEATURES = ["unclouded", "tiny", "resave", "blocks", "big"];
-const END_CARD = "Free. Open source. Your files never leave your computer. lightable.dev";
+const END_CARD = "Free. Open source. Your files are read in your browser, never uploaded. lightable.dev";
 const CLOCK = 30; // the app's frame clock
 
 const args = process.argv.slice(2);
@@ -469,7 +469,10 @@ async function openDemo(format, mode, dpr, cut = false) {
         if (drag) {
           events.push(["Input.dispatchDragEvent", { type: driver.dragging ? "dragOver" : "dragEnter", x: pos[0], y: pos[1], data }]);
           driver.dragging = true;
-        } else if (!driver.pos || pos[0] !== driver.pos[0] || pos[1] !== driver.pos[1]) {
+        } else {
+          // Every frame, even while pausing on the control: another page
+          // brought to the front (a parallel worker) can make this one
+          // forget where the mouse is.
           events.push(["Input.dispatchMouseEvent", { type: "mouseMoved", x: pos[0], y: pos[1], button: "none" }]);
         }
         driver.pos = pos;

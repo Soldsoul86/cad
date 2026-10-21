@@ -1,6 +1,6 @@
 # shaft: expected-change inventory
 
-Drive shaft LT-0020, Rev D, and Rev E saved by another program: every handle renumbered, the entities in another order, saved as DXF R2000 instead of R2018, the outline polyline split into separate lines. One real change: the surface finish note, Ra 1.6 -> Ra 0.8.
+Drive shaft LT-0020, Rev D, and Rev E as a simulated re-export (no CAD program was used): every handle renumbered, the entities in another order, saved as DXF R2000 instead of R2018, the outline polyline split into separate lines. One real change: the surface finish note, Ra 1.6 -> Ra 0.8.
 
 Written by tools/gen_usecases.py from the edits it makes, before the files are compared.
 

@@ -436,7 +436,7 @@ fn caption_bottom(screen: Rect, area: Rect, size: f32) -> f32 {
 /// drop or on the command line.
 pub const CAN_CHOOSE_FILES: bool = cfg!(target_arch = "wasm32");
 /// The privacy promise, next to "Choose files…".
-pub const PRIVACY: &str = "Files are read in this browser, never uploaded.";
+pub const PRIVACY: &str = "Your files are read in your browser, never uploaded.";
 
 pub struct CadApp {
     doc: Option<Doc>,
@@ -2539,20 +2539,24 @@ impl CadApp {
                 Color32::from_rgba_unmultiplied(12, 12, 14, 245),
             );
             let c = screen.center();
+            // Each line centred, also when one wraps (the privacy line on a
+            // 9:16 screen).
             let line = |y: f32, text: &str, size: f32, color: Color32| {
-                let galley = painter.layout(
+                let mut job = egui::text::LayoutJob::simple(
                     text.to_owned(),
                     FontId::proportional(size),
                     color,
                     screen.width() * 0.9,
                 );
-                let at = egui::pos2(c.x - galley.size().x / 2.0, c.y + y - galley.size().y / 2.0);
+                job.halign = egui::Align::Center;
+                let galley = painter.layout_job(job);
+                let at = egui::pos2(c.x, c.y + y - galley.size().y / 2.0);
                 painter.galley(at, galley, color);
             };
             line(-m * 0.12, "Free. Open source.", m / 14.0, Color32::WHITE);
             line(
                 0.0,
-                "Your files never leave your computer.",
+                "Your files are read in your browser, never uploaded.",
                 m / 20.0,
                 Color32::from_gray(220),
             );
