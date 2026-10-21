@@ -48,7 +48,7 @@ rm "$OUT/changes.html"
 # captions.
 PAGES="/"
 DEMO_FILES="web/demo/index.html"
-for f in find explain compare report private; do
+for f in unclouded tiny resave blocks big; do
   DEMO_FILES="$DEMO_FILES web/demo/$f.vtt"
   for s in landscape vertical; do
     DEMO_FILES="$DEMO_FILES web/demo/$f-$s.mp4 web/demo/$f-$s.jpg"

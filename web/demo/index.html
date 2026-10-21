@@ -19,10 +19,10 @@
   <meta property="og:title" content="Lightable: what changed between two drawing revisions">
   <meta property="og:description" content="The revision cloud marks one change. Lightable finds ten. Free, open source, runs in your browser.">
   <meta property="og:url" content="https://lightable.dev/demo/">
-  <meta property="og:image" content="https://lightable.dev/demo/find-landscape.jpg">
+  <meta property="og:image" content="https://lightable.dev/demo/unclouded-landscape.jpg">
   <meta property="og:image:width" content="1920">
   <meta property="og:image:height" content="1080">
-  <meta property="og:video" content="https://lightable.dev/demo/find-landscape.mp4">
+  <meta property="og:video" content="https://lightable.dev/demo/unclouded-landscape.mp4">
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1920">
   <meta property="og:video:height" content="1080">
@@ -69,13 +69,13 @@
   <main>
     <h1>See what changed between two revisions of a drawing.</h1>
     <p class="lead">Lightable compares two DXF files and lists every change in plain words, not just the one inside the revision cloud.</p>
-    <video class="landscape" controls playsinline muted preload="metadata" poster="find-landscape.jpg" width="1920" height="1080">
-      <source src="find-landscape.mp4" type="video/mp4">
-      <track kind="captions" src="find.vtt" srclang="en" label="English">
+    <video class="landscape" controls playsinline muted preload="metadata" poster="unclouded-landscape.jpg" width="1920" height="1080">
+      <source src="unclouded-landscape.mp4" type="video/mp4">
+      <track kind="captions" src="unclouded.vtt" srclang="en" label="English">
     </video>
-    <video class="vertical" controls playsinline muted preload="metadata" poster="find-vertical.jpg" width="1080" height="1920">
-      <source src="find-vertical.mp4" type="video/mp4">
-      <track kind="captions" src="find.vtt" srclang="en" label="English">
+    <video class="vertical" controls playsinline muted preload="metadata" poster="unclouded-vertical.jpg" width="1080" height="1920">
+      <source src="unclouded-vertical.mp4" type="video/mp4">
+      <track kind="captions" src="unclouded.vtt" srclang="en" label="English">
     </video>
     <div class="buttons">
       <a class="button primary" href="../">Try the example</a>
@@ -83,92 +83,92 @@
     </div>
     <p class="small">Free and open source. Runs in your browser: the files you open are read there and never uploaded.</p>
 
-    <section id="find">
-      <h2>1. Find what changed</h2>
-      <p class="summary">Drop in two revisions and see every change on one overlay.</p>
+    <section id="unclouded">
+      <h2>1. The changes the cloud leaves out</h2>
+      <p class="summary"><strong>Use case:</strong> a gearbox cover, Rev B to Rev C. <strong>Proves:</strong> Lightable finds every change, clouded or not.</p>
       <ul>
-        <li>Drag Rev B and Rev C onto the page. Nothing to install.</li>
-        <li>The overlay colours each change: blue added, red deleted, yellow changed.</li>
-        <li>"10 changes found between Rev B and Rev C". The revision cloud marks only one of them.</li>
+        <li>One decision, bolts M10 → M12, made 14 changes: 8 holes Ø11 → Ø13.5 mm, the hole callout, 4 hole edges in section A-A (moved 1.25 mm) and the bolt note.</li>
+        <li>The revision cloud marks 1 change; 13 others weren't clouded.</li>
+        <li>Each one is in the list, in plain words, and a tap zooms to it.</li>
       </ul>
       <p class="small">The video above.</p>
     </section>
 
-    <section id="explain">
-      <h2>2. Every change explained</h2>
-      <p class="summary">Each change in plain words, with the exact values one tap away.</p>
-      <video class="landscape" controls playsinline muted preload="none" poster="explain-landscape.jpg" width="1920" height="1080">
-        <source src="explain-landscape.mp4" type="video/mp4">
-        <track kind="captions" src="explain.vtt" srclang="en" label="English">
+    <section id="tiny">
+      <h2>2. Tiny changes, exact values</h2>
+      <p class="summary"><strong>Use case:</strong> a precision locating plate. <strong>Proves:</strong> changes too small to see on a print are found and given exactly.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="tiny-landscape.jpg" width="1920" height="1080">
+        <source src="tiny-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="tiny.vtt" srclang="en" label="English">
       </video>
-      <video class="vertical" controls playsinline muted preload="none" poster="explain-vertical.jpg" width="1080" height="1920">
-        <source src="explain-vertical.mp4" type="video/mp4">
-        <track kind="captions" src="explain.vtt" srclang="en" label="English">
+      <video class="vertical" controls playsinline muted preload="none" poster="tiny-vertical.jpg" width="1080" height="1920">
+        <source src="tiny-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="tiny.vtt" srclang="en" label="English">
       </video>
       <ul>
-        <li>Tap a change in the list and the drawing zooms to it: "Circle diameter changed from 13.5 mm to 17.5 mm".</li>
-        <li>Details shows the exact values behind each line, such as how far a centre moved and the old and new radius.</li>
-        <li>Lightable describes the geometry it detects. You judge what it means.</li>
+        <li>3 changes: a dowel hole moved 0.5 mm right, its dimension 80 → 80.5 mm, the position tolerance ±0.1 → ±0.05.</li>
+        <li>Details gives the exact values: "Object: circle (handle …), layer HOLES" and "Moved 0.5 mm right".</li>
+        <li>Old and new texts never print over each other: the old one is struck through beside the new.</li>
       </ul>
     </section>
 
-    <section id="compare">
-      <h2>3. Before and after</h2>
-      <p class="summary">Both revisions next to each other, the right way round.</p>
-      <video class="landscape" controls playsinline muted preload="none" poster="compare-landscape.jpg" width="1920" height="1080">
-        <source src="compare-landscape.mp4" type="video/mp4">
-        <track kind="captions" src="compare.vtt" srclang="en" label="English">
+    <section id="resave">
+      <h2>3. Re-export noise ignored</h2>
+      <p class="summary"><strong>Use case:</strong> a drive shaft drawing re-saved by another program. <strong>Proves:</strong> only real changes are reported.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="resave-landscape.jpg" width="1920" height="1080">
+        <source src="resave-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="resave.vtt" srclang="en" label="English">
       </video>
-      <video class="vertical" controls playsinline muted preload="none" poster="compare-vertical.jpg" width="1080" height="1920">
-        <source src="compare-vertical.mp4" type="video/mp4">
-        <track kind="captions" src="compare.vtt" srclang="en" label="English">
+      <video class="vertical" controls playsinline muted preload="none" poster="resave-vertical.jpg" width="1080" height="1920">
+        <source src="resave-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="resave.vtt" srclang="en" label="English">
       </video>
       <ul>
-        <li>Revision marks in the file names ("Rev B", "_C", "v3") or the file dates decide which file is the earlier one.</li>
-        <li>When the names and dates don't say, Lightable asks which file is earlier.</li>
-        <li>Side by side shows both revisions with one shared zoom; Swap compares the other way round.</li>
+        <li>The copy has every handle renumbered, its objects in another order, an older DXF version (R2000 instead of R2018) and its outline split into 16 separate lines.</li>
+        <li>Lightable reports 1 change, the surface finish Ra 1.6 → Ra 0.8.</li>
+        <li>The 17 objects drawn the same but written differently are listed separately as "redrawn", not as changes.</li>
       </ul>
     </section>
 
-    <section id="report">
-      <h2>4. Share a review report</h2>
-      <p class="summary">A PNG for people and a JSON file for records and scripts.</p>
-      <video class="landscape" controls playsinline muted preload="none" poster="report-landscape.jpg" width="1920" height="1080">
-        <source src="report-landscape.mp4" type="video/mp4">
-        <track kind="captions" src="report.vtt" srclang="en" label="English">
+    <section id="blocks">
+      <h2>4. Block edits, shown everywhere they appear</h2>
+      <p class="summary"><strong>Use case:</strong> an apartment floor plan with door, window and furniture blocks. <strong>Proves:</strong> a change inside a block is shown at every place it is used.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="blocks-landscape.jpg" width="1920" height="1080">
+        <source src="blocks-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="blocks.vtt" srclang="en" label="English">
       </video>
-      <video class="vertical" controls playsinline muted preload="none" poster="report-vertical.jpg" width="1080" height="1920">
-        <source src="report-vertical.mp4" type="video/mp4">
-        <track kind="captions" src="report.vtt" srclang="en" label="English">
+      <video class="vertical" controls playsinline muted preload="none" poster="blocks-vertical.jpg" width="1080" height="1920">
+        <source src="blocks-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="blocks.vtt" srclang="en" label="English">
       </video>
       <ul>
-        <li>The PNG report holds the summary, the colour legend, the overlay, the changes (as many as fit, with a count of the rest) and what was not compared.</li>
-        <li>The JSON file lists every change with its exact old and new values.</li>
-        <li>Both are made in your browser and saved as ordinary downloads (Details, then Export).</li>
+        <li>4 changes: the door block redrawn with a thick leaf (2 changes inside the block) and one partition wall moved 300 mm (its 2 lines).</li>
+        <li>The block edit is highlighted at all 7 doors that use it.</li>
+        <li>Side by side shows Rev A and Rev B with one shared zoom.</li>
       </ul>
     </section>
 
-    <section id="private">
-      <h2>5. Private, honest, anywhere</h2>
-      <p class="summary">Your files stay on your computer, and Lightable says what it does not check.</p>
-      <video class="landscape" controls playsinline muted preload="none" poster="private-landscape.jpg" width="1920" height="1080">
-        <source src="private-landscape.mp4" type="video/mp4">
-        <track kind="captions" src="private.vtt" srclang="en" label="English">
+    <section id="big">
+      <h2>5. Big drawings, nothing uploaded</h2>
+      <p class="summary"><strong>Use case:</strong> a warehouse layout: 23,181 objects in Rev A, 23,182 in Rev B. <strong>Proves:</strong> large drawings are compared in your browser, and nothing is sent anywhere.</p>
+      <video class="landscape" controls playsinline muted preload="none" poster="big-landscape.jpg" width="1920" height="1080">
+        <source src="big-landscape.mp4" type="video/mp4">
+        <track kind="captions" src="big.vtt" srclang="en" label="English">
       </video>
-      <video class="vertical" controls playsinline muted preload="none" poster="private-vertical.jpg" width="1080" height="1920">
-        <source src="private-vertical.mp4" type="video/mp4">
-        <track kind="captions" src="private.vtt" srclang="en" label="English">
+      <video class="vertical" controls playsinline muted preload="none" poster="big-vertical.jpg" width="1080" height="1920">
+        <source src="big-vertical.mp4" type="video/mp4">
+        <track kind="captions" src="big.vtt" srclang="en" label="English">
       </video>
       <ul>
-        <li>"Files are read in this browser, never uploaded."</li>
-        <li>"What isn't compared?" opens the list of what the comparison skips.</li>
-        <li>A DWG file gets a plain message: save it as DXF in your CAD program. It also works on a phone.</li>
+        <li>3 changes found among more than 23,000 objects: a location label renamed, a rack bay moved 300 mm, a column added.</li>
+        <li>The time to read and compare both files is measured and shown on screen; the video shows the time on a two-core laptop.</li>
+        <li>The page shows the browser's own count of network requests since the files were opened: 0. The recording tool also watched the browser's network log independently: nothing was sent.</li>
       </ul>
     </section>
 
     <section id="why-10">
       <h2>Why 10 changes?</h2>
-      <p>In the example, one engineering decision changed the bracket: the bolts went from M12 to M16 for a higher load. One decision, several changes in the drawing:</p>
+      <p>The example that opens with the app, a steel bracket, says "10 changes found between Rev B and Rev C". One engineering decision changed the bracket: the bolts went from M12 to M16 for a higher load. One decision, several changes in the drawing:</p>
       <ul>
         <li>The four clearance holes grew from Ø13.5 to Ø17.5 mm (the medium-series clearance for M16).</li>
         <li>The bigger holes need more edge distance, so each hole moved 5 mm inward. The edge dimensions went from 20 to 25 mm (two dimensions) and the hole pitch from 120 × 60 to 110 × 50 mm (two more).</li>

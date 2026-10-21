@@ -19,8 +19,6 @@ pub enum Act {
     Compared,
     /// Something on screen highlighted for 2.7 s (a target's name).
     Highlight(&'static str),
-    /// The privacy line shown in the toolbar, and highlighted.
-    Privacy,
     /// The two files are dragged in and dropped (a gesture).
     Drop,
     /// A pinch-zoom on the revision cloud (a gesture).
@@ -36,6 +34,8 @@ pub enum Act {
     Phone,
     /// The end card.
     EndCard,
+    /// A pinch-zoom close onto change `i` (a gesture), to see a small one.
+    Close(usize),
     /// A caption only.
     Nothing,
 }
@@ -54,15 +54,6 @@ pub enum Target {
     SideBySide,
     Details,
     ExportPng,
-    ExportJson,
-    /// "Which file is the earlier revision?": the button for file `k`.
-    Order(usize),
-    /// "Swap" (before and after the other way round).
-    Swap,
-    /// "What isn't compared?" in the change list.
-    NotCompared,
-    /// "OK" in a message about a file that cannot be used.
-    ProblemOk,
 }
 
 /// The files a drop gesture drops.
@@ -70,15 +61,10 @@ pub enum Target {
 pub enum Files {
     /// The example's two files.
     Example,
-    /// The example's two files with names that do not say which is newer
-    /// (and, on disk, the same date).
-    Unnamed,
-    /// A DWG file (only its header: enough to be recognised).
-    Dwg,
+    /// The large layout, from disk (out/demo/usecases, made by
+    /// tools/gen_usecases.py; too big to build into the app).
+    Big,
 }
-
-/// The start of a DWG file, enough for the app to recognise one.
-pub const DWG_HEADER: &[u8] = b"AC1032\0\0\0\0\0\0\x03\0\0";
 
 impl Files {
     /// The files: name, bytes, and the example file they copy (for the
@@ -92,11 +78,10 @@ impl Files {
                 (e.a_name, e.a, Some(e.a_name)),
                 (e.b_name, e.b, Some(e.b_name)),
             ],
-            Files::Unnamed => vec![
-                ("bracket.dxf", e.a, Some(e.a_name)),
-                ("bracket from supplier.dxf", e.b, Some(e.b_name)),
+            Files::Big => vec![
+                ("depot-rev-a.dxf", &[], Some("usecases/depot-rev-a.dxf")),
+                ("depot-rev-b.dxf", &[], Some("usecases/depot-rev-b.dxf")),
             ],
-            Files::Dwg => vec![("bracket-rev-c.dwg", DWG_HEADER, None)],
         }
     }
 }
@@ -113,18 +98,12 @@ impl Target {
     pub fn name(&self) -> String {
         match self {
             Target::Drop(Files::Example) => "drop:example".into(),
-            Target::Drop(Files::Unnamed) => "drop:unnamed".into(),
-            Target::Drop(Files::Dwg) => "drop:dwg".into(),
+            Target::Drop(Files::Big) => "drop:big".into(),
             Target::Pinch => "pinch".into(),
             Target::Row(i) => format!("row:{i}"),
             Target::SideBySide => "side_by_side".into(),
             Target::Details => "details".into(),
             Target::ExportPng => "export_png".into(),
-            Target::ExportJson => "export_json".into(),
-            Target::Order(k) => format!("order:{k}"),
-            Target::Swap => "swap".into(),
-            Target::NotCompared => "not_compared".into(),
-            Target::ProblemOk => "problem_ok".into(),
         }
     }
 }
@@ -141,6 +120,43 @@ pub struct Gesture {
     pub target: Target,
 }
 
+/// What the screen shows at the end of a step: its caption must be about
+/// this (the recorder checks it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// The start screen, nothing open.
+    Start,
+    /// One drawing open on its own.
+    Single,
+    /// The overlay and the change list.
+    Overlay,
+    /// Both revisions side by side.
+    SideBySide,
+    /// Details open (exact values).
+    Details,
+    /// The PNG report.
+    Report,
+    /// The phone outline.
+    Phone,
+    /// The end card.
+    End,
+}
+
+impl View {
+    pub fn name(&self) -> &'static str {
+        match self {
+            View::Start => "start",
+            View::Single => "single",
+            View::Overlay => "overlay",
+            View::SideBySide => "side_by_side",
+            View::Details => "details",
+            View::Report => "report",
+            View::Phone => "phone",
+            View::End => "end",
+        }
+    }
+}
+
 /// One moment of the demo.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shot {
@@ -149,6 +165,8 @@ pub struct Shot {
     pub act: Act,
     /// The on-screen caption from here on (`None`: unchanged).
     pub caption: Option<String>,
+    /// What the screen shows at the end of the step (a step's first shot).
+    pub view: Option<View>,
 }
 
 /// A subtitle: text shown (or spoken) from `start` to `end` seconds.
@@ -243,6 +261,28 @@ struct Step {
     /// Later acts within the step (seconds into it), with a new caption
     /// or none.
     then: Vec<(f64, Act, Option<String>)>,
+    /// What the screen shows at the step's end, when not what its act
+    /// implies (a click inside the step changes the view).
+    view: Option<View>,
+}
+
+impl Step {
+    fn shows(mut self, view: View) -> Step {
+        self.view = Some(view);
+        self
+    }
+}
+
+/// What a step's act leaves on screen.
+fn view_after(act: Act) -> View {
+    match act {
+        Act::Opening => View::Single,
+        Act::SideBySide => View::SideBySide,
+        Act::Report => View::Report,
+        Act::Phone => View::Phone,
+        Act::EndCard => View::End,
+        _ => View::Overlay,
+    }
 }
 
 fn step(act: Act, seconds: f64, caption: String) -> Step {
@@ -252,6 +292,7 @@ fn step(act: Act, seconds: f64, caption: String) -> Step {
         caption,
         gestures: Vec::new(),
         then: Vec::new(),
+        view: None,
     }
 }
 
@@ -398,12 +439,14 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
             at: t,
             act: s.act,
             caption: caption.or(Some(String::new())),
+            view: Some(s.view.unwrap_or(view_after(s.act))),
         });
         for (offset, act, caption) in s.then {
             plan.shots.push(Shot {
                 at: t + offset,
                 act,
                 caption: caption.filter(|_| !narration),
+                view: None,
             });
         }
         for (from, at, until, target) in s.gestures {
@@ -420,39 +463,39 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
     plan
 }
 
-/// The short feature videos for the demo page, each 20–30 s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The demo page's use-case videos, each 20–30 s on its own example
+/// drawing, each proving one capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feature {
-    /// Find what changed: drop, overlay and legend, the count, the cloud.
-    Find,
-    /// Every change explained: taps, zooms, Details' exact values.
-    Explain,
-    /// Before and after: which file is earlier, side by side, Swap.
-    Compare,
-    /// Share a review report: JSON and the PNG report.
-    Report,
-    /// Private, honest, anywhere: the privacy line, what isn't compared,
-    /// DWG, the phone.
-    Private,
+    /// Finds the changes the revision cloud leaves out (gearbox cover).
+    Unclouded,
+    /// Shows tiny changes with their exact values (locating plate).
+    Tiny,
+    /// Ignores re-export noise: one real change (drive shaft re-saved).
+    Resave,
+    /// A block definition edit shown at every reference (floor plan).
+    Blocks,
+    /// A large drawing compared in the browser, nothing uploaded (depot).
+    Big,
 }
 
 impl Feature {
     pub const ALL: [Feature; 5] = [
-        Feature::Find,
-        Feature::Explain,
-        Feature::Compare,
-        Feature::Report,
-        Feature::Private,
+        Feature::Unclouded,
+        Feature::Tiny,
+        Feature::Resave,
+        Feature::Blocks,
+        Feature::Big,
     ];
 
     /// The name in `?feature=` and in file names.
     pub fn id(&self) -> &'static str {
         match self {
-            Feature::Find => "find",
-            Feature::Explain => "explain",
-            Feature::Compare => "compare",
-            Feature::Report => "report",
-            Feature::Private => "private",
+            Feature::Unclouded => "unclouded",
+            Feature::Tiny => "tiny",
+            Feature::Resave => "resave",
+            Feature::Blocks => "blocks",
+            Feature::Big => "big",
         }
     }
 
@@ -460,175 +503,343 @@ impl Feature {
         Feature::ALL.into_iter().find(|f| f.id() == id)
     }
 
-    /// Feature videos that start on the example's comparison (the others
-    /// start on Rev C alone and drop files).
+    /// The built-in example it uses (the large layout is not built in: its
+    /// files are dropped from disk, `Files::Big`).
+    pub fn example(&self) -> &'static str {
+        match self {
+            Feature::Unclouded => "cover",
+            Feature::Tiny => "plate",
+            Feature::Resave => "shaft",
+            Feature::Blocks => "flat",
+            Feature::Big => "",
+        }
+    }
+
+    /// Videos that start on the example's comparison, as the app opens.
     pub fn starts_compared(&self) -> bool {
-        matches!(self, Feature::Explain | Feature::Report | Feature::Private)
+        matches!(self, Feature::Tiny | Feature::Blocks)
+    }
+
+    /// Videos that start on the empty start screen.
+    pub fn starts_empty(&self) -> bool {
+        matches!(self, Feature::Big)
     }
 }
 
-/// A feature video for this comparison (the built-in example). Every
-/// number and headline comes from the comparison.
-pub fn feature_plan(c: &Compare, f: Feature) -> Plan {
-    let (a, b) = c.labels();
-    let keep = |s: &str| s.replace(' ', "\u{a0}");
-    let (a, b) = (keep(a), keep(b));
-    let n = c.design_count();
-    let changes = match n {
+/// What changed in a text, in its own words: the differing words of the
+/// old and new values, with the word before a changed number ("Ra 1.6 →
+/// Ra 0.8", "±0.1 → ±0.05").
+pub fn text_change(c: &lightable_diff::Change) -> Option<String> {
+    let d = c
+        .details
+        .iter()
+        .find(|d| d.starts_with("text changed from "))?;
+    let rest = d.strip_prefix("text changed from \"")?;
+    let (old, new) = rest.split_once("\" to \"")?;
+    let new = new.strip_suffix('"')?;
+    let (a, b): (Vec<&str>, Vec<&str>) = (old.split(' ').collect(), new.split(' ').collect());
+    let front = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let back = a[front..]
+        .iter()
+        .rev()
+        .zip(b[front..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let mut from = front;
+    // A bare number reads better with the word before it.
+    if from > 0 && a[from].parse::<f64>().is_ok() {
+        from -= 1;
+    }
+    Some(format!(
+        "{} → {}",
+        a[from..a.len() - back].join(" "),
+        b[from..b.len() - back].join(" ")
+    ))
+}
+
+/// The change's headline, said for its layer: "On layer SECTION: line
+/// moved 1.25 mm up."
+fn on_layer(c: &Compare, i: usize) -> String {
+    let ch = &c.diff().changes[i];
+    let mut h = ch.headline.clone();
+    if let Some(first) = h.get(..1) {
+        h = first.to_lowercase() + &h[1..];
+    }
+    format!("On layer {}: {h}.", ch.layer())
+}
+
+/// The first design change matching `test`.
+fn find(c: &Compare, test: impl Fn(&lightable_diff::Change) -> bool) -> Option<usize> {
+    c.diff()
+        .changes
+        .iter()
+        .position(|ch| !ch.markup && test(ch))
+}
+
+/// Thousands with a thin space: "23 185".
+pub fn count(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (k, ch) in s.chars().enumerate() {
+        if k > 0 && (s.len() - k).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// A use-case video for this comparison (its example). `c` is `None` for
+/// the large layout until its files have been dropped and compared; its
+/// numbers come in then (`{objects}`, `{seconds}`, `{requests}` are filled
+/// in as the captions are shown, from what was measured).
+pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
+    let end = step(Act::EndCard, 3.0, END_CARD.into());
+    let changes = |n: usize| match n {
         1 => "1 change".to_owned(),
         n => format!("{n} changes"),
     };
-    let picks = c.demo_picks();
-    let end = step(Act::EndCard, 3.0, END_CARD.into());
-    let steps = match f {
-        Feature::Find => vec![
-            step(
-                Act::Opening,
-                3.0,
-                format!("{b} just came in. What changed?"),
-            ),
-            Step {
-                gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
-                ..step(Act::Drop, 4.0, "Drop in both revisions.".into())
-            },
-            step(
-                Act::Highlight("legend"),
-                4.0,
-                "Blue added, red deleted, yellow changed.".into(),
-            ),
-            step(
-                Act::Highlight("summary"),
-                4.0,
-                format!("{changes} found between {a} and {b}."),
-            ),
-            match c.cloud_bounds() {
-                Some(_) => Step {
-                    gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
-                    ..step(Act::Cloud, 5.0, cloud_caption(c))
+    let steps = match (f, c) {
+        (Feature::Big, c) => {
+            // The first change in the list (the same before the files are
+            // compared, so the plan's gestures do not change).
+            let first = c.map_or(Some(0), |c| find(c, |_| true));
+            vec![
+                step(
+                    Act::Opening,
+                    3.0,
+                    "Two revisions of a large warehouse layout.".into(),
+                )
+                .shows(View::Start),
+                Step {
+                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Big))],
+                    ..step(
+                        Act::Drop,
+                        6.0,
+                        "Drop in both. Read and compared in this browser.".into(),
+                    )
                 },
-                None => step(Act::Nothing, 5.0, format!("{b} has no revision cloud.")),
-            },
-            end,
-        ],
-        Feature::Explain => {
+                step(
+                    Act::Highlight("timing"),
+                    5.0,
+                    "{objects} objects compared in {seconds} s.".into(),
+                ),
+                step(
+                    Act::Highlight("network"),
+                    5.0,
+                    "Network requests since opening the files: {requests}.".into(),
+                ),
+                match first {
+                    Some(i) => Step {
+                        gestures: vec![click(0.0, 0.8, Target::Row(i))],
+                        ..step(
+                            Act::Tap(i),
+                            5.0,
+                            c.map_or(String::new(), |c| on_layer(c, i)),
+                        )
+                    },
+                    None => step(Act::Nothing, 5.0, "Each change, in plain words.".into()),
+                },
+                end,
+            ]
+        }
+        (_, None) => vec![end],
+        (Feature::Unclouded, Some(c)) => {
+            let (_, b) = c.labels();
+            let (a, b2) = c.labels();
+            let n = c.design_count();
+            let mut v = vec![
+                step(
+                    Act::Opening,
+                    3.0,
+                    format!("{b} of the gearbox cover. What changed?"),
+                ),
+                Step {
+                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
+                    ..step(Act::Drop, 4.0, "Drop in both revisions.".into())
+                },
+                step(
+                    Act::Highlight("summary"),
+                    4.0,
+                    format!("{} found between {a} and {b2}.", changes(n)),
+                ),
+            ];
+            if c.cloud_bounds().is_some() {
+                let k = c.clouded_count();
+                v.push(Step {
+                    gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
+                    ..step(
+                        Act::Cloud,
+                        5.0,
+                        format!(
+                            "The cloud marks {}; {} others weren't clouded.",
+                            changes(k),
+                            n - k
+                        ),
+                    )
+                });
+            }
+            let picks = c.demo_picks();
+            if let Some(&hole) = picks.first() {
+                v.push(Step {
+                    gestures: vec![click(0.0, 0.8, Target::Row(hole))],
+                    ..step(
+                        Act::Tap(hole),
+                        5.0,
+                        clauses(c.headline(hole)).swap_remove(0),
+                    )
+                });
+            }
+            if let Some(edge) = find(c, |ch| ch.layer() == "SECTION") {
+                v.push(Step {
+                    gestures: vec![click(0.0, 0.8, Target::Row(edge))],
+                    ..step(Act::Tap(edge), 4.0, on_layer(c, edge))
+                });
+            }
+            v.push(end);
+            v
+        }
+        (Feature::Tiny, Some(c)) => {
             let mut v = vec![step(
                 Act::Compared,
-                3.0,
-                format!("The bracket example: {changes} in plain words."),
+                4.0,
+                format!("Locating plate: {}, all tiny.", changes(c.design_count())),
             )];
-            for &i in picks.iter().take(2) {
-                let headline = clauses(c.headline(i)).swap_remove(0);
+            if let Some(hole) = find(c, |ch| ch.entity_type == "CIRCLE") {
+                let ch = &c.diff().changes[hole];
+                let (_, exact) = lightable_diff::words::exact(ch, c.diff().units.as_deref());
+                v.push(Step {
+                    gestures: vec![click(0.0, 0.8, Target::Row(hole))],
+                    ..step(Act::Tap(hole), 4.0, c.headline(hole).to_owned())
+                });
+                v.push(Step {
+                    // (After the step has set what to zoom onto.)
+                    gestures: vec![(0.3, 1.1, 2.3, Target::Pinch)],
+                    ..step(
+                        Act::Close(hole),
+                        4.0,
+                        "Zoomed in close on that hole.".into(),
+                    )
+                });
+                v.push(
+                    Step {
+                        gestures: vec![click(0.0, 0.7, Target::Details)],
+                        ..step(Act::Nothing, 5.0, format!("Details: {}.", lower(&exact)))
+                    }
+                    .shows(View::Details),
+                );
+            }
+            if let Some(note) = find(c, |ch| ch.entity_type == "TEXT")
+                && let Some(words) = text_change(&c.diff().changes[note])
+            {
+                v.push(
+                    Step {
+                        gestures: vec![click(0.0, 0.8, Target::Row(note))],
+                        ..step(Act::Tap(note), 5.0, format!("Tolerance note: {words}."))
+                    }
+                    .shows(View::Details),
+                );
+            }
+            v.push(end);
+            v
+        }
+        (Feature::Resave, Some(c)) => {
+            let d = c.diff();
+            let mut v = vec![
+                step(
+                    Act::Opening,
+                    3.0,
+                    "A drawing re-saved by another program.".into(),
+                ),
+                Step {
+                    gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Example))],
+                    ..step(
+                        Act::Drop,
+                        4.0,
+                        "Drop in the original and the re-saved copy.".into(),
+                    )
+                },
+                Step {
+                    then: vec![(
+                        2.5,
+                        Act::Nothing,
+                        Some("New handles, new order, R2000: not changes.".into()),
+                    )],
+                    ..step(
+                        Act::Highlight("summary"),
+                        5.0,
+                        format!("{} found.", capital(&changes(c.design_count()))),
+                    )
+                },
+            ];
+            if let Some(i) = find(c, |_| true) {
+                let words = text_change(&d.changes[i]).unwrap_or_else(|| c.headline(i).into());
                 v.push(Step {
                     gestures: vec![click(0.0, 0.8, Target::Row(i))],
-                    ..step(Act::Tap(i), 5.0, headline)
+                    ..step(Act::Tap(i), 5.0, format!("The one real change: {words}."))
+                });
+            }
+            v.push(
+                Step {
+                    gestures: vec![click(0.0, 0.7, Target::Details)],
+                    ..step(
+                        Act::Nothing,
+                        5.0,
+                        format!("{} objects redrawn the same: not changes.", d.redrawn.len()),
+                    )
+                }
+                .shows(View::Details),
+            );
+            v.push(end);
+            v
+        }
+        (Feature::Blocks, Some(c)) => {
+            let d = c.diff();
+            let mut v = vec![step(
+                Act::Compared,
+                4.0,
+                format!(
+                    "Apartment plan, Rev A to Rev B: {}.",
+                    changes(c.design_count())
+                ),
+            )];
+            if let Some(i) = find(c, |ch| matches!(ch.place, lightable_diff::Place::Block(_))) {
+                let refs = d.changes[i].used_by_new.len();
+                v.push(Step {
+                    gestures: vec![click(0.0, 0.8, Target::Row(i))],
+                    ..step(
+                        Act::Tap(i),
+                        6.0,
+                        format!("Door block edited: shown at all {refs} doors."),
+                    )
+                });
+            }
+            if let Some(i) = find(c, |ch| ch.layer() == "WALLS") {
+                v.push(Step {
+                    gestures: vec![click(0.0, 0.8, Target::Row(i))],
+                    ..step(Act::Tap(i), 5.0, on_layer(c, i))
                 });
             }
             v.push(Step {
-                gestures: vec![click(0.0, 0.7, Target::Details)],
-                ..step(Act::Nothing, 5.0, "Details shows the exact values.".into())
-            });
-            v.push(Step {
-                then: vec![(2.5, Act::Nothing, Some("You judge what it means.".into()))],
+                gestures: vec![click(0.0, 0.7, Target::SideBySide)],
                 ..step(
-                    Act::Nothing,
+                    Act::SideBySide,
                     5.0,
-                    "Lightable describes the geometry it detects.".into(),
+                    "Before and after, side by side.".into(),
                 )
             });
             v.push(end);
             v
         }
-        Feature::Compare => vec![
-            step(
-                Act::Opening,
-                3.0,
-                "Two copies. The names don't say which is newer.".into(),
-            ),
-            Step {
-                gestures: vec![(0.3, 1.8, 1.8, Target::Drop(Files::Unnamed))],
-                ..step(Act::Drop, 4.0, "Drop in both files.".into())
-            },
-            Step {
-                gestures: vec![click(0.8, 2.0, Target::Order(0))],
-                ..step(
-                    Act::Nothing,
-                    4.0,
-                    "Lightable asks which one is earlier.".into(),
-                )
-            },
-            Step {
-                gestures: vec![click(0.0, 0.7, Target::SideBySide)],
-                ..step(Act::Nothing, 5.0, "Before and after, side by side.".into())
-            },
-            Step {
-                gestures: vec![click(0.0, 0.7, Target::Swap)],
-                ..step(
-                    Act::Nothing,
-                    5.0,
-                    "Swap compares the other way round.".into(),
-                )
-            },
-            end,
-        ],
-        Feature::Report => vec![
-            step(
-                Act::Compared,
-                3.0,
-                format!("The bracket example: {changes}."),
-            ),
-            Step {
-                gestures: vec![click(0.0, 0.7, Target::Details)],
-                ..step(Act::Nothing, 4.0, "Exports are under Details.".into())
-            },
-            Step {
-                gestures: vec![click(0.0, 0.7, Target::ExportJson)],
-                ..step(
-                    Act::Nothing,
-                    5.0,
-                    "JSON: every change with its exact values.".into(),
-                )
-            },
-            Step {
-                gestures: vec![click(0.0, 0.7, Target::ExportPng)],
-                then: vec![(4.0, Act::Nothing, Some("And what was not compared.".into()))],
-                ..step(
-                    Act::Report,
-                    8.0,
-                    "PNG report: the overlay and the changes.".into(),
-                )
-            },
-            end,
-        ],
-        Feature::Private => vec![
-            step(
-                Act::Privacy,
-                4.0,
-                "Files are read in this browser, never uploaded.".into(),
-            ),
-            Step {
-                gestures: vec![click(0.0, 1.8, Target::NotCompared)],
-                ..step(
-                    Act::Nothing,
-                    6.0,
-                    "What isn't compared? Lightable lists it.".into(),
-                )
-            },
-            Step {
-                gestures: vec![
-                    (0.3, 1.8, 1.8, Target::Drop(Files::Dwg)),
-                    click(4.0, 4.8, Target::ProblemOk),
-                ],
-                ..step(
-                    Act::Nothing,
-                    6.0,
-                    "A DWG file? It says to save it as DXF.".into(),
-                )
-            },
-            step(Act::Phone, 5.0, "Works on your phone too.".into()),
-            end,
-        ],
     };
     assemble(steps, false)
+}
+
+fn lower(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| {
+        f.to_lowercase().collect::<String>() + c.as_str()
+    })
 }
 
 /// A headline as captions of at most one clause each: "Circle diameter
@@ -965,75 +1176,69 @@ mod tests {
         assert!(line(8).contains("never leave your computer"));
     }
 
-    /// The five feature videos: 20–30 s each, short captions (two lines
-    /// in 9:16), every gesture inside its video and one at a time.
+    /// The use-case videos: 20–30 s, short captions (two lines in 9:16),
+    /// gestures one at a time, numbers from each example's comparison.
     #[test]
-    fn feature_videos_are_short_and_captioned_from_the_comparison() {
-        let c = bracket();
+    fn use_case_videos_say_what_their_comparisons_found() {
+        let mut said = std::collections::HashMap::new();
         for f in Feature::ALL {
-            let p = feature_plan(&c, f);
+            let p = if f == Feature::Big {
+                feature_plan(None, f)
+            } else {
+                feature_plan(Some(&compare(f.example(), true)), f)
+            };
             assert!((20.0..=30.0).contains(&p.length), "{f:?}: {}", p.length);
             for cue in p.cues.iter().filter(|c| c.text != END_CARD) {
                 assert!(cue.text.len() <= 55, "{f:?}: {}", cue.text);
-                assert!(cue.end > cue.start);
-            }
-            for g in &p.gestures {
-                assert!(
-                    g.from < g.at && g.at <= g.until && g.until < p.length,
-                    "{g:?}"
-                );
             }
             for pair in p.gestures.windows(2) {
                 assert!(pair[0].until < pair[1].from, "{f:?} {pair:?}");
             }
-            assert_eq!(Feature::from_id(f.id()), Some(f));
+            // Each step says what the screen shows at its end.
+            assert!(p.shots.iter().any(|s| s.view.is_some()));
+            said.insert(f, p.cues.into_iter().map(|c| c.text).collect::<Vec<_>>());
         }
-        let text = |f: Feature| -> Vec<String> {
-            feature_plan(&c, f)
-                .cues
-                .into_iter()
-                .map(|c| c.text)
-                .collect()
-        };
-        let find = text(Feature::Find);
-        assert!(find.contains(&"10 changes found between Rev B and Rev C.".to_owned()));
-        assert!(
-            find.iter()
-                .any(|t| t.contains("The other 9 weren't clouded"))
-        );
-        let explain = text(Feature::Explain);
-        assert!(explain.contains(&"Circle diameter changed from 13.5 mm to 17.5 mm".to_owned()));
-        assert!(explain.contains(&"Dimension changed from 20 mm to 25 mm".to_owned()));
-        assert!(explain.contains(&"Lightable describes the geometry it detects.".to_owned()));
-        assert!(explain.contains(&"You judge what it means.".to_owned()));
-        let private = feature_plan(&c, Feature::Private);
-        assert!(
-            private
-                .gestures
-                .iter()
-                .any(|g| g.target == Target::Drop(Files::Dwg))
-        );
-    }
-
-    /// The "Before and after" video drops copies whose names and dates do
-    /// not say which is newer, so the app asks; the DWG is recognised.
-    #[test]
-    fn the_dropped_files_do_what_the_videos_say() {
-        let e = crate::examples::find("bracket");
-        let names: Vec<&str> = Files::Unnamed.files(e).iter().map(|f| f.0).collect();
-        assert_eq!(
-            crate::intake::revision_order((names[0], Some(1.0)), (names[1], Some(1.0))),
-            crate::intake::Order::Ask
-        );
-        assert_eq!(
-            crate::intake::revision_order((names[0], None), (names[1], None)),
-            crate::intake::Order::Ask
-        );
-        let (name, bytes, _) = Files::Dwg.files(e)[0];
-        let err = lightable_dxf::read_bytes(bytes).unwrap_err();
-        let p = crate::intake::unreadable(name, bytes, &err);
-        assert_eq!(p.title, "bracket-rev-c.dwg is a DWG file");
-        assert!(p.body.contains("DXF"));
+        let has = |f: Feature, t: &str| said[&f].iter().any(|c| c == t);
+        assert!(has(
+            Feature::Unclouded,
+            "14 changes found between Rev B and Rev C."
+        ));
+        assert!(has(
+            Feature::Unclouded,
+            "The cloud marks 1 change; 13 others weren't clouded."
+        ));
+        assert!(has(
+            Feature::Unclouded,
+            "Circle diameter changed from 11 mm to 13.5 mm"
+        ));
+        assert!(has(
+            Feature::Unclouded,
+            "On layer SECTION: line moved 1.25 mm up."
+        ));
+        assert!(has(Feature::Tiny, "Circle Ø8 moved 0.5 mm right"));
+        assert!(has(Feature::Tiny, "Details: moved 0.5 mm right."));
+        assert!(has(Feature::Tiny, "Tolerance note: ±0.1 → ±0.05."));
+        assert!(has(Feature::Resave, "1 change found."));
+        assert!(has(
+            Feature::Resave,
+            "The one real change: Ra 1.6 → Ra 0.8."
+        ));
+        assert!(has(
+            Feature::Resave,
+            "17 objects redrawn the same: not changes."
+        ));
+        assert!(has(
+            Feature::Blocks,
+            "Door block edited: shown at all 7 doors."
+        ));
+        assert!(has(
+            Feature::Blocks,
+            "On layer WALLS: line moved 300 mm right."
+        ));
+        assert!(has(
+            Feature::Big,
+            "{objects} objects compared in {seconds} s."
+        ));
     }
 
     /// The demo page (`web/demo/index.html`) states the comparison's own
@@ -1062,7 +1267,7 @@ mod tests {
                 .iter()
                 .any(|h| h.starts_with("Circle diameter changed from 13.5 mm to 17.5 mm"))
         );
-        assert!(page.contains("Circle diameter changed from 13.5 mm to 17.5 mm"));
+        assert!(page.contains("from Ø13.5 to Ø17.5 mm"));
         for (a, b) in [
             ("4x Ø13.5 THRU", "4x Ø17.5 THRU"),
             ("BOLTS: 4x M12", "BOLTS: 4x M16"),
@@ -1097,6 +1302,41 @@ mod tests {
         assert!(page.contains("<code>AC1009</code> to <code>AC1032</code>"));
         // No scripts on the page.
         assert!(!page.contains("<script"));
+        // The use cases' numbers, from their comparisons.
+        let cover = compare("cover", true);
+        assert_eq!((cover.design_count(), cover.clouded_count()), (14, 1));
+        assert!(page.contains("made 14 changes") && page.contains("13 others weren't clouded"));
+        let holes = cover
+            .diff()
+            .design_changes()
+            .filter(|c| c.headline == "Circle diameter changed from 11 mm to 13.5 mm")
+            .count();
+        assert_eq!(holes, 8);
+        assert!(page.contains("8 holes Ø11 → Ø13.5 mm"));
+        let plate = compare("plate", true);
+        assert_eq!(plate.design_count(), 3);
+        assert!(page.contains("3 changes: a dowel hole moved 0.5 mm right"));
+        let shaft = compare("shaft", true);
+        assert_eq!((shaft.design_count(), shaft.diff().redrawn.len()), (1, 17));
+        assert!(page.contains("The 17 objects drawn the same"));
+        let flat = compare("flat", true);
+        assert_eq!(flat.design_count(), 4);
+        assert!(
+            flat.diff()
+                .changes
+                .iter()
+                .filter(|c| c.headline.starts_with("In block DOOR-800"))
+                .all(|c| c.used_by_new.len() == 7)
+        );
+        assert!(page.contains("4 changes: the door block") && page.contains("all 7 doors"));
+        // The large layout's size, as its generator recorded it.
+        let depot = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/depot-inventory.json"),
+        )
+        .unwrap();
+        assert!(depot.contains("\"23182 objects in Rev B"));
+        assert_eq!(depot.matches("\"id\": \"E").count(), 3);
+        assert!(page.contains("23,181 objects in Rev A, 23,182 in Rev B"));
     }
 
     #[test]

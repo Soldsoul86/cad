@@ -17,15 +17,12 @@ fn diff(a: &str, b: &str) -> lightable_diff::Diff {
 /// `crates/lightable/assets/bracket-rev-c-inventory.json`. Every expected
 /// item must be found, and every difference found must be an expected
 /// item: nothing missed, nothing unexplained.
-#[test]
-fn bracket_rev_c_matches_the_expected_change_inventory() {
-    let d = diff("bracket-rev-b.dxf", "bracket-rev-c.dxf");
-    assert_eq!(d.units.as_deref(), Some("mm"));
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../lightable/assets");
-    let inventory: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("bracket-rev-c-inventory.json")).unwrap(),
-    )
-    .unwrap();
+/// Every expected item of an inventory (written before the files were
+/// compared) is found, and every difference found is an expected item:
+/// nothing missed, nothing unexplained. Returns the diff.
+fn check_inventory(d: &lightable_diff::Diff, inventory: &std::path::Path) {
+    let inventory: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(inventory).unwrap()).unwrap();
     let mut used = vec![false; d.changes.len()];
     let mut check = |items: &serde_json::Value, markup: bool, many: bool| {
         for item in items.as_array().unwrap() {
@@ -70,6 +67,24 @@ fn bracket_rev_c_matches_the_expected_change_inventory() {
         unexplained.is_empty(),
         "differences not in the inventory: {unexplained:#?}"
     );
+    assert_eq!(
+        d.design_changes().count(),
+        inventory["design"].as_array().unwrap().len()
+    );
+}
+
+fn assets() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../lightable/assets")
+}
+
+/// The bracket's expected changes were written down from the engineering
+/// change (ECN-017, bolts M12 -> M16) before the files were compared:
+/// `crates/lightable/assets/bracket-rev-c-inventory.json`.
+#[test]
+fn bracket_rev_c_matches_the_expected_change_inventory() {
+    let d = diff("bracket-rev-b.dxf", "bracket-rev-c.dxf");
+    assert_eq!(d.units.as_deref(), Some("mm"));
+    check_inventory(&d, &assets().join("bracket-rev-c-inventory.json"));
     // One engineering intention, ten design-content differences.
     assert_eq!(d.design_changes().count(), 10);
     assert_eq!(
@@ -258,4 +273,52 @@ fn without_insunits_lengths_have_no_unit() {
     let d = lightable_diff::diff(&a, &b, &DiffOptions::default());
     assert_eq!(d.units, None);
     assert_eq!(d.changes[0].headline, "Line moved 2 up");
+}
+
+/// The demo page's use cases (tools/gen_usecases.py): each comparison
+/// says exactly what its inventory, written from the edits, expects.
+#[test]
+fn the_use_case_examples_match_their_inventories() {
+    for (name, a, b) in [
+        ("cover", "cover-rev-b.dxf", "cover-rev-c.dxf"),
+        ("plate", "plate-rev-b.dxf", "plate-rev-c.dxf"),
+        ("shaft", "shaft-rev-a.dxf", "shaft-resaved.dxf"),
+        ("flat", "flat-rev-a.dxf", "flat-rev-b.dxf"),
+    ] {
+        let d = diff(a, b);
+        check_inventory(&d, &assets().join(format!("{name}-inventory.json")));
+        assert!(d.changes.iter().all(|c| c.certain), "{name}");
+    }
+    // The re-saved shaft: renumbered and reordered, one outline written as
+    // lines, and still exactly one change.
+    let d = diff("shaft-rev-a.dxf", "shaft-resaved.dxf");
+    assert!(!d.handles_trusted);
+    assert_eq!(d.changes.len(), 1);
+    assert_eq!(d.equivalent, 17);
+    // The door block edit is shown by all seven doors.
+    let d = diff("flat-rev-a.dxf", "flat-rev-b.dxf");
+    for c in d
+        .changes
+        .iter()
+        .filter(|c| c.headline.starts_with("In block DOOR-800"))
+    {
+        assert_eq!(c.used_by_new.len(), 7);
+    }
+}
+
+/// The large layout (made by tools/gen_usecases.py into out/demo/usecases,
+/// not committed): checked when it has been generated.
+#[test]
+fn the_large_layout_matches_its_inventory_when_generated() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../out/demo/usecases");
+    let (a, b) = (dir.join("depot-rev-a.dxf"), dir.join("depot-rev-b.dxf"));
+    if !a.exists() || !b.exists() {
+        eprintln!("skipped: run tools/gen_usecases.py to make the large layout");
+        return;
+    }
+    let (a, _) = lightable_dxf::read_file(a).unwrap();
+    let (b, _) = lightable_dxf::read_file(b).unwrap();
+    assert!(b.entities.len() > 20_000, "{}", b.entities.len());
+    let d = lightable_diff::diff(&a, &b, &DiffOptions::default());
+    check_inventory(&d, &assets().join("depot-inventory.json"));
 }

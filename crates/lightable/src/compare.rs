@@ -102,6 +102,13 @@ pub struct Compare {
     pub swap_rect: Option<Rect>,
     pub not_compared_rect: Option<Rect>,
     pub privacy_rect: Option<Rect>,
+    /// How long reading and comparing the user's files took, and (the
+    /// large layout's video) the network requests since; shown under the
+    /// summary.
+    pub timing_line: Option<String>,
+    pub network_line: Option<String>,
+    pub timing_rect: Option<Rect>,
+    pub network_rect: Option<Rect>,
     /// Recording: the privacy line in the toolbar, and the file names with
     /// Swap even in 9:16 (the feature videos that show them).
     pub show_privacy: bool,
@@ -111,6 +118,8 @@ pub struct Compare {
     pub list_rect: Option<Rect>,
     /// Frames left to bring the selected row into view.
     reveal_selected: u8,
+    /// Change rows in view whose headline was cut off ("…") last frame.
+    pub cut_rows: usize,
 }
 
 /// The PNG report: shown for a few frames, then captured (or, in the demo,
@@ -144,21 +153,6 @@ fn block_refs(c: &Change) -> Option<String> {
     } else {
         format!("shown by {} reference(s): {}", refs.len(), refs.join(", "))
     })
-}
-
-/// A change's one-line title.
-fn title(c: &Change) -> String {
-    let mut t = format!("{} {}", c.kind.as_str(), c.entity_type);
-    if let Some(h) = c.handle() {
-        t.push_str(&format!(" {h}"));
-    }
-    if !c.layer().is_empty() && c.place != Place::Layers {
-        t.push_str(&format!(" · {}", c.layer()));
-    }
-    if c.place != Place::Model {
-        t.push_str(&format!(" · {}", c.place));
-    }
-    t
 }
 
 fn rgb(c: lightable_render::Rgb) -> Color32 {
@@ -266,11 +260,16 @@ impl Compare {
             swap_rect: None,
             not_compared_rect: None,
             privacy_rect: None,
+            timing_line: None,
+            network_line: None,
+            timing_rect: None,
+            network_rect: None,
             show_privacy: false,
             show_files: false,
             row_rects: Vec::new(),
             list_rect: None,
             reveal_selected: 0,
+            cut_rows: 0,
         })
     }
 
@@ -767,6 +766,20 @@ impl Compare {
                 }
             });
         }
+        self.timing_rect = None;
+        self.network_rect = None;
+        if let Some(t) = &self.timing_line {
+            self.timing_rect = Some(
+                ui.label(egui::RichText::new(t).color(Color32::from_gray(185)))
+                    .rect,
+            );
+        }
+        if let Some(n) = &self.network_line {
+            self.network_rect = Some(
+                ui.label(egui::RichText::new(n).color(Color32::from_gray(185)))
+                    .rect,
+            );
+        }
         for note in &self.notes {
             ui.label(egui::RichText::new(note).color(Color32::from_rgb(0xf5, 0xd0, 0x2a)));
         }
@@ -1023,6 +1036,7 @@ impl Compare {
         let mut reveal = false;
         let mut tail_visible = None;
         let mut rows = Vec::new();
+        let mut cut_rows = 0;
         let mut view = None;
         let mut not_compared = None;
         let bring = self.reveal_selected > 0;
@@ -1065,19 +1079,24 @@ impl Compare {
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 2.0, kind_color(c));
-                        // Long headlines wrap (narrow screens, report); in a
-                        // 9:16 recording one line each, so the drawing keeps
-                        // its share of the frame.
-                        let button = egui::Button::selectable(selected, text);
-                        // Recording: one line each, except the change
-                        // tapped, in full.
-                        if self.record && !selected {
-                            ui.add(button.truncate())
-                        } else {
-                            ui.add(button.wrap())
-                        }
+                        // Long headlines wrap, never cut off: laid out here
+                        // so a cut-off row would be known (the recorder's
+                        // check).
+                        let width = ui.available_width() - 2.0 * ui.spacing().button_padding.x;
+                        let galley = egui::WidgetText::from(text).into_galley(
+                            ui,
+                            Some(egui::TextWrapMode::Wrap),
+                            width,
+                            egui::TextStyle::Button,
+                        );
+                        let cut = galley.elided;
+                        (ui.add(egui::Button::selectable(selected, galley)), cut)
                     })
                     .inner;
+                let (response, cut) = response;
+                if cut && ui.clip_rect().intersects(response.rect) {
+                    cut_rows += 1;
+                }
                 if first_row.is_none() {
                     first_row = Some(response.rect);
                 }
@@ -1096,16 +1115,14 @@ impl Compare {
                     if !c.geometry && c.kind == ChangeKind::Changed {
                         notes.push("properties only");
                     }
-                    let exact: Vec<&str> = c
-                        .details
-                        .iter()
-                        .map(String::as_str)
-                        .filter(|d| *d != "not shown")
-                        .collect();
+                    // Plain labels, arrows and units (the JSON keeps the
+                    // raw details).
+                    let (object, exact) =
+                        lightable_diff::words::exact(c, d.units.as_deref());
                     ui.indent(i, |ui| {
-                        ui.small(egui::RichText::new(title(c)).color(Color32::from_gray(140)));
+                        ui.small(egui::RichText::new(object).color(Color32::from_gray(150)));
                         if !exact.is_empty() {
-                            ui.small(exact.join("; "));
+                            ui.small(exact);
                         }
                         if !notes.is_empty() {
                             ui.small(egui::RichText::new(notes.join(", ")).italics().color(Color32::GRAY));
@@ -1177,6 +1194,7 @@ impl Compare {
         self.anchors[0] = first_row;
         self.list_tail_visible = tail_visible;
         self.row_rects = rows;
+        self.cut_rows = cut_rows;
         self.list_rect = view;
         self.not_compared_rect = not_compared;
         if reveal {

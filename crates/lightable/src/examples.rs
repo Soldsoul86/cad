@@ -25,7 +25,7 @@ pub struct Example {
     pub cloud_by_design: bool,
 }
 
-pub static EXAMPLES: [Example; 2] = [
+pub static EXAMPLES: [Example; 6] = [
     Example {
         id: "bracket",
         title: "Steel bracket, Rev B to Rev C",
@@ -47,6 +47,56 @@ pub static EXAMPLES: [Example; 2] = [
         b_name: "plan-rev-b.dxf",
         a: include_bytes!("../assets/plan-rev-a.dxf"),
         b: include_bytes!("../assets/plan-rev-b.dxf"),
+        note: None,
+        cloud_by_design: false,
+    },
+    // The demo page's use cases (tools/gen_usecases.py; each with an
+    // expected-change inventory next to it).
+    Example {
+        id: "cover",
+        title: "Gearbox cover, Rev B to Rev C",
+        a_label: "Rev B",
+        b_label: "Rev C",
+        a_name: "cover-rev-b.dxf",
+        b_name: "cover-rev-c.dxf",
+        a: include_bytes!("../assets/cover-rev-b.dxf"),
+        b: include_bytes!("../assets/cover-rev-c.dxf"),
+        note: Some("Example: the drafter clouded only the bolt note."),
+        cloud_by_design: true,
+    },
+    Example {
+        id: "plate",
+        title: "Locating plate, Rev B to Rev C",
+        a_label: "Rev B",
+        b_label: "Rev C",
+        a_name: "plate-rev-b.dxf",
+        b_name: "plate-rev-c.dxf",
+        a: include_bytes!("../assets/plate-rev-b.dxf"),
+        b: include_bytes!("../assets/plate-rev-c.dxf"),
+        note: None,
+        cloud_by_design: false,
+    },
+    Example {
+        id: "shaft",
+        title: "Drive shaft, re-saved by another program",
+        a_label: "Rev A",
+        b_label: "the re-saved copy",
+        a_name: "shaft-rev-a.dxf",
+        b_name: "shaft-resaved.dxf",
+        a: include_bytes!("../assets/shaft-rev-a.dxf"),
+        b: include_bytes!("../assets/shaft-resaved.dxf"),
+        note: Some("Example: the same drawing re-saved by another program, with one real change."),
+        cloud_by_design: false,
+    },
+    Example {
+        id: "flat",
+        title: "Apartment plan with blocks, Rev A to Rev B",
+        a_label: "Rev A",
+        b_label: "Rev B",
+        a_name: "flat-rev-a.dxf",
+        b_name: "flat-rev-b.dxf",
+        a: include_bytes!("../assets/flat-rev-a.dxf"),
+        b: include_bytes!("../assets/flat-rev-b.dxf"),
         note: None,
         cloud_by_design: false,
     },

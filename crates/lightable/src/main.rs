@@ -149,9 +149,22 @@ mod cli {
                         write("cue-sheet.md", crate::demo::cue_sheet(&plan))?;
                     }
                 }
-                // The feature videos' captions.
+                // The use-case videos' captions, each from its example (the
+                // large layout's come from the recording: its numbers are
+                // measured as it plays).
                 for f in crate::demo::Feature::ALL {
-                    let plan = crate::demo::feature_plan(&c, f);
+                    if f == crate::demo::Feature::Big {
+                        continue;
+                    }
+                    let e = crate::examples::find(f.example());
+                    let c = crate::compare::Compare::new(
+                        None,
+                        (e.a_name.into(), read(e.a)?),
+                        (e.b_name.into(), read(e.b)?),
+                        Some((e.a_label.into(), e.b_label.into())),
+                        Some(e.id),
+                    )?;
+                    let plan = crate::demo::feature_plan(Some(&c), f);
                     let stem = format!("feature-{}", f.id());
                     write(&format!("{stem}.srt"), crate::demo::srt(&plan.cues))?;
                     write(&format!("{stem}.vtt"), crate::demo::vtt(&plan.cues))?;

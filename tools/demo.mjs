@@ -50,7 +50,8 @@ const ASSETS = join(ROOT, "crates", "lightable", "assets");
 const TOOL_VERSION = 6;
 // The demo page's feature videos (`--modes find,explain,...`; `--modes
 // features` for all five).
-const FEATURES = ["find", "explain", "compare", "report", "private"];
+const FEATURES = ["unclouded", "tiny", "resave", "blocks", "big"];
+const END_CARD = "Free. Open source. Your files never leave your computer. lightable.dev";
 const CLOCK = 30; // the app's frame clock
 
 const args = process.argv.slice(2);
@@ -70,7 +71,7 @@ const note = opt("note", "");
 const review = !args.includes("--no-review");
 // The demo page's videos, posters and captions into `dir`, from the
 // videos `video(feature, format)` names. Posters: a still from each video.
-const POSTER_AT = { find: 13, explain: 6, compare: 14, report: 15, private: 2 };
+const POSTER_AT = { unclouded: 13, tiny: 10, resave: 9, blocks: 7, big: 11 };
 function pageFiles(dir, video) {
   for (const m of FEATURES) {
     for (const format of ["landscape", "vertical"]) {
@@ -318,7 +319,9 @@ async function openDemo(format, mode, dpr, cut = false) {
   for (const [set, list] of Object.entries(JSON.parse(await evaluate("window.__lightableDemoFiles")))) {
     fileSets[set] = list.map((f) => {
       const path = join(fileDir, f.name);
-      if (f.copy) copyFileSync(join(ASSETS, f.copy), path);
+      // (The large layout comes from out/demo/usecases, made by
+      // tools/gen_usecases.py.)
+      if (f.copy) copyFileSync(f.copy.startsWith("usecases/") ? join(OUT, f.copy) : join(ASSETS, f.copy), path);
       else writeFileSync(path, Buffer.from(f.hex, "hex"));
       utimesSync(path, new Date("2026-01-05T09:00:00Z"), new Date("2026-01-05T09:00:00Z"));
       return path;
@@ -434,7 +437,9 @@ async function openDemo(format, mode, dpr, cut = false) {
       const drag = g.target.startsWith("drop");
       const data = { items: [], files: fileSets[g.target] ?? [], dragOperationsMask: 1 };
       if (t < g.at) {
-        let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, g.at - 0.1 - start)));
+        // Eased, arriving 0.3 s before the click: a short pause on the
+        // control (its hover look shows) before pressing.
+        let k = Math.min(1, Math.max(0, (t - start) / Math.max(1e-3, g.at - 0.3 - start)));
         k = k * k * (3 - 2 * k);
         const pos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
         if (drag) {
@@ -553,6 +558,24 @@ function check(info, format, sample, target, expect = {}) {
   const [x0, y0, x1, y1] = info.screen;
   const sh = y1 - y0;
   const out = {};
+  // No old and new text drawn over each other ("225").
+  out.texts = { pass: info.text_overlaps === 0, detail: info.text_overlaps ? `${info.text_overlaps} changed texts drawn over each other` : "no changed texts overlap" };
+  // No change headline cut off with "…".
+  if (info.list) out.rows = { pass: info.cut_rows === 0, detail: info.cut_rows ? `${info.cut_rows} headline(s) cut off` : "headlines in full" };
+  // Clear of a video player's controls (bottom 15 %) and buttons (top-left
+  // 10 %).
+  if (info.caption) {
+    const ok = info.caption.rect[3] <= y1 - 0.15 * sh + 1;
+    out.framing = { pass: ok, detail: ok ? "caption above the bottom 15 %" : `caption reaches ${Math.round((info.caption.rect[3] / sh) * 100)} % of the height` };
+  }
+  const corner = [x0, y0, x0 + 0.1 * (x1 - x0), y0 + 0.1 * sh];
+  const inCorner = Object.entries(info.targets).filter(([n, r]) => !["drop", "list"].includes(n) && !n.startsWith("row:") && overlaps(r, corner)).map(([n]) => n);
+  out.corner = { pass: inCorner.length === 0, detail: inCorner.length ? `in the top-left 10 %: ${inCorner.join(", ")}` : "top-left 10 % clear" };
+  // The caption is about what is on screen: the view the plan expects at
+  // the end of the step.
+  if (sample === "settled" && expect.view) {
+    out.view = { pass: info.view === expect.view, detail: `${info.view}${info.view === expect.view ? "" : `, expected ${expect.view}`}` };
+  }
   // The pointer reached the control before using it.
   if (sample === "aim") {
     const p = info.pointer;
@@ -621,7 +644,7 @@ async function stills(format, mode) {
   page.shots.forEach((s, i) => {
     const next = i + 1 < page.shots.length ? page.shots[i + 1].at : page.length;
     if (next - s.at > 2.5) samples.push({ t: s.at + 1.0, step: i, act: actName(s.desc), sample: "early" });
-    samples.push({ t: Math.max(s.at, next - 2 / CLOCK), step: i, act: actName(s.desc), sample: "settled" });
+    samples.push({ t: Math.max(s.at, next - 2 / CLOCK), step: i, act: actName(s.desc), sample: "settled", view: s.view });
   });
   // Each gesture: the pointer on its way, and on its target just before it
   // acts (checked); a pinch half-way.
@@ -646,7 +669,7 @@ async function stills(format, mode) {
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
-    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target, expect) });
+    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, checks: check(info, format, s.sample, s.target, { ...expect, view: s.view }) });
   }
   // The report the demo exported: saved for real.
   // (Chrome finishes writing it in the background.)
@@ -751,6 +774,9 @@ async function video(format, mode, kind, workers, encodeSlot) {
     seg.meta = join(cacheDir, `${seg.key}.json`);
   }
   const counts = { drawn: 0, held: 0, probed: 0 };
+  // Captions as shown (the large layout's numbers are measured as it
+  // plays, so its subtitles are written from the recording).
+  const shown = [];
   const encodes = [];
   const requests = [];
   const errors = [];
@@ -787,6 +813,7 @@ async function video(format, mode, kind, workers, encodeSlot) {
     const pngs = new Map();
     for (let f = seg.start; f < seg.end; ) {
       const info = await timed("render", () => page.render(f, step, q.cut));
+      shown.push([f, info.end_card ? END_CARD : info.caption_text]);
       const png = await timed("capture", () => page.png(q.shrink ?? 1));
       counts.drawn++;
       const hash = sha(png);
@@ -848,6 +875,18 @@ async function video(format, mode, kind, workers, encodeSlot) {
     requests.push(...p.requests);
     errors.push(...p.errors);
     p.close();
+  }
+  if (mode === "big") {
+    shown.sort((a, b) => a[0] - b[0]);
+    const cues = [];
+    for (const [f, text] of shown) {
+      if (cues.length && cues.at(-1).text === text) continue;
+      if (cues.length) cues.at(-1).end = f;
+      cues.push({ start: f, end: total, text });
+    }
+    const clock = (f) => new Date((f / CLOCK) * 1000).toISOString().slice(11, 23);
+    writeFileSync(join(OUT, "feature-big.vtt"), "WEBVTT\n\n" + cues.filter((c) => c.text)
+      .map((c) => `${clock(c.start)} --> ${clock(c.end)}\n${c.text}\n`).join("\n"));
   }
   const prefix = kind === "final" ? "demo" : kind;
   const name = `${prefix}-${format}${suffix(mode)}.mp4`;

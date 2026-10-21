@@ -177,6 +177,8 @@ struct Demo {
     example: String,
     /// A feature video instead of the whole demo.
     feature: Option<crate::demo::Feature>,
+    /// The large layout's plan has its numbers (its files were compared).
+    planned_with_compare: bool,
     /// Voice-over timing (`?demo&narration`).
     narration: bool,
     /// Recording: demo time is the frame number the recorder sets, at 30
@@ -300,9 +302,10 @@ mod record {
             .iter()
             .map(|s| {
                 format!(
-                    "{{\"at\":{},\"desc\":{}}}",
+                    "{{\"at\":{},\"desc\":{},\"view\":{}}}",
                     s.at,
-                    json_string(&format!("{s:?}"))
+                    json_string(&format!("{s:?}")),
+                    s.view.map_or("null".to_owned(), |v| json_string(v.name()))
                 )
             })
             .collect();
@@ -380,6 +383,36 @@ mod record {
 /// Frames a second when recording.
 const RECORD_FPS: f64 = 30.0;
 
+/// The page's clock in milliseconds (wall time: for how long reading and
+/// comparing took).
+fn clock_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    }
+}
+
+/// How many network requests the page has made so far, as the browser
+/// counts them (its Resource Timing list: every fetch, image, script and
+/// other resource the page loaded). Native: none.
+fn requests_so_far() -> Option<usize> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let entries = web_sys::window()?
+            .performance()?
+            .get_entries_by_type("resource");
+        Some(entries.length() as usize)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
+}
+
 /// Caption text size for a screen: 4.5 % of its height (readable on a phone
 /// in a social feed), shrunk to [`CAPTION_MIN`] at most to fit two lines.
 pub fn caption_size(height: f32) -> f32 {
@@ -388,6 +421,13 @@ pub fn caption_size(height: f32) -> f32 {
 
 /// The smallest caption, as a share of the screen height.
 const CAPTION_MIN: f32 = 0.04;
+
+/// Where a caption's box ends (points from the top): just above the bottom
+/// of the drawing, and never in the bottom 15 % of the frame, where video
+/// players put their controls.
+fn caption_bottom(screen: Rect, area: Rect, size: f32) -> f32 {
+    (area.max.y - size * 0.4).min(screen.max.y - 0.15 * screen.height())
+}
 
 /// The file dialog exists (web); the native app takes files by drag and
 /// drop or on the command line.
@@ -492,6 +532,19 @@ pub struct CadApp {
     pinch: Option<(Pos2, f64)>,
     /// The window (points), this frame.
     screen: Rect,
+    /// What the demo's pinch zooms onto: the revision cloud, or one small
+    /// change.
+    pinch_to: Option<lightable_render::Bounds>,
+    /// Files dropped or chosen: when they arrived (ms, the page's clock),
+    /// and, once compared, how long reading and comparing took (seconds)
+    /// and how many objects each revision has.
+    arrived_at: Option<f64>,
+    timing: Option<(f64, usize, usize)>,
+    /// The page's network requests (the browser's own count) when files
+    /// last arrived.
+    requests_at_open: Option<usize>,
+    /// Show the request count (the large layout's video).
+    show_network: bool,
 }
 
 /// egui's two text fonts without its emoji fonts (about 740 kB of the web
@@ -583,6 +636,7 @@ impl CadApp {
             demo: demo.then(|| Demo {
                 example: demo_example.unwrap_or_default(),
                 feature: feature.as_deref().and_then(crate::demo::Feature::from_id),
+                planned_with_compare: false,
                 narration,
                 record,
                 plan: None,
@@ -613,6 +667,11 @@ impl CadApp {
             targets: Vec::new(),
             pinch: None,
             screen: Rect::ZERO,
+            pinch_to: None,
+            arrived_at: None,
+            timing: None,
+            requests_at_open: None,
+            show_network: false,
         }
     }
 
@@ -743,7 +802,13 @@ impl CadApp {
         b: (String, Arc<lightable_dxf::Drawing>),
         same: bool,
     ) {
+        let objects = (a.1.entities.len(), b.1.entities.len());
         self.start_compare(gl, a, b, None, None);
+        // How long reading and comparing took, from the files' arrival.
+        self.timing = self
+            .arrived_at
+            .take()
+            .map(|t| ((clock_ms() - t) / 1000.0, objects.0, objects.1));
         if let Some(c) = &mut self.compare {
             c.notes = crate::intake::notes(same, c.diff());
             c.files_of = self.files_of.take();
@@ -908,14 +973,7 @@ impl CadApp {
         self.auto_fit = true;
         // The demo keeps its caption's band clear (not in the report, which
         // is exported as it looks, nor in the phone, captioned below).
-        let band = if self.captions_possible()
-            && !self.phone
-            && !self.compare.as_ref().is_some_and(|c| c.reporting())
-        {
-            f64::from(caption_size(self.screen.height()) * 3.3)
-        } else {
-            0.0
-        };
+        let band = self.caption_band();
         let bounds = match (&self.compare, &self.doc) {
             (Some(c), _) => c.bounds(),
             (None, Some(doc)) => doc.scene.bounds(Some(&doc.visible)),
@@ -929,6 +987,8 @@ impl CadApp {
     /// Opens the file dialog (web). Chosen files arrive in `incoming`.
     fn choose_files(&mut self, ctx: &egui::Context) {
         self.dropped = false;
+        self.arrived_at = Some(clock_ms());
+        self.requests_at_open = requests_so_far();
         #[cfg(target_arch = "wasm32")]
         if let Err(e) = crate::files::choose() {
             self.message = Some(format!("Could not open the file dialog: {e}"));
@@ -1176,12 +1236,7 @@ impl CadApp {
             && let Some((b, margin, start)) = self.demo_zoom.take()
         {
             // Keep the change clear of the caption: two lines and padding.
-            let band = if self.captions_possible() {
-                let h = ui.ctx().content_rect().height();
-                f64::from(caption_size(h) * 3.3)
-            } else {
-                0.0
-            };
+            let band = self.caption_band();
             let seconds = if self.demo.as_ref().is_some_and(|d| d.cut) {
                 0.0
             } else {
@@ -1252,6 +1307,32 @@ fn anchor_in_galley(t: &lightable_render::TextShape, galley: &egui::Galley) -> e
     egui::vec2(x, y)
 }
 
+thread_local! {
+    /// The changed texts drawn this frame (screen box and text), for the
+    /// recorder's check that no old and new text overlap.
+    static CHANGED_TEXTS: std::cell::RefCell<Vec<(Rect, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Pairs of changed texts drawn over each other this frame (more than a
+/// third of the smaller box covered, different words): "20" under "25"
+/// would read "225". Clears the list for the next frame.
+fn text_overlaps() -> usize {
+    CHANGED_TEXTS.with(|t| {
+        let t = std::mem::take(&mut *t.borrow_mut());
+        let mut n = 0;
+        for (k, (a, sa)) in t.iter().enumerate() {
+            for (b, sb) in &t[k + 1..] {
+                let i = a.intersect(*b);
+                if sa != sb && i.is_positive() && i.area() > a.area().min(b.area()) / 3.0 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    })
+}
+
 /// Draws the texts that are on screen and large enough to read.
 pub(crate) fn draw_texts(painter: &egui::Painter, rect: Rect, view: &View, doc: &Doc) {
     let shown = view.world_bounds();
@@ -1275,6 +1356,20 @@ pub(crate) fn draw_texts(painter: &egui::Painter, rect: Rect, view: &View, doc: 
                 continue;
             }
             let color = Color32::from_rgb(item.color.0, item.color.1, item.color.2);
+            // Changed texts (old and new): where they are on screen.
+            use lightable_diff::view::{CHANGED, CHANGED_BEFORE};
+            if (item.color == CHANGED || item.color == CHANGED_BEFORE)
+                && let Some(b) = item.shape.bounds()
+                && b.size()[0] < 1e9
+            {
+                let p0 = view.to_screen([b.min[0], b.max[1]]);
+                let p1 = view.to_screen([b.max[0], b.min[1]]);
+                let r = Rect::from_min_max(
+                    Pos2::new(rect.min.x + p0[0] as f32, rect.min.y + p0[1] as f32),
+                    Pos2::new(rect.min.x + p1[0] as f32, rect.min.y + p1[1] as f32),
+                );
+                CHANGED_TEXTS.with(|list| list.borrow_mut().push((r, t.text.clone())));
+            }
             // CAD text height is the cap height, about 0.7 of the font size.
             let size = (px / 0.7).min(2000.0) as f32;
             let galley = painter.layout_no_wrap(t.text.clone(), FontId::proportional(size), color);
@@ -1348,6 +1443,8 @@ impl eframe::App for CadApp {
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
         if !dropped.is_empty() {
             self.dropped = true;
+            self.arrived_at = Some(clock_ms());
+            self.requests_at_open = requests_so_far();
         }
         #[cfg(not(target_arch = "wasm32"))]
         if !dropped.is_empty() {
@@ -1492,7 +1589,27 @@ impl eframe::App for CadApp {
                 self.zoom_pending = true;
             }
         }
+        let network = self
+            .requests_since_open()
+            .filter(|_| self.show_network)
+            .map(|n| {
+                format!("Network requests since the files were opened: {n} (the browser's count)")
+            });
+        let timing = self
+            .timing
+            .filter(|_| !self.recording() || self.show_network);
         if let Some(c) = &mut self.compare {
+            // (In recordings, only the large layout's video shows it: in a
+            // 9:16 frame it would take the drawing's room.)
+
+            c.timing_line = timing.map(|(s, a, b)| {
+                format!(
+                    "Read and compared in {s:.1} s ({} and {} objects)",
+                    crate::demo::count(a),
+                    crate::demo::count(b)
+                )
+            });
+            c.network_line = network;
             c.show_privacy = self.show_privacy;
             c.show_files = self.show_files;
             c.row_rects.clear();
@@ -1535,7 +1652,7 @@ impl eframe::App for CadApp {
             self.overlays(ui);
         }
         if self.demo.is_some() {
-            self.find_targets(ui);
+            self.find_targets();
         }
         if self.recording() {
             self.publish_frame_info(ui);
@@ -1623,7 +1740,15 @@ impl CadApp {
             c.short = is_short(screen.height());
             c.record = recording;
         }
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui, gl.as_ref()));
+        // Recording: the frame's top-left 10 % kept clear (a video player
+        // puts buttons there).
+        let inset = if recording { screen.width() * 0.1 } else { 0.0 };
+        egui::Panel::top("toolbar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(inset);
+                ui.vertical(|ui| self.toolbar(ui, gl.as_ref()));
+            });
+        });
         // Details: the comparison's toggle; always for a single drawing;
         // nothing to detail when nothing is open.
         let details = self
@@ -1634,7 +1759,12 @@ impl CadApp {
             let mut zoom = None;
             let mut action = crate::compare::Action::default();
             if c.show_summary {
-                egui::Panel::top("summary").show(ui, |ui| zoom = c.summary_bar(ui, &mut action));
+                egui::Panel::top("summary").show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(inset);
+                        ui.vertical(|ui| zoom = c.summary_bar(ui, &mut action));
+                    });
+                });
             }
             let show_list = c.show_list;
             let limited = c.list_limit.is_some();
@@ -1684,11 +1814,7 @@ impl CadApp {
                 } else {
                     0.6
                 };
-                let band = if self.captions_possible() && !self.phone {
-                    f64::from(caption_size(self.screen.height()) * 3.3)
-                } else {
-                    0.0
-                };
+                let band = self.caption_band();
                 self.animate_to_above(&b, 0.15, now, seconds, band);
             }
             self.act(&action, gl.as_ref());
@@ -1765,8 +1891,18 @@ impl CadApp {
         if demo.record && now < 0.0 {
             return;
         }
+        // The large layout: its plan gets its numbers once its dropped files
+        // are compared (the times and gestures stay the same).
+        if demo.feature == Some(crate::demo::Feature::Big)
+            && !demo.planned_with_compare
+            && let (Some(c), Some((plan, _))) = (&self.compare, &mut demo.plan)
+        {
+            *plan = crate::demo::feature_plan(Some(c), crate::demo::Feature::Big);
+            demo.planned_with_compare = true;
+        }
         if demo.plan.is_none() {
-            let e = crate::examples::find(&demo.example);
+            let id = demo.feature.map_or(demo.example.as_str(), |f| f.example());
+            let e = crate::examples::find(id);
             let read = |name: &str, bytes: &[u8]| {
                 lightable_dxf::read_bytes(bytes)
                     .map(|(d, _)| (name.to_owned(), Arc::new(d)))
@@ -1788,21 +1924,24 @@ impl CadApp {
                 }
             };
             let plan = match demo.feature {
-                Some(f) => crate::demo::feature_plan(&c, f),
+                Some(crate::demo::Feature::Big) => {
+                    crate::demo::feature_plan(None, crate::demo::Feature::Big)
+                }
+                Some(f) => crate::demo::feature_plan(Some(&c), f),
                 None => crate::demo::plan(&c, demo.narration),
             };
             record::publish_plan(&plan, e);
             let compared = demo.feature.is_some_and(|f| f.starts_compared());
-            self.show_files = demo.feature == Some(crate::demo::Feature::Compare);
+            let empty = demo.feature.is_some_and(|f| f.starts_empty());
+            self.show_network = demo.feature == Some(crate::demo::Feature::Big);
             // Live, a second's pause first; recorded, from the first frame.
             let start = if demo.record { now } else { now + 1.0 };
             demo.plan = Some((plan, start));
             if compared {
                 // The example's comparison, as the app opens.
                 self.open_example(gl, e.id);
-            } else if self.show_files {
-                // "Before and after": the start screen, nothing open (the
-                // names must not give the order away).
+            } else if empty {
+                // The start screen, nothing open.
             } else {
                 // Rev C on its own, as it came in.
                 self.load(gl, b.0, b.1, 0);
@@ -1834,11 +1973,6 @@ impl CadApp {
             Act::Opening => self.pointer_shown = false,
             Act::Drop | Act::Compared => self.pointer_shown = true,
             Act::Highlight(name) => self.highlight = Some((name, at + 0.3, at + 3.0)),
-            Act::Privacy => {
-                self.pointer_shown = true;
-                self.show_privacy = true;
-                self.highlight = Some(("privacy", at + 0.3, at + 3.0));
-            }
             Act::Phone => {
                 self.phone = true;
                 self.pointer_shown = false;
@@ -1855,10 +1989,18 @@ impl CadApp {
                 self.end_card = true;
                 self.pointer_shown = false;
             }
-            Act::Cloud | Act::Tap(_) | Act::SideBySide | Act::Report | Act::Nothing => {}
+            Act::Cloud => {
+                self.pinch_to = self.compare.as_ref().and_then(|c| c.cloud_bounds_tight());
+            }
+            Act::Close(i) => {
+                self.pinch_to = self.compare.as_ref().and_then(|c| c.change_bounds(i));
+            }
+            Act::Tap(_) | Act::SideBySide | Act::Report | Act::Nothing => {}
         }
-        // Narration: the voice carries the words.
+        // Narration: the voice carries the words. Measured numbers go in as
+        // the caption is shown (the large layout).
         if let Some(caption) = shot.caption {
+            let caption = self.fill_in(&caption);
             self.caption = Some(caption).filter(|t| !t.is_empty() && !narration);
         }
         // What the step is about, for the recorder's checks.
@@ -1866,11 +2008,10 @@ impl CadApp {
         self.demo_focus = match shot.act {
             Act::Highlight(_) | Act::Compared => c.and_then(|c| c.bounds()),
             Act::Cloud => c.and_then(|c| c.cloud_bounds_tight()),
+            Act::Close(i) => c.and_then(|c| c.change_bounds(i)),
             Act::Tap(i) => c.and_then(|c| c.change_bounds(i)),
             Act::SideBySide | Act::Nothing => self.demo_focus,
-            Act::Opening | Act::Drop | Act::Report | Act::Phone | Act::EndCard | Act::Privacy => {
-                None
-            }
+            Act::Opening | Act::Drop | Act::Report | Act::Phone | Act::EndCard => None,
         };
     }
 
@@ -1915,7 +2056,7 @@ impl CadApp {
         // A row outside the list's view: scroll the list first (small wheel
         // steps over the list).
         if live.path.is_none()
-            && matches!(g.target, Target::Row(_) | Target::NotCompared)
+            && matches!(g.target, Target::Row(_))
             && let (Some(row), Some(list)) = (find(&g.target.name()), find("list"))
             && !(list.expand(1.0).contains_rect(row) && self.screen.contains_rect(row))
             && live.unmoved < 3
@@ -1973,7 +2114,8 @@ impl CadApp {
         };
         if t < g.at {
             let m = live.moving_from;
-            let k = ((t - m) / (g.at - 0.1 - m).max(1e-3)).clamp(0.0, 1.0);
+            // Arriving 0.3 s before the click: a pause on the control.
+            let k = ((t - m) / (g.at - 0.3 - m).max(1e-3)).clamp(0.0, 1.0);
             let k = (k * k * (3.0 - 2.0 * k)) as f32;
             let pos = p0 + (p1 - p0) * k;
             live.pos = Some(pos);
@@ -2026,7 +2168,7 @@ impl CadApp {
 
     /// Where the demo's gesture targets are this frame (points), and the
     /// pinch that fits the revision cloud on screen.
-    fn find_targets(&mut self, ui: &egui::Ui) {
+    fn find_targets(&mut self) {
         let mut targets = Vec::new();
         // Files are dropped on the drawing, or anywhere on the start screen.
         let open = self.doc.is_some() || self.compare.is_some();
@@ -2049,6 +2191,8 @@ impl CadApp {
                 ("summary", c.summary_rect),
                 ("swap", c.swap_rect),
                 ("privacy", c.privacy_rect),
+                ("timing", c.timing_rect),
+                ("network", c.network_rect),
             ] {
                 if let Some(rect) = rect.filter(|r| self.screen.contains_rect(*r)) {
                     targets.push((name.to_owned(), rect));
@@ -2067,15 +2211,13 @@ impl CadApp {
             }
             // The pinch: zooming about one fixed point turns the current
             // view into the one that fits the cloud above the caption.
-            if let (Some(cloud), Some(canvas)) = (c.cloud_bounds_tight(), self.canvas_rect)
-                && !c.side_by_side
+            if let (Some(cloud), Some(canvas)) = (
+                self.pinch_to.or_else(|| c.cloud_bounds_tight()),
+                self.canvas_rect,
+            ) && !c.side_by_side
             {
                 let pane = c.panes(canvas)[0];
-                let band = if self.captions_possible() {
-                    f64::from(caption_size(ui.ctx().content_rect().height()) * 3.3)
-                } else {
-                    0.0
-                };
+                let band = self.caption_band();
                 let from = self.view;
                 let mut to = from;
                 to.fit_above(&cloud, 0.06, band);
@@ -2158,7 +2300,7 @@ impl CadApp {
             .map(|(n, rect)| format!("{}:{}", record::json_string(n), r(*rect)))
             .collect();
         let json = format!(
-            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{}}}",
+            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{},\"view\":\"{}\",\"text_overlaps\":{},\"cut_rows\":{},\"caption_text\":{}}}",
             ui.ctx().zoom_factor(),
             r(screen),
             canvas.map_or("null".to_owned(), r),
@@ -2184,8 +2326,37 @@ impl CadApp {
             self.message
                 .as_deref()
                 .map_or("null".to_owned(), record::json_string),
+            self.view_name(),
+            text_overlaps(),
+            c.filter(|c| c.show_list).map_or(0, |c| c.cut_rows),
+            self.caption
+                .as_deref()
+                .map_or("null".to_owned(), record::json_string),
         );
         record::publish_frame_info(&json);
+    }
+
+    /// What the screen shows, in the plan's terms (`demo::View`).
+    fn view_name(&self) -> &'static str {
+        if self.end_card {
+            "end"
+        } else if self.phone {
+            "phone"
+        } else if let Some(c) = &self.compare {
+            if c.reporting() {
+                "report"
+            } else if c.details {
+                "details"
+            } else if c.side_by_side {
+                "side_by_side"
+            } else {
+                "overlay"
+            }
+        } else if self.doc.is_some() {
+            "single"
+        } else {
+            "start"
+        }
     }
 
     /// Something is under way outside the frame clock: files being read
@@ -2228,6 +2399,45 @@ impl CadApp {
     /// Recording the demo frame by frame (`?demo&record`).
     fn recording(&self) -> bool {
         self.demo.as_ref().is_some_and(|d| d.record)
+    }
+
+    /// How much of the drawing's bottom a caption covers (points): the
+    /// demo's fits and zooms keep it clear. Captions sit above the bottom
+    /// 15 % of the frame (where a video player puts its controls).
+    fn caption_band(&self) -> f64 {
+        if !self.captions_possible()
+            || self.phone
+            || self.compare.as_ref().is_some_and(|c| c.reporting())
+        {
+            return 0.0;
+        }
+        let size = caption_size(self.screen.height());
+        let Some(canvas) = self.canvas_rect else {
+            return f64::from(size * 3.3);
+        };
+        // Two lines and their padding above the caption's lowest point.
+        let top = caption_bottom(self.screen, canvas, size) - 3.1 * size;
+        f64::from((canvas.max.y - top).max(0.0))
+    }
+
+    /// A caption's measured numbers: objects, seconds to read and compare,
+    /// network requests since the files were opened.
+    fn fill_in(&self, caption: &str) -> String {
+        let mut out = caption.to_owned();
+        if let Some((seconds, _, b)) = self.timing {
+            out = out
+                .replace("{objects}", &crate::demo::count(b))
+                .replace("{seconds}", &format!("{seconds:.1}"));
+        }
+        if let Some(n) = self.requests_since_open() {
+            out = out.replace("{requests}", &n.to_string());
+        }
+        out
+    }
+
+    /// Network requests since the files were opened (the browser's count).
+    fn requests_since_open(&self) -> Option<usize> {
+        Some(requests_so_far()?.saturating_sub(self.requests_at_open?))
     }
 
     /// Captions can be on screen: the demo, except with voice-over timing
@@ -2334,6 +2544,8 @@ impl CadApp {
                 "legend" => c.legend_rect,
                 "summary" => c.summary_rect,
                 "privacy" => c.privacy_rect,
+                "timing" => c.timing_rect,
+                "network" => c.network_rect,
                 _ => None,
             }
         });
@@ -2373,12 +2585,11 @@ impl CadApp {
                 (galley, pad) = layout(size);
             }
             let boxed = galley.size() + 2.0 * pad;
-            // At the bottom of the drawing, under the band the demo's zooms
-            // keep clear.
-            let rect = Rect::from_center_size(
-                egui::pos2(area.center().x, area.max.y - boxed.y / 2.0 - size * 0.4),
-                boxed,
-            );
+            // At the bottom of the drawing (above the frame's bottom 15 %),
+            // in the band the demo's zooms keep clear.
+            let bottom = caption_bottom(screen, area, caption_size(screen.height()));
+            let rect =
+                Rect::from_center_size(egui::pos2(area.center().x, bottom - boxed.y / 2.0), boxed);
             painter.rect_filled(
                 rect,
                 size * 0.3,
