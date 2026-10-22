@@ -82,70 +82,70 @@ a test keeps the lines here equal to the plans.
 
 | # | Scene | Start | End | On screen | Say |
 |---|---|---|---|---|---|
-| 1 | hook | 00:00:01.300 | 00:00:04.500 | The cloud marks 1 change. Is that everything? | The cloud marks 1 change. Is that everything? |
-| 2 | action | 00:00:04.900 | 00:00:08.500 | Drop in both revisions. | Drop in both revisions. |
-| 3 | reveal | 00:00:08.900 | 00:00:12.500 | 14 changes found between Rev B and Rev C. | 14 changes found between Rev B and Rev C. |
-| 4 | proof | 00:00:12.900 | 00:00:17.500 | The cloud marks 1 change; 13 others weren't clouded. | The cloud marks 1 change; 13 others weren't clouded. |
-| 5 | proof | 00:00:17.900 | 00:00:22.500 | Circle diameter changed from 11 mm to 13.5 mm | Circle diameter changed from 11 mm to 13.5 mm |
-| 6 | proof | 00:00:22.900 | 00:00:26.500 | On layer SECTION: line moved 1.25 mm up. | On layer SECTION: line moved 1.25 mm up. |
-| 7 | payoff | 00:00:26.900 | 00:00:29.500 | Every change listed, clouded or not. | Every change listed, clouded or not. |
+| 1 | hook | 00:00:01.300 | 00:00:05.304 | Rev C's cloud marks just 1 change. Is that all? | Rev C's cloud marks just 1 change. Is that all? |
+| 2 | action | 00:00:05.704 | 00:00:08.967 | Let's drop in Rev B and Rev C. | Let's drop in Rev B and Rev C. |
+| 3 | reveal | 00:00:09.267 | 00:00:13.967 | It finds 14 changes between Rev B and Rev C. | It finds 14 changes between Rev B and Rev C. |
+| 4 | proof | 00:00:14.267 | 00:00:19.667 | Only 1 is clouded. The other 13 aren't. | Only 1 is clouded. The other 13 aren't. |
+| 5 | proof | 00:00:19.967 | 00:00:25.100 | This hole grew from 11 mm to 13.5 mm. | This hole grew from 11 mm to 13.5 mm. |
+| 6 | proof | 00:00:25.400 | 00:00:30.533 | On layer SECTION, a line moved 1.25 mm up. | On layer SECTION, a line moved 1.25 mm up. |
+| 7 | payoff | 00:00:30.833 | 00:00:34.267 | Every change is in the list, clouded or not. | Every change is in the list, clouded or not. |
 
-Video length 00:00:32.700 with the stage's 1.2 s sting; the end card is held after the last line.
+Video length 00:00:37.367 with the stage's 1.2 s sting; the end card is held after the last line.
 
 ### 2. Tiny changes, exact values (locating plate)
 
 | # | Scene | Start | End | On screen | Say |
 |---|---|---|---|---|---|
-| 1 | hook | 00:00:01.300 | 00:00:04.500 | Tiny changes are easy to miss by eye. | Tiny changes are easy to miss by eye. |
-| 2 | action | 00:00:04.900 | 00:00:08.500 | Drop in both revisions. | Drop in both revisions. |
-| 3 | reveal | 00:00:08.900 | 00:00:12.500 | 3 changes found between Rev B and Rev C. | 3 changes found between Rev B and Rev C. |
-| 4 | proof | 00:00:12.900 | 00:00:16.000 | Circle Ø8 moved 0.5 mm right | Circle Ø8 moved 0.5 mm right |
-| 5 | proof | 00:00:16.400 | 00:00:19.500 | Zoomed in close on that hole. | Zoomed in close on that hole. |
-| 6 | proof | 00:00:19.900 | 00:00:24.000 | Details: moved 0.5 mm right. | Details: moved 0.5 mm right. |
-| 7 | proof | 00:00:24.400 | 00:00:28.500 | Tolerance note: ±0.1 → ±0.05. | Tolerance note: ±0.1 → ±0.05. |
-| 8 | payoff | 00:00:28.900 | 00:00:31.500 | Small changes, exact values. | Small changes, exact values. |
+| 1 | hook | 00:00:01.300 | 00:00:04.193 | Some changes are too small to see. | Some changes are too small to see. |
+| 2 | action | 00:00:04.593 | 00:00:07.856 | Let's drop in Rev B and Rev C. | Let's drop in Rev B and Rev C. |
+| 3 | reveal | 00:00:08.156 | 00:00:12.856 | It finds 3 changes between Rev B and Rev C. | It finds 3 changes between Rev B and Rev C. |
+| 4 | proof | 00:00:13.156 | 00:00:17.956 | This Ø8 hole moved 0.5 mm right. | This Ø8 hole moved 0.5 mm right. |
+| 5 | proof | 00:00:18.356 | 00:00:24.289 | Up close, you can see the 0.5 mm shift. | Up close, you can see the 0.5 mm shift. |
+| 6 | proof | 00:00:24.589 | 00:00:28.689 | Details give the exact value: 0.5 mm right. | Details give the exact value: 0.5 mm right. |
+| 7 | proof | 00:00:28.989 | 00:00:33.789 | The tolerance tightened from ±0.1 to ±0.05. | The tolerance tightened from ±0.1 to ±0.05. |
+| 8 | payoff | 00:00:34.089 | 00:00:36.189 | Small changes, exact values. | Small changes, exact values. |
 
-Video length 00:00:34.700 with the stage's 1.2 s sting; the end card is held after the last line.
+Video length 00:00:39.289 with the stage's 1.2 s sting; the end card is held after the last line.
 
 ### 3. Re-export noise ignored (drive shaft, simulated re-export)
 
 | # | Scene | Start | End | On screen | Say |
 |---|---|---|---|---|---|
-| 1 | hook | 00:00:01.300 | 00:00:04.500 | Simulated re-export of Rev D as Rev E. | A simulated re-export of Rev D. What changed? |
-| 2 | action | 00:00:04.900 | 00:00:08.500 | Drop in Rev D and Rev E. | Drop in Rev D and Rev E. |
-| 3 | reveal | 00:00:08.900 | 00:00:13.500 | 1 change found. | 1 change found. New handles, shuffled order, older DXF version. |
-| 4 | proof | 00:00:13.900 | 00:00:18.500 | The one real change: Ra 1.6 → Ra 0.8. | The one real change: Ra 1.6 → Ra 0.8. |
-| 5 | proof | 00:00:18.900 | 00:00:23.500 | 17 objects redrawn the same: not changes. | 17 objects redrawn the same: not changes. |
-| 6 | payoff | 00:00:23.900 | 00:00:26.500 | Real changes only, not file noise. | Real changes only, not file noise. |
+| 1 | hook | 00:00:01.300 | 00:00:06.600 | Rev E is a simulated re-export of Rev D. | Rev E is a simulated re-export of Rev D. So what really changed? |
+| 2 | action | 00:00:07.000 | 00:00:10.263 | Let's drop in Rev D and Rev E. | Let's drop in Rev D and Rev E. |
+| 3 | reveal | 00:00:10.563 | 00:00:15.263 | It finds just 1 change. | It finds just 1 change. Renumbered, reordered, older DXF: not changes. |
+| 4 | proof | 00:00:15.563 | 00:00:20.696 | The one real change: Ra 1.6 became Ra 0.8. | The one real change: Ra 1.6 became Ra 0.8. |
+| 5 | proof | 00:00:20.996 | 00:00:25.096 | 17 objects were just redrawn, not changed. | 17 objects were just redrawn, not changed. |
+| 6 | payoff | 00:00:25.396 | 00:00:27.719 | Real changes only, not file noise. | Real changes only, not file noise. |
 
-Video length 00:00:29.700 with the stage's 1.2 s sting; the end card is held after the last line.
+Video length 00:00:30.819 with the stage's 1.2 s sting; the end card is held after the last line.
 
 ### 4. One block edit, every door (apartment plan)
 
 | # | Scene | Start | End | On screen | Say |
 |---|---|---|---|---|---|
-| 1 | hook | 00:00:01.300 | 00:00:04.500 | A block edit changes every copy of it. | A block edit changes every copy of it. |
-| 2 | action | 00:00:04.900 | 00:00:08.500 | Drop in both revisions. | Drop in both revisions. |
-| 3 | reveal | 00:00:08.900 | 00:00:12.500 | 4 changes found between Rev A and Rev B. | 4 changes found between Rev A and Rev B. |
-| 4 | proof | 00:00:12.900 | 00:00:18.000 | Door block edited: shown at all 7 doors. | Door block edited: shown at all 7 doors. |
-| 5 | proof | 00:00:18.400 | 00:00:23.000 | On layer WALLS: line moved 300 mm right. | On layer WALLS: line moved 300 mm right. |
-| 6 | proof | 00:00:23.400 | 00:00:28.000 | Before and after, side by side. | Before and after, side by side. |
-| 7 | payoff | 00:00:28.400 | 00:00:31.000 | One block edit, shown wherever it's used. | One block edit, shown wherever it's used. |
+| 1 | hook | 00:00:01.300 | 00:00:04.563 | Edit a block once, and every copy changes. | Edit a block once, and every copy changes. |
+| 2 | action | 00:00:04.963 | 00:00:08.226 | Let's drop in Rev A and Rev B. | Let's drop in Rev A and Rev B. |
+| 3 | reveal | 00:00:08.526 | 00:00:13.226 | It finds 4 changes between Rev A and Rev B. | It finds 4 changes between Rev A and Rev B. |
+| 4 | proof | 00:00:13.526 | 00:00:19.030 | The door block changed, and all 7 doors show it. | The door block changed, and all 7 doors show it. |
+| 5 | proof | 00:00:19.330 | 00:00:24.463 | On layer WALLS, a line moved 300 mm right. | On layer WALLS, a line moved 300 mm right. |
+| 6 | proof | 00:00:24.763 | 00:00:28.863 | Here's before and after, side by side. | Here's before and after, side by side. |
+| 7 | payoff | 00:00:29.163 | 00:00:31.856 | One block edit, shown everywhere it's used. | One block edit, shown everywhere it's used. |
 
-Video length 00:00:34.200 with the stage's 1.2 s sting; the end card is held after the last line.
+Video length 00:00:34.956 with the stage's 1.2 s sting; the end card is held after the last line.
 
 ### 5. Big drawings, compared in your browser (warehouse layout)
 
 | # | Scene | Start | End | On screen | Say |
 |---|---|---|---|---|---|
-| 1 | hook | 00:00:01.300 | 00:00:04.500 | A large layout, two revisions. What changed? | A large layout, two revisions. What changed? |
-| 2 | action | 00:00:04.900 | 00:00:09.500 | Drop in both. Read and compared in this browser. | Drop in both. Read and compared in this browser. |
-| 3 | reveal | 00:00:09.900 | 00:00:14.500 | 3 changes found among 23,182 objects. | 3 changes found among 23,182 objects. |
-| 4 | proof | 00:00:14.900 | 00:00:18.500 | Read and compared in seconds. | Read and compared in seconds, on the machine shown. |
-| 5 | proof | 00:00:18.900 | 00:00:23.000 | Requests logged since the files opened: [as shown on screen]. | Requests the browser logged after the files opened: [as shown on screen]. |
-| 6 | proof | 00:00:23.400 | 00:00:27.500 | Text changed: R1-065 → QC-01. | Text changed: R1-065 → QC-01. |
-| 7 | payoff | 00:00:27.900 | 00:00:30.500 | Big drawings, compared in your browser. | Big drawings, compared in your browser. |
+| 1 | hook | 00:00:01.300 | 00:00:03.822 | A big warehouse layout. What changed? | A big warehouse layout. What changed? |
+| 2 | action | 00:00:04.222 | 00:00:07.856 | Drop both in. It all runs in this browser. | Drop both in. It all runs in this browser. |
+| 3 | reveal | 00:00:08.156 | 00:00:12.856 | It finds 3 changes among 23,182 objects. | It finds 3 changes among 23,182 objects. |
+| 4 | proof | 00:00:13.156 | 00:00:16.256 | Read and compared in a few seconds. | Read and compared in a few seconds. |
+| 5 | proof | 00:00:16.556 | 00:00:19.656 | Since the drop, the browser logged [as shown on screen] requests. | Since the drop, the browser logged [as shown on screen] requests. |
+| 6 | proof | 00:00:19.956 | 00:00:24.756 | This text changed from R1-065 to QC-01. | This text changed from R1-065 to QC-01. |
+| 7 | payoff | 00:00:25.056 | 00:00:27.748 | Big drawings, compared right in your browser. | Big drawings, compared right in your browser. |
 
-Video length 00:00:33.700 with the stage's 1.2 s sting; the end card is held after the last line.
+Video length 00:00:30.848 with the stage's 1.2 s sting; the end card is held after the last line.
 
 The large layout's request count is measured as the video plays: say the number on screen.

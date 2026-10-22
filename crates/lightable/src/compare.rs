@@ -376,6 +376,7 @@ impl Compare {
     }
 
     /// The headline of change `i`.
+    #[cfg(test)]
     pub fn headline(&self, i: usize) -> &str {
         self.diff.changes.get(i).map_or("", |c| c.headline.as_str())
     }

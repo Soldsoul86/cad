@@ -329,12 +329,13 @@ mod record {
                     s.caption.as_deref().unwrap_or("")
                 };
                 format!(
-                    "{{\"at\":{},\"desc\":{},\"view\":{},\"scene\":{},\"caption\":{}}}",
+                    "{{\"at\":{},\"desc\":{},\"view\":{},\"scene\":{},\"caption\":{},\"spot\":{}}}",
                     s.at,
                     json_string(&format!("{s:?}")),
                     s.view.map_or("null".to_owned(), |v| json_string(v.name())),
                     s.scene.map_or("null".to_owned(), |v| json_string(v.name())),
-                    json_string(caption)
+                    json_string(caption),
+                    s.spot().map_or("null".to_owned(), json_string)
                 )
             })
             .collect();
@@ -509,6 +510,8 @@ pub struct CadApp {
     demo: Option<Demo>,
     /// The demo caption shown now.
     caption: Option<String>,
+    /// The caption's key number (use-case videos).
+    caption_key: Option<String>,
     /// The demo's end card is showing.
     end_card: bool,
     /// Where the drawing was drawn last frame (demo captions sit at its
@@ -688,6 +691,7 @@ impl CadApp {
             caption_box: std::cell::Cell::new(None),
             canvas_rect: None,
             caption: None,
+            caption_key: None,
             end_card: false,
             prev_now: f64::NAN,
             draws: 0,
@@ -2067,6 +2071,12 @@ impl CadApp {
         if let Some(caption) = shot.caption {
             let caption = self.fill_in(&caption);
             self.caption = Some(caption).filter(|t| !t.is_empty() && !narration);
+            // Its key number, filled in the same way (the stage colours it).
+            self.caption_key = shot.key.as_deref().map(|k| self.fill_in(k)).filter(|k| {
+                self.caption
+                    .as_deref()
+                    .is_some_and(|c| c.contains(k.as_str()))
+            });
         }
         // What the step is about, for the recorder's checks.
         let c = self.compare.as_ref();
@@ -2260,6 +2270,7 @@ impl CadApp {
                 ("privacy", c.privacy_rect),
                 ("timing", c.timing_rect),
                 ("network", c.network_rect),
+                ("redrawn", c.redrawn_rect),
             ] {
                 if let Some(rect) = rect.filter(|r| self.screen.contains_rect(*r)) {
                     targets.push((name.to_owned(), rect));
@@ -2391,7 +2402,7 @@ impl CadApp {
             .map(|(n, rect)| format!("{}:{}", record::json_string(n), r(*rect)))
             .collect();
         let json = format!(
-            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{},\"view\":\"{}\",\"text_overlaps\":{},\"cut_rows\":{},\"caption_text\":{},\"selected\":{selected},\"selected_rect\":{selected_rect},\"files\":{files},\"stage\":{}}}",
+            "{{\"step\":{step},\"zoom\":{},\"screen\":{},\"canvas\":{},\"focus\":[{}],\"caption\":{caption},\"still\":{still},\"next\":{},\"end_card\":{},\"report\":{},\"list\":{},\"list_tail\":{},\"draws\":{},\"busy\":{busy},\"pointer\":{},\"targets\":{{{}}},\"pinch\":{},\"dropped\":{},\"example_files\":{},\"phone\":{},\"legend\":{},\"message\":{},\"view\":\"{}\",\"text_overlaps\":{},\"cut_rows\":{},\"caption_text\":{},\"selected\":{selected},\"selected_rect\":{selected_rect},\"files\":{files},\"stage\":{},\"caption_key\":{}}}",
             ui.ctx().zoom_factor(),
             r(screen),
             canvas.map_or("null".to_owned(), r),
@@ -2424,6 +2435,9 @@ impl CadApp {
                 .as_deref()
                 .map_or("null".to_owned(), record::json_string),
             self.stage.is_some(),
+            self.caption_key
+                .as_deref()
+                .map_or("null".to_owned(), record::json_string),
         );
         record::publish_frame_info(&json);
     }
@@ -2668,7 +2682,7 @@ impl CadApp {
                 _ => None,
             }
         });
-        if let Some(lit) = lit {
+        if let Some(lit) = lit.filter(|_| self.stage.is_none()) {
             let rect = lit.expand(5.0);
             painter.rect_filled(rect, 6.0, Color32::from_rgba_unmultiplied(255, 224, 96, 28));
             painter.rect_stroke(

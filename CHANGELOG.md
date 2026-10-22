@@ -8,6 +8,7 @@
 - Each use-case video tells hook, action, reveal, proof, payoff, end card; voice-over lines and cue sheets per video.
 - Our own music and UI sounds, mixed with ffmpeg at the real events; versions with and without music, and stems.
 - `tools/demo.mjs`: storyboards, and checks that every decoration lines up with the real app event it shows.
+- Second pass: captions said as a person would say them (numbers from the comparison, one key number highlighted), coming in with their action and held long enough to read; calmer fade-in, balanced lines; a spotlight on each step's subject; a larger window; step chips; subtitle tracks only for the narration version.
 
 ## Use-case videos (unreleased)
 

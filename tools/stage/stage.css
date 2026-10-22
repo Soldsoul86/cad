@@ -51,7 +51,7 @@ html, body { margin: 0; padding: 0; background: var(--ink); overflow: hidden; }
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: #3b4048; }
 #address {
-  margin: 0 auto; transform: translateX(-20px); font-size: 11px; color: var(--mist);
+  margin: 0 0 0 var(--addr-gap); font-size: 11px; color: var(--mist);
   background: #171a1f; border-radius: 6px; padding: 3px 14px; letter-spacing: 0.02em;
 }
 .lock {
@@ -59,6 +59,20 @@ html, body { margin: 0; padding: 0; background: var(--ink); overflow: hidden; }
   background: var(--mist); position: relative; top: 0;
 }
 #app { display: block; width: var(--ww); height: var(--ih); border: 0; background: var(--panel); }
+#appwrap { position: relative; overflow: hidden; }
+/* Everything but the subject softly dimmed. */
+#spot {
+  position: absolute; display: none; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 18px 10px rgba(6, 9, 13, 0.32), 0 0 0 3000px rgba(6, 9, 13, 0.55);
+}
+/* Where the viewer is: 1 Drop · 2 Result · 3 Proof. */
+#chips { display: flex; gap: 6px; margin-left: auto; }
+#chips span {
+  font-size: var(--chip); line-height: 1; padding: 3px 8px; border-radius: 10px;
+  color: var(--mist); background: #1a1e24; border: 1px solid #30363e;
+}
+#chips span.on { color: var(--ink); background: var(--blue); border-color: var(--blue); }
+#chips span.done { color: #cfd8e1; }
 #footer {
   position: absolute; left: 0; right: 0; top: var(--fy); bottom: 0;
   display: flex; align-items: center; justify-content: center; opacity: 0.85;
@@ -67,10 +81,6 @@ html, body { margin: 0; padding: 0; background: var(--ink); overflow: hidden; }
 #overlay { position: absolute; inset: 0; pointer-events: none; }
 
 /* Highlights: a gentle double pulse around the change just tapped. */
-#pulse {
-  position: absolute; display: none; border: 2.5px solid var(--yellow); border-radius: 8px;
-  box-shadow: 0 0 18px rgba(245, 208, 42, 0.55);
-}
 #landing {
   position: absolute; display: none; border-radius: 50%; border: 3px solid var(--blue);
   box-shadow: 0 0 24px rgba(76, 176, 255, 0.6);
@@ -101,6 +111,7 @@ html, body { margin: 0; padding: 0; background: var(--ink); overflow: hidden; }
 }
 #caption-text {
   display: inline-block; box-sizing: border-box; background: rgba(11, 15, 20, 0.95);
+  text-wrap: balance;
   border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0.32em;
   padding: 0.22em 0.55em 0.28em; line-height: 1.22; color: var(--paper);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);

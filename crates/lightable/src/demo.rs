@@ -198,6 +198,29 @@ pub struct Shot {
     pub view: Option<View>,
     /// The step's part of the story (use-case videos; a step's first shot).
     pub scene: Option<Scene>,
+    /// The caption's key number, the one shown in the highlight colour
+    /// (its words, as in the caption).
+    pub key: Option<String>,
+}
+
+impl Shot {
+    /// What a use-case step's spotlight shows (the stage dims the rest of
+    /// the app): the change just selected, the zoom's subject, a highlighted
+    /// line ("summary", "timing", ...), the selected change's details, or
+    /// the whole drawing; none outside the result and the proof.
+    pub fn spot(&self) -> Option<&'static str> {
+        if !matches!(self.scene, Some(Scene::Reveal | Scene::Proof)) {
+            return None;
+        }
+        match self.act {
+            Act::Tap(_) => Some("selected"),
+            Act::Cloud | Act::Close(_) => Some("focus"),
+            Act::Highlight(name) => Some(name),
+            Act::SideBySide => Some("canvas"),
+            Act::Nothing if self.view == Some(View::Details) => Some("details"),
+            _ => None,
+        }
+    }
 }
 
 /// A subtitle: text shown (or spoken) from `start` to `end` seconds.
@@ -302,6 +325,8 @@ struct Step {
     /// Its part of the story, and its voice-over line (use-case videos).
     scene: Option<Scene>,
     voice: Option<String>,
+    /// The caption's key number (use-case videos).
+    key: Option<String>,
 }
 
 impl Step {
@@ -318,6 +343,59 @@ impl Step {
     fn says(mut self, voice: impl Into<String>) -> Step {
         self.voice = Some(voice.into());
         self
+    }
+
+    fn key(mut self, key: impl Into<String>) -> Step {
+        self.key = Some(key.into());
+        self
+    }
+
+    /// Long enough to read its caption once the action is done: a key
+    /// moment (each proof) holds still for its words at three a second, at
+    /// least 3 s, the result at least 5 s in all; any other step at least
+    /// 2 s.
+    fn held(mut self) -> Step {
+        let key = matches!(self.scene, Some(Scene::Reveal | Scene::Proof));
+        let words = self.caption.split_whitespace().count() as f64;
+        // (At a speaking pace, 2.7 words a second: the voice-over fits too.)
+        let read = (words / 2.7).max(if key { 3.0 } else { 2.0 });
+        if self.scene == Some(Scene::Reveal) {
+            self.seconds = self.seconds.max(5.0);
+        }
+        // The action's end (a click after the list scrolls can come about
+        // 0.6 s late), or the caption's start.
+        let done = self
+            .gestures
+            .iter()
+            .map(|g| {
+                g.2.max(g.1)
+                    + if matches!(g.3, Target::Row(_)) {
+                        0.9
+                    } else {
+                        0.3
+                    }
+            })
+            .fold(self.caption_at(), f64::max);
+        // A key moment holds after its action; any other step's caption is
+        // read while its action goes on (the files carried in).
+        let from = if key { done } else { self.caption_at() };
+        self.seconds = self.seconds.max(from + read + 0.4).max(done + 0.6);
+        self
+    }
+
+    /// When the caption comes in: as the action starts (the step's first
+    /// gesture), after the sting for the hook.
+    fn caption_at(&self) -> f64 {
+        match self.scene {
+            None => 0.0,
+            Some(Scene::Hook) => STING + 0.1,
+            Some(_) => self
+                .gestures
+                .iter()
+                .map(|g| g.0)
+                .reduce(f64::min)
+                .unwrap_or(0.0),
+        }
     }
 }
 
@@ -343,6 +421,7 @@ fn step(act: Act, seconds: f64, caption: String) -> Step {
         view: None,
         scene: None,
         voice: None,
+        key: None,
     }
 }
 
@@ -472,8 +551,9 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
                 text: line.to_owned(),
             });
         } else {
-            // One cue per caption: the step's, then any later ones.
-            let mut said: Vec<(f64, &str)> = vec![(0.0, s.caption.as_str())];
+            // One cue per caption: the step's (as its action starts), then
+            // any later ones.
+            let mut said: Vec<(f64, &str)> = vec![(s.caption_at(), s.caption.as_str())];
             said.extend(
                 s.then
                     .iter()
@@ -489,31 +569,49 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
                 });
             }
         }
+        let lead = s.caption_at();
         let caption = if narration || s.act == Act::EndCard {
             None
         } else {
-            Some(s.caption)
+            Some(std::mem::take(&mut s.caption))
         };
         // The voice-over line, inside the step (the first after the sting).
         if let Some(line) = &s.voice {
+            // With its caption (the first after the sting).
             let lead = if k == 0 && s.scene == Some(Scene::Hook) {
                 STING + 0.1
             } else {
-                0.2
+                lead.max(0.2)
             };
             plan.voice.push(Cue {
                 start: t + lead,
-                end: t + seconds - 0.2,
+                end: t + seconds - 0.1,
                 text: line.replace('\u{a0}', " "),
             });
         }
+        // The caption comes in as its action starts: until then, none.
         plan.shots.push(Shot {
             at: t,
             act: s.act,
-            caption: caption.or(Some(String::new())),
+            caption: if lead > 0.0 {
+                Some(String::new())
+            } else {
+                caption.clone().or(Some(String::new()))
+            },
             view: Some(view),
             scene: s.scene,
+            key: if lead > 0.0 { None } else { s.key.clone() },
         });
+        if lead > 0.0 {
+            plan.shots.push(Shot {
+                at: t + lead,
+                act: Act::Nothing,
+                caption,
+                view: None,
+                scene: None,
+                key: s.key.clone(),
+            });
+        }
         for (offset, act, caption) in s.then {
             plan.shots.push(Shot {
                 at: t + offset,
@@ -521,6 +619,7 @@ fn assemble(steps: Vec<Step>, narration: bool) -> Plan {
                 caption: caption.filter(|_| !narration),
                 view: None,
                 scene: None,
+                key: None,
             });
         }
         for (from, at, until, target) in s.gestures {
@@ -627,17 +726,6 @@ pub fn text_change(c: &lightable_diff::Change) -> Option<String> {
     ))
 }
 
-/// The change's headline, said for its layer: "On layer SECTION: line
-/// moved 1.25 mm up."
-fn on_layer(c: &Compare, i: usize) -> String {
-    let ch = &c.diff().changes[i];
-    let mut h = ch.headline.clone();
-    if let Some(first) = h.get(..1) {
-        h = first.to_lowercase() + &h[1..];
-    }
-    format!("On layer {}: {h}.", ch.layer())
-}
-
 /// The first design change matching `test`.
 fn find(c: &Compare, test: impl Fn(&lightable_diff::Change) -> bool) -> Option<usize> {
     c.diff()
@@ -664,45 +752,47 @@ pub fn count(n: usize) -> String {
 /// numbers come in then (`{changes}`, `{objects}`, `{seconds}`,
 /// `{requests}` are filled in as the captions are shown, from what was
 /// measured). Each tells one story: hook, action (the real files dropped
-/// in), reveal, proof, payoff, end card; 20–35 s with the stage's sting.
+/// in), reveal, proof, payoff, end card. Captions are said as a person
+/// would say them; every number in them comes from the comparison, and
+/// each step names its one key number (shown in the highlight colour).
 pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
     let end = step(Act::EndCard, 3.0, END_CARD.into()).scene(Scene::End);
     let changes = |n: usize| match n {
         1 => "1 change".to_owned(),
         n => format!("{n} changes"),
     };
+    // A step whose caption is also its voice-over line.
+    let said = |act: Act, scene: Scene, caption: String| {
+        step(act, 0.0, caption.clone()).scene(scene).says(caption)
+    };
     // The hook: the opening drawing (or the start screen) under the
     // stage's sting, then the problem in one line.
-    let hook = |caption: String| {
-        step(Act::Opening, 3.5 + STING, caption.clone())
-            .scene(Scene::Hook)
-            .says(caption)
-    };
-    // (Two legs on the stage: to the file cards, then to the window.)
-    let drop = |files: Files, seconds: f64, caption: &str| {
+    let hook = |caption: String| said(Act::Opening, Scene::Hook, caption).held();
+    let drop = |files: Files, caption: String| {
         Step {
             gestures: vec![(0.3, 2.3, 2.3, Target::Drop(files))],
-            ..step(Act::Drop, seconds, caption.into())
+            ..said(Act::Drop, Scene::Action, caption)
         }
-        .scene(Scene::Action)
-        .says(caption)
+        .held()
     };
-    let payoff = |caption: &str| {
-        step(Act::Nothing, 3.0, caption.into())
-            .scene(Scene::Payoff)
-            .says(caption)
-    };
-    let found = |c: &Compare| {
+    let payoff = |caption: &str| said(Act::Nothing, Scene::Payoff, caption.into()).held();
+    let reveal = |c: &Compare| {
         let (a, b) = c.labels();
-        format!("{} found between {a} and {b}.", changes(c.design_count()))
+        let n = changes(c.design_count());
+        said(
+            Act::Highlight("summary"),
+            Scene::Reveal,
+            format!("It finds {n} between {a} and {b}."),
+        )
+        .key(n)
     };
-    let tap = |i: usize, seconds: f64, caption: String| {
-        Step {
-            gestures: vec![click(0.0, 0.8, Target::Row(i))],
-            ..step(Act::Tap(i), seconds, caption.clone())
-        }
-        .scene(Scene::Proof)
-        .says(caption)
+    let tap = |i: usize, caption: String| Step {
+        gestures: vec![click(0.0, 0.8, Target::Row(i))],
+        ..said(Act::Tap(i), Scene::Proof, caption)
+    };
+    let drop_in = |c: &Compare| {
+        let (a, b) = c.labels();
+        format!("Let's drop in {a} and {b}.")
     };
     let steps = match (f, c) {
         (Feature::Big, c) => {
@@ -710,46 +800,46 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
             // compared, so the plan's gestures do not change).
             let first = c.map_or(Some(0), |c| find(c, |_| true));
             vec![
-                hook("A large layout, two revisions. What changed?".into()).shows(View::Start),
+                hook("A big warehouse layout. What changed?".into()).shows(View::Start),
                 drop(
                     Files::Big,
-                    5.0,
-                    "Drop in both. Read and compared in this browser.",
+                    "Drop both in. It all runs in this browser.".into(),
                 ),
-                step(
+                said(
                     Act::Highlight("summary"),
-                    5.0,
-                    "{changes} found among {objects} objects.".into(),
+                    Scene::Reveal,
+                    "It finds {changes} among {objects} objects.".into(),
                 )
-                .scene(Scene::Reveal)
-                .says("{changes} found among {objects} objects."),
-                step(
+                .key("{changes}")
+                .held(),
+                said(
                     Act::Highlight("timing"),
-                    4.0,
-                    "Read and compared in seconds.".into(),
+                    Scene::Proof,
+                    "Read and compared in a few seconds.".into(),
                 )
-                .scene(Scene::Proof)
-                .says("Read and compared in seconds, on the machine shown."),
-                step(
+                .held(),
+                said(
                     Act::Highlight("network"),
-                    4.5,
-                    "Requests logged since the files opened: {requests}.".into(),
+                    Scene::Proof,
+                    "Since the drop, the browser logged {requests} requests.".into(),
                 )
-                .scene(Scene::Proof)
-                .says("Requests the browser logged after the files opened: {requests}."),
+                .key("{requests} requests")
+                .held(),
                 match first {
-                    Some(i) => tap(
-                        i,
-                        4.5,
-                        c.map_or(String::new(), |c| {
-                            text_change(&c.diff().changes[i])
-                                .map_or_else(|| on_layer(c, i), |w| format!("Text changed: {w}."))
-                        }),
-                    ),
-                    None => step(Act::Nothing, 4.5, "Each change, in plain words.".into())
-                        .scene(Scene::Proof),
+                    Some(i) => {
+                        let (line, key) = c
+                            .and_then(|c| spoken_text_change(c, i))
+                            .unwrap_or_else(|| (String::new(), String::new()));
+                        tap(i, line).key(key).held()
+                    }
+                    None => said(
+                        Act::Nothing,
+                        Scene::Proof,
+                        "Each change, in plain words.".into(),
+                    )
+                    .held(),
                 },
-                payoff("Big drawings, compared in your browser."),
+                payoff("Big drawings, compared right in your browser."),
                 end,
             ]
         }
@@ -757,81 +847,92 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
         (Feature::Unclouded, Some(c)) => {
             let n = c.design_count();
             let k = c.clouded_count();
+            let (_, b) = c.labels();
             let mut v = vec![
                 hook(format!(
-                    "The cloud marks {}. Is that everything?",
+                    "{b}'s cloud marks just {}. Is that all?",
                     changes(k)
                 )),
-                drop(Files::Example, 4.0, "Drop in both revisions."),
-                step(Act::Highlight("summary"), 4.0, found(c))
-                    .scene(Scene::Reveal)
-                    .says(found(c)),
+                drop(Files::Example, drop_in(c)),
+                reveal(c).held(),
             ];
             if c.cloud_bounds().is_some() {
-                let line = format!(
-                    "The cloud marks {}; {} others weren't clouded.",
-                    changes(k),
-                    n - k
-                );
+                let rest = n - k;
                 v.push(
                     Step {
                         gestures: vec![(0.0, 0.8, 2.0, Target::Pinch)],
-                        ..step(Act::Cloud, 5.0, line.clone())
+                        ..said(
+                            Act::Cloud,
+                            Scene::Proof,
+                            format!("Only {k} is clouded. The other {rest} aren't."),
+                        )
                     }
-                    .scene(Scene::Proof)
-                    .says(line),
+                    .key(format!("{rest}"))
+                    .held(),
                 );
             }
-            if let Some(&hole) = c.demo_picks().first() {
-                v.push(tap(hole, 5.0, clauses(c.headline(hole)).swap_remove(0)));
+            if let Some(&hole) = c.demo_picks().first()
+                && let Some((line, key)) = spoken_value_change(c, hole)
+            {
+                v.push(tap(hole, line).key(key).held());
             }
-            if let Some(edge) = find(c, |ch| ch.layer() == "SECTION") {
-                v.push(tap(edge, 4.0, on_layer(c, edge)));
+            if let Some(edge) = find(c, |ch| ch.layer() == "SECTION")
+                && let Some((line, key)) = spoken_move(c, edge)
+            {
+                v.push(tap(edge, line).key(key).held());
             }
-            v.push(payoff("Every change listed, clouded or not."));
+            v.push(payoff("Every change is in the list, clouded or not."));
             v.push(end);
             v
         }
         (Feature::Tiny, Some(c)) => {
             let mut v = vec![
-                hook("Tiny changes are easy to miss by eye.".into()),
-                drop(Files::Example, 4.0, "Drop in both revisions."),
-                step(Act::Highlight("summary"), 4.0, found(c))
-                    .scene(Scene::Reveal)
-                    .says(found(c)),
+                hook("Some changes are too small to see.".into()),
+                drop(Files::Example, drop_in(c)),
+                reveal(c).held(),
             ];
-            if let Some(hole) = find(c, |ch| ch.entity_type == "CIRCLE") {
+            if let Some(hole) = find(c, |ch| ch.entity_type == "CIRCLE")
+                && let Some((line, amount)) = spoken_move(c, hole)
+            {
                 let ch = &c.diff().changes[hole];
                 let (_, exact) = lightable_diff::words::exact(ch, c.diff().units.as_deref());
-                v.push(tap(hole, 3.5, c.headline(hole).to_owned()));
+                v.push(tap(hole, line).key(amount.clone()).held());
                 v.push(
                     Step {
                         // (After the step has set what to zoom onto.)
                         gestures: vec![(0.3, 1.1, 2.3, Target::Pinch)],
-                        ..step(
+                        ..said(
                             Act::Close(hole),
-                            3.5,
-                            "Zoomed in close on that hole.".into(),
+                            Scene::Proof,
+                            format!("Up close, you can see the {amount} shift."),
                         )
                     }
-                    .scene(Scene::Proof)
-                    .says("Zoomed in close on that hole."),
+                    .key(amount.clone())
+                    .held(),
                 );
-                let line = format!("Details: {}.", lower(&exact));
+                let detail = lower(
+                    exact
+                        .trim_start_matches("Moved ")
+                        .trim_start_matches("moved "),
+                );
                 v.push(
                     Step {
                         gestures: vec![click(0.0, 0.7, Target::Details)],
-                        ..step(Act::Nothing, 4.5, line.clone())
+                        ..said(
+                            Act::Nothing,
+                            Scene::Proof,
+                            format!("Details give the exact value: {detail}."),
+                        )
                     }
                     .shows(View::Details)
-                    .scene(Scene::Proof)
-                    .says(line),
+                    .key(amount)
+                    .held(),
                 );
             }
             if let Some(note) = find(c, |ch| ch.entity_type == "TEXT")
-                && let Some(words) = text_change(&c.diff().changes[note])
+                && let Some((line, key)) = spoken_text_change(c, note)
             {
-                v.push(tap(note, 4.5, format!("Tolerance note: {words}.")).shows(View::Details));
+                v.push(tap(note, line).key(key).shows(View::Details).held());
             }
             v.push(payoff("Small changes, exact values."));
             v.push(end);
@@ -839,48 +940,66 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
         }
         (Feature::Resave, Some(c)) => {
             let d = c.diff();
+            let n = changes(c.design_count());
             let mut v = vec![
                 Step {
+                    // Each line read in its time: 9 words, then 4.
                     then: vec![(
-                        2.4 + STING / 2.0,
+                        STING + 3.2,
                         Act::Nothing,
-                        Some("What really changed?".into()),
+                        Some("So what really changed?".into()),
                     )],
-                    ..hook("Simulated re-export of Rev D as Rev E.".into())
-                }
-                .says("A simulated re-export of Rev D. What changed?"),
-                drop(Files::Example, 4.0, "Drop in Rev D and Rev E."),
-                Step {
-                    then: vec![(
-                        2.5,
-                        Act::Nothing,
-                        Some("New handles, shuffled order, older DXF version.".into()),
-                    )],
-                    ..step(
-                        Act::Highlight("summary"),
-                        5.0,
-                        format!("{} found.", capital(&changes(c.design_count()))),
+                    seconds: STING + 3.2 + 2.3,
+                    ..said(
+                        Act::Opening,
+                        Scene::Hook,
+                        "Rev E is a simulated re-export of Rev D.".into(),
                     )
                 }
-                .scene(Scene::Reveal)
+                .says("Rev E is a simulated re-export of Rev D. So what really changed?")
+                .held(),
+                drop(Files::Example, drop_in(c)),
+                Step {
+                    then: vec![(
+                        2.6,
+                        Act::Nothing,
+                        Some("Renumbered, reordered, older DXF: not changes.".into()),
+                    )],
+                    ..said(
+                        Act::Highlight("summary"),
+                        Scene::Reveal,
+                        format!("It finds just {n}."),
+                    )
+                }
                 .says(format!(
-                    "{} found. New handles, shuffled order, older DXF version.",
-                    capital(&changes(c.design_count()))
-                )),
+                    "It finds just {n}. Renumbered, reordered, older DXF: not changes."
+                ))
+                .key(n)
+                .held(),
             ];
-            if let Some(i) = find(c, |_| true) {
-                let words = text_change(&d.changes[i]).unwrap_or_else(|| c.headline(i).into());
-                v.push(tap(i, 5.0, format!("The one real change: {words}.")));
+            if let Some(i) = find(c, |_| true)
+                && let Some(words) = text_change(&d.changes[i])
+            {
+                let (a, b) = words.split_once(" → ").unwrap_or((&words, ""));
+                v.push(
+                    tap(i, format!("The one real change: {a} became {b}."))
+                        .key(b)
+                        .held(),
+                );
             }
-            let line = format!("{} objects redrawn the same: not changes.", d.redrawn.len());
+            let redrawn = d.redrawn.len();
             v.push(
                 Step {
                     gestures: vec![click(0.0, 0.7, Target::Details)],
-                    ..step(Act::Highlight("redrawn"), 5.0, line.clone())
+                    ..said(
+                        Act::Highlight("redrawn"),
+                        Scene::Proof,
+                        format!("{redrawn} objects were just redrawn, not changed."),
+                    )
                 }
                 .shows(View::Details)
-                .scene(Scene::Proof)
-                .says(line),
+                .key(format!("{redrawn}"))
+                .held(),
             );
             v.push(payoff("Real changes only, not file noise."));
             v.push(end);
@@ -889,41 +1008,117 @@ pub fn feature_plan(c: Option<&Compare>, f: Feature) -> Plan {
         (Feature::Blocks, Some(c)) => {
             let d = c.diff();
             let mut v = vec![
-                hook("A block edit changes every copy of it.".into()),
-                drop(Files::Example, 4.0, "Drop in both revisions."),
-                step(Act::Highlight("summary"), 4.0, found(c))
-                    .scene(Scene::Reveal)
-                    .says(found(c)),
+                hook("Edit a block once, and every copy changes.".into()),
+                drop(Files::Example, drop_in(c)),
+                reveal(c).held(),
             ];
             if let Some(i) = find(c, |ch| matches!(ch.place, lightable_diff::Place::Block(_))) {
                 let refs = d.changes[i].used_by_new.len();
-                v.push(tap(
-                    i,
-                    5.5,
-                    format!("Door block edited: shown at all {refs} doors."),
-                ));
+                v.push(
+                    tap(
+                        i,
+                        format!("The door block changed, and all {refs} doors show it."),
+                    )
+                    .key(format!("{refs} doors"))
+                    .held(),
+                );
             }
-            if let Some(i) = find(c, |ch| ch.layer() == "WALLS") {
-                v.push(tap(i, 5.0, on_layer(c, i)));
+            if let Some(i) = find(c, |ch| ch.layer() == "WALLS")
+                && let Some((line, key)) = spoken_move(c, i)
+            {
+                v.push(tap(i, line).key(key).held());
             }
             v.push(
                 Step {
                     gestures: vec![click(0.0, 0.7, Target::SideBySide)],
-                    ..step(
+                    ..said(
                         Act::SideBySide,
-                        5.0,
-                        "Before and after, side by side.".into(),
+                        Scene::Proof,
+                        "Here's before and after, side by side.".into(),
                     )
                 }
-                .scene(Scene::Proof)
-                .says("Before and after, side by side."),
+                .held(),
             );
-            v.push(payoff("One block edit, shown wherever it's used."));
+            v.push(payoff("One block edit, shown everywhere it's used."));
             v.push(end);
             v
         }
     };
     assemble(steps, false)
+}
+
+/// "Circle diameter changed from 11 mm to 13.5 mm" as said: "This hole
+/// grew from 11 mm to 13.5 mm." (grew or shrank by the numbers), with its
+/// key: the new value.
+fn spoken_value_change(c: &Compare, i: usize) -> Option<(String, String)> {
+    let ch = &c.diff().changes[i];
+    let headline = clauses(&ch.headline).swap_remove(0);
+    let (_, rest) = headline.split_once(" changed from ")?;
+    let (a, b) = rest.split_once(" to ")?;
+    let verb = match (number_in(a), number_in(b)) {
+        (Some(x), Some(y)) if y > x => "grew",
+        (Some(x), Some(y)) if y < x => "shrank",
+        _ => "changed",
+    };
+    Some((
+        format!("This {} {verb} from {a} to {b}.", noun(ch)),
+        b.to_owned(),
+    ))
+}
+
+/// "Line moved 1.25 mm up" as said: "On layer SECTION, a line moved 1.25
+/// mm up." ("This Ø8 hole moved 0.5 mm right." for a hole), with its key:
+/// the distance.
+fn spoken_move(c: &Compare, i: usize) -> Option<(String, String)> {
+    let ch = &c.diff().changes[i];
+    let headline = clauses(&ch.headline).swap_remove(0);
+    let (what, rest) = headline.split_once(" moved ")?;
+    let mut parts = rest.split(' ');
+    let amount = format!("{} {}", parts.next()?, parts.next()?);
+    let line = if noun(ch) == "hole" {
+        let size = what.split(' ').find(|w| w.starts_with('Ø'));
+        format!(
+            "This {}hole moved {rest}.",
+            size.map_or(String::new(), |s| format!("{s} "))
+        )
+    } else {
+        format!("On layer {}, a {} moved {rest}.", ch.layer(), lower(what))
+    };
+    Some((line, amount))
+}
+
+/// A changed text as said: "The tolerance tightened from ±0.1 to ±0.05."
+/// (a ± value getting smaller or larger), otherwise "This text changed
+/// from R1-065 to QC-01."; the key is the new words.
+fn spoken_text_change(c: &Compare, i: usize) -> Option<(String, String)> {
+    let words = text_change(&c.diff().changes[i])?;
+    let (a, b) = words.split_once(" → ")?;
+    let tolerance = |s: &str| s.strip_prefix('±').and_then(|v| v.parse::<f64>().ok());
+    let line = match (tolerance(a), tolerance(b)) {
+        (Some(x), Some(y)) if y < x => format!("The tolerance tightened from {a} to {b}."),
+        (Some(x), Some(y)) if y > x => format!("The tolerance loosened from {a} to {b}."),
+        _ => format!("This text changed from {a} to {b}."),
+    };
+    Some((line, b.to_owned()))
+}
+
+/// What a change is, in a word: "hole" for a circle on a hole layer.
+fn noun(ch: &lightable_diff::Change) -> String {
+    if ch.entity_type == "CIRCLE" && ch.layer().to_uppercase().contains("HOLE") {
+        "hole".into()
+    } else {
+        ch.entity_type.to_lowercase()
+    }
+}
+
+/// The first number in some words ("Ø13.5 mm" → 13.5).
+fn number_in(s: &str) -> Option<f64> {
+    let start = s.find(|ch: char| ch.is_ascii_digit())?;
+    let digits: String = s[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '.')
+        .collect();
+    digits.parse().ok()
 }
 
 fn lower(s: &str) -> String {
@@ -1051,13 +1246,23 @@ pub fn voice_sheet(plan: &Plan) -> String {
     let steps: Vec<&Shot> = plan.shots.iter().filter(|s| s.scene.is_some()).collect();
     for (n, cue) in plan.voice.iter().enumerate() {
         let shot = steps.iter().rev().find(|s| s.at <= cue.start);
+        // The step's caption as shown (it comes in with the action).
+        let step_end = steps
+            .iter()
+            .find(|s| shot.is_some_and(|h| s.at > h.at))
+            .map_or(f64::INFINITY, |s| s.at);
+        let shown = plan
+            .shots
+            .iter()
+            .filter(|s| shot.is_some_and(|h| s.at >= h.at) && s.at < step_end)
+            .find_map(|s| s.caption.as_deref().filter(|c| !c.is_empty()));
         out.push_str(&format!(
             "| {} | {} | {} | {} | {} | {} |\n",
             n + 1,
             shot.and_then(|s| s.scene).map_or("", |s| s.name()),
             clock(cue.start, '.'),
             clock(cue.end, '.'),
-            shot.and_then(|s| s.caption.as_deref()).unwrap_or(""),
+            shown.unwrap_or(""),
             cue.text
         ));
     }
@@ -1307,7 +1512,55 @@ mod tests {
             } else {
                 feature_plan(Some(&compare(f.example(), true)), f)
             };
-            assert!((20.0..=35.0).contains(&p.length), "{f:?}: {}", p.length);
+            assert!((20.0..=40.0).contains(&p.length), "{f:?}: {}", p.length);
+            // Each caption on screen long enough to read: three words a
+            // second, at least 2 s; it comes in as its action starts.
+            for cue in p
+                .cues
+                .iter()
+                .filter(|c| c.text != END_CARD && !c.text.is_empty())
+            {
+                let need = (cue.text.split_whitespace().count() as f64 / 3.0).max(2.0);
+                assert!(
+                    cue.end - cue.start >= need - 1e-9,
+                    "{f:?}: {} ({:.2} s)",
+                    cue.text,
+                    cue.end - cue.start
+                );
+            }
+            // Each key moment (the result, each proof) holds still after
+            // its action for its caption's reading time.
+            for (shot, next) in p
+                .shots
+                .iter()
+                .zip(p.shots.iter().skip(1))
+                .filter(|(s, _)| matches!(s.scene, Some(Scene::Reveal | Scene::Proof)))
+            {
+                let end = p
+                    .shots
+                    .iter()
+                    .find(|s| s.at > shot.at && s.scene.is_some())
+                    .map_or(p.length, |s| s.at);
+                let acted = p
+                    .gestures
+                    .iter()
+                    .filter(|g| g.from >= shot.at && g.from < end)
+                    .map(|g| g.until.max(g.at))
+                    .fold(shot.at, f64::max);
+                let _ = next;
+                assert!(
+                    end - acted >= 2.9,
+                    "{f:?}: step at {:.1} holds {:.2} s",
+                    shot.at,
+                    end - acted
+                );
+            }
+            // Each key number is in its caption.
+            for s in &p.shots {
+                if let (Some(k), Some(c)) = (&s.key, &s.caption) {
+                    assert!(c.contains(k.as_str()), "{f:?}: key {k} not in {c}");
+                }
+            }
             let scenes: Vec<Scene> = p.shots.iter().filter_map(|s| s.scene).collect();
             assert_eq!(
                 scenes.len(),
@@ -1347,63 +1600,56 @@ mod tests {
             said.insert(f, p.cues.into_iter().map(|c| c.text).collect::<Vec<_>>());
         }
         let has = |f: Feature, t: &str| said[&f].iter().any(|c| c == t);
-        assert!(has(
-            Feature::Unclouded,
-            "14 changes found between Rev B and Rev C."
-        ));
-        assert!(has(
-            Feature::Unclouded,
-            "The cloud marks 1 change; 13 others weren't clouded."
-        ));
-        assert!(has(
-            Feature::Unclouded,
-            "Circle diameter changed from 11 mm to 13.5 mm"
-        ));
-        assert!(has(
-            Feature::Unclouded,
-            "On layer SECTION: line moved 1.25 mm up."
-        ));
-        assert!(has(Feature::Tiny, "Circle Ø8 moved 0.5 mm right"));
-        assert!(has(Feature::Tiny, "Details: moved 0.5 mm right."));
-        assert!(has(Feature::Tiny, "Tolerance note: ±0.1 → ±0.05."));
-        assert!(has(Feature::Resave, "1 change found."));
-        assert!(has(
-            Feature::Resave,
-            "The one real change: Ra 1.6 → Ra 0.8."
-        ));
-        assert!(has(
-            Feature::Resave,
-            "17 objects redrawn the same: not changes."
-        ));
-        assert!(has(
-            Feature::Blocks,
-            "Door block edited: shown at all 7 doors."
-        ));
-        assert!(has(
-            Feature::Blocks,
-            "On layer WALLS: line moved 300 mm right."
-        ));
-        assert!(has(
-            Feature::Big,
-            "{changes} found among {objects} objects."
-        ));
-        assert!(has(
-            Feature::Unclouded,
-            "The cloud marks 1 change. Is that everything?"
-        ));
-        assert!(has(
-            Feature::Unclouded,
-            "Every change listed, clouded or not."
-        ));
-        assert!(has(
-            Feature::Resave,
-            "Simulated re-export of Rev D as Rev E."
-        ));
-        assert!(has(Feature::Resave, "What really changed?"));
-        assert!(has(
-            Feature::Blocks,
-            "One block edit, shown wherever it's used."
-        ));
+        for (f, line) in [
+            (
+                Feature::Unclouded,
+                "Rev C's cloud marks just 1 change. Is that all?",
+            ),
+            (Feature::Unclouded, "Let's drop in Rev B and Rev C."),
+            (
+                Feature::Unclouded,
+                "It finds 14 changes between Rev B and Rev C.",
+            ),
+            (
+                Feature::Unclouded,
+                "Only 1 is clouded. The other 13 aren't.",
+            ),
+            (Feature::Unclouded, "This hole grew from 11 mm to 13.5 mm."),
+            (
+                Feature::Unclouded,
+                "On layer SECTION, a line moved 1.25 mm up.",
+            ),
+            (
+                Feature::Unclouded,
+                "Every change is in the list, clouded or not.",
+            ),
+            (Feature::Tiny, "This Ø8 hole moved 0.5 mm right."),
+            (Feature::Tiny, "Up close, you can see the 0.5 mm shift."),
+            (Feature::Tiny, "Details give the exact value: 0.5 mm right."),
+            (Feature::Tiny, "The tolerance tightened from ±0.1 to ±0.05."),
+            (Feature::Resave, "Rev E is a simulated re-export of Rev D."),
+            (Feature::Resave, "So what really changed?"),
+            (Feature::Resave, "It finds just 1 change."),
+            (
+                Feature::Resave,
+                "The one real change: Ra 1.6 became Ra 0.8.",
+            ),
+            (
+                Feature::Resave,
+                "17 objects were just redrawn, not changed.",
+            ),
+            (
+                Feature::Blocks,
+                "The door block changed, and all 7 doors show it.",
+            ),
+            (
+                Feature::Blocks,
+                "On layer WALLS, a line moved 300 mm right.",
+            ),
+            (Feature::Big, "It finds {changes} among {objects} objects."),
+        ] {
+            assert!(has(f, line), "{f:?}: {line}");
+        }
     }
 
     /// docs/demo/voiceover.md has each use-case video's voice-over sheet,

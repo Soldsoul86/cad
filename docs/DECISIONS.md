@@ -1286,6 +1286,39 @@ reading big files off the main thread, keyboard pan and zoom).
 3. `tools/demo.mjs` holds a `caffeinate -i -s` assertion for its own
    lifetime and prints the checked review URL when it exits.
 
+## Calmer captions, clearer scenes (brand videos, second pass)
+
+1. **One set of captions.** The use-case videos carry their captions in
+   the picture; their players (demo page, review page) get no subtitle
+   track. Only the narration version (no captions in its picture) offers
+   one. No `.vtt` files ship with the demo page any more.
+2. **Captions as said, from the data.** Each caption is a sentence a person
+   would say ("This hole grew from 11 mm to 13.5 mm."), built from the
+   comparison's own values (grew or shrank by the numbers, "hole" only for
+   a circle on a hole layer, "tightened" only for a ± value that got
+   smaller). Each step names its one key number (`Step::key`, in the
+   caption, filled in as measured for the large layout); only that is in
+   the highlight colour.
+3. **Timing.** A caption comes in as its step's action starts (the hook's
+   after the sting) and stays at least its words at three a second, 2 s at
+   least. Key moments hold still after their action for the caption at a
+   speaking pace (2.7 words a second), at least 3 s; the result at least 5 s
+   in all. Tested on every plan. The use-case videos are now 29–40 s
+   (longer than the 35 s first set, for the holds).
+4. **Line breaks.** Two lines at most, balanced (`text-wrap: balance`);
+   a number stays with its unit or noun, "Rev B" and short phrases stay
+   together. A plain 0.3 s fade, no slide; always in the place the app
+   keeps clear.
+5. **Scenes.** One idea each; while its point is shown nothing moves (the
+   camera pushes in 2 % only as the result comes and eases back as the
+   payoff starts). A spotlight dims the app around the step's subject once
+   its action is done (`Shot::spot`: the selected change, the zoom's
+   subject, the highlighted line, the details, the drawing); the app draws
+   no highlight box on the stage. The recorder checks each spotlight
+   against what the app reports for that subject, mapped independently.
+6. **Larger window** (912 × 506 of 960 × 540; 524 × 924 of 540 × 960) and
+   step chips in its title bar: 1 Drop · 2 Result · 3 Proof.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

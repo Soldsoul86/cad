@@ -43,14 +43,35 @@ Lato has no "→": the stage draws the arrow as a small stroke icon.
 
 ## Captions
 
+- Said as a person would say them ("This hole grew from 11 mm to 13.5
+  mm."), never UI labels; every number from the comparison.
 - Lato Regular, at least 4 % of the frame's height (4.5 % when it fits),
-  at most two lines, one clause each.
-- Paper on an ink pill (95 % opaque), radius 0.32 em; key numbers
-  (measurements, counts, ±, Ø) in marker yellow.
-- Placed where the app keeps the drawing clear, above the frame's bottom
-  15 %; the frame's top-left 10 % holds no control.
-- In: fade and slide up 0.55 em over 0.36 s when the step starts. The words
-  are always the app's own (numbers as measured).
+  at most two lines, balanced; a number stays with its unit or noun, "Rev
+  B" and short phrases ("from 11 mm") stay together.
+- Paper on an ink pill (95 % opaque), radius 0.32 em, always in the same
+  place (where the app keeps the drawing clear, above the frame's bottom
+  15 %); the frame's top-left 10 % holds no control.
+- One highlight colour, used once: only the scene's key number in marker
+  yellow (the step names it).
+- In: a plain fade (0.3 s), as the step's action starts; on screen at
+  least as long as it takes to read (three words a second, 2 s at least).
+- Only one set of captions: in the picture. A player's subtitle track is
+  offered only for the narration versions (no captions in the picture).
+
+## Scenes
+
+- One idea per scene. While a scene's point is on screen nothing else
+  moves: the pointer has done its work, the camera is still.
+- **Spotlight:** once the step's action is done, the app around what the
+  step is about (the change, the zoom's subject, the highlighted line) is
+  softly dimmed; it lifts just before the next step.
+- **Holds:** the result ("It finds 14 changes...") at least 5 s; each proof
+  holds still after its action for its caption's reading time, 3 s at
+  least.
+- **Step chips** in the window's title bar: 1 Drop · 2 Result · 3 Proof,
+  the current one in signal blue.
+- The window fills most of the frame (912 × 506 of 960 × 540; 524 × 924 of
+  540 × 960).
 
 ## Motion
 
@@ -59,10 +80,8 @@ Lato has no "→": the stage draws the arrow as a small stroke icon.
   with a shadow while hovering, dips while pressed; a blue ripple (0.45 s)
   where it presses.
 - **Camera:** the window settles in after the sting (96 % → 100 %), pushes
-  in 3.5 % over 1.6 s for the reveal and the proof, eases back over 1 s for
-  the payoff. The app's own zooms stay the app's.
-- **Highlights:** a yellow double pulse (2 × 0.6 s) around a change the
-  moment the app selects it.
+  in 2 % over 0.8 s as the result comes, eases back over 0.8 s as the
+  payoff starts; still in between. The app's own zooms stay the app's.
 - **Transitions:** sting → window: fade and scale (0.33 s). Window → end
   card: fade (0.42 s), the lines rising in one after another.
 

@@ -10,32 +10,33 @@
   const params = new URLSearchParams(location.search);
   const format = params.get("format") === "vertical" ? "vertical" : "landscape";
   // Geometry in CSS pixels of the frame (960 x 540 or 540 x 960, recorded
-  // at 2x). The window keeps the frame's top-left 10 % free of the app's
-  // controls (the app is told how far in to start) and ends above the
-  // bottom 15 %, where a player puts its controls; the brand sits there.
+  // at 2x). The window fills most of the frame; its app keeps the frame's
+  // top-left 10 % free of controls (the app is told how far in to start),
+  // and the app keeps its captions above the frame's bottom 15 %, where a
+  // player puts its controls.
   const G = format === "landscape"
-    ? { w: 960, h: 540, wx: 64, wy: 16, ww: 832, tb: 24, ih: 426, fy: 466, lockup: 22, grid: 24,
+    ? { w: 960, h: 540, wx: 24, wy: 10, ww: 912, tb: 22, ih: 484, fy: 516, lockup: 14, grid: 24,
         card: [176, 40, 13], mark: 118, word: 44, gap: 18, end: [58, 30, 19, 24], endGap: 24,
-        tray: [0.76, 0.66], from: [0.36, 0.3], finger: 0 }
-    : { w: 540, h: 960, wx: 20, wy: 18, ww: 500, tb: 24, ih: 852, fy: 894, lockup: 24, grid: 24,
+        tray: [0.74, 0.62], from: [0.36, 0.3], finger: 0, chip: 10, addr: 12 }
+    : { w: 540, h: 960, wx: 8, wy: 8, ww: 524, tb: 22, ih: 902, fy: 932, lockup: 16, grid: 24,
         card: [196, 46, 15], mark: 128, word: 48, gap: 22, end: [66, 32, 20, 26], endGap: 28,
-        tray: [0.6, 0.7], from: [0.5, 0.25], finger: 26 };
+        tray: [0.58, 0.68], from: [0.5, 0.25], finger: 26, chip: 10, addr: 8 };
   const root = document.documentElement.style;
   const px = (v) => `${v}px`;
   Object.entries({
     w: G.w, h: G.h, wx: G.wx, wy: G.wy, ww: G.ww, tb: G.tb, ih: G.ih, fy: G.fy, lockup: G.lockup,
     grid: G.grid, "card-w": G.card[0], "card-h": G.card[1], "card-font": G.card[2], mark: G.mark,
     word: G.word, "sting-gap": G.gap, "end-lockup": G.end[0], "end-1": G.end[1], "end-2": G.end[2],
-    "end-3": G.end[3], "end-gap": G.endGap,
+    "end-3": G.end[3], "end-gap": G.endGap, chip: G.chip, "addr-gap": G.addr,
     cx: G.wx + G.ww / 2, cy: G.wy + (G.tb + G.ih) / 2,
   }).forEach(([k, v]) => root.setProperty(`--${k}`, px(v)));
 
   // The app, sized for its window: the same layout as a full-frame
   // recording at 1.75 CSS pixels a point, scaled to the window's width.
   const zoom = (1.75 * G.ww) / G.w;
-  // ...also at the camera's closest (3.5 % pushed in, around the window's
+  // ...also at the camera's closest (2 % pushed in, around the window's
   // centre).
-  const PUSH = 0.035;
+  const PUSH = 0.02;
   const cx = G.wx + G.ww / 2;
   const inset = Math.max(0, Math.ceil(cx - (cx - 0.1 * G.w) / (1 + PUSH) - G.wx) + 4);
   const iframe = document.getElementById("app");
@@ -67,7 +68,8 @@
     ...["end-1", "end-2", "end-3"].map((id, k) =>
       anim($(id), [{ opacity: 0, transform: "translateY(14px)" }, { opacity: 1, transform: "none" }], 420, 260 + 110 * k)),
   ];
-  const captionIn = anim($("caption"), [{ opacity: 0, transform: "translateY(0.55em)" }, { opacity: 1, transform: "none" }], 360);
+  // Captions: a plain fade.
+  const captionIn = anim($("caption"), [{ opacity: 0 }, { opacity: 1 }], 300, 0, "ease-out");
   const setTime = (list, seconds) => list.forEach((a) => (a.currentTime = Math.max(0, seconds * 1000)));
 
   // The plan's steps (the first shot of each) with their scenes.
@@ -81,15 +83,16 @@
   };
   const sceneAt = (name) => plan().steps.find((s) => s.scene === name)?.at;
 
-  // The camera: the window comes in after the sting, pushes in slightly
-  // for the reveal and the proof, and eases back for the payoff.
+  // The camera: the window comes in after the sting, pushes in slightly as
+  // the result comes (0.8 s, then still) and eases back as the payoff
+  // starts: it never moves while a scene's point is shown.
   function scale(t) {
     const intro = 0.96 + 0.04 * easeOut(clamp((t - (STING - 0.3)) / 0.45));
     const r0 = sceneAt("reveal");
     const p0 = sceneAt("payoff");
     let push = 0;
-    if (r0 != null && t >= r0) push = PUSH * easeInOut(clamp((t - r0) / 1.6));
-    if (p0 != null && t >= p0) push = PUSH * (1 - easeInOut(clamp((t - p0) / 1.0)));
+    if (r0 != null && t >= r0) push = PUSH * easeInOut(clamp((t - r0) / 0.8));
+    if (p0 != null && t >= p0) push = PUSH * (1 - easeInOut(clamp((t - p0) / 0.8)));
     return intro * (1 + push);
   }
   function camera(f) {
@@ -103,11 +106,23 @@
 
   const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const ARROW = '<svg class="arrow" viewBox="0 0 20 12" aria-hidden="true"><path d="M1 6h15M11 1.5l5.5 4.5-5.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  // Key numbers in the brand's yellow (not label characters: "R1-065").
-  const markup = (text) => escape(text)
-    .replace(/(?<![A-Za-z0-9\-])([±Ø]?\d[\d,]*(?:\.\d+)?(?: ?mm\b)?)(?![A-Za-z0-9\-])/g,
-      (m) => `<span class="n">${m.replace(" ", "\u00a0")}</span>`)
-    .replace(/→/g, ARROW);
+  // Natural line breaks: a number stays with its unit or noun ("13.5 mm",
+  // "14 changes"), "Rev B" and "Ø8 hole" stay together, and so do the
+  // short words of a phrase ("from 11 mm", "to 13.5 mm"); CSS balances the
+  // two lines. Only the scene's key number in the highlight colour.
+  const NB = "\u00a0";
+  const keepTogether = (text) => text
+    .replace(/(\b(?:Rev|Ra|layer)) (\S)/g, `$1${NB}$2`)
+    .replace(/([±Ø]?\d[\d,.]*) (?=\S)/g, `$1${NB}`)
+    .replace(/\b(a|an|the|from|to|of|in|on|by|and|just) (?=\S)/gi, `$1${NB}`);
+  const markup = (text, key) => {
+    const together = keepTogether(text);
+    const k = key ? keepTogether(key) : null;
+    const at = k ? together.indexOf(k) : -1;
+    const html = at < 0 ? escape(together)
+      : escape(together.slice(0, at)) + `<span class="n">${escape(k)}</span>` + escape(together.slice(at + k.length));
+    return html.replace(/→/g, ARROW);
+  };
 
   const POINTER = '<svg width="14" height="21" viewBox="0 0 14 21"><path d="M0 0L0 17L4.2 13.2L7 19.6L9.6 18.5L6.9 12.2L12.4 12.2Z" fill="#fff" stroke="#0b0f14" stroke-width="1.3" stroke-linejoin="round"/></svg>';
   const FINGER = `<svg width="${2 * G.finger}" height="${2 * G.finger}" viewBox="0 0 2 2"><circle cx="1" cy="1" r="0.94" fill="rgba(255,255,255,0.35)" stroke="#fff" stroke-width="0.09"/></svg>`;
@@ -159,9 +174,9 @@
       const shot = plan().shots.filter((s) => s.caption && s.at <= t + 1e-6).at(-1);
       const start = Math.max(shot ? shot.at : 0, STING + 0.1);
       const span = $("caption-text");
-      if (lastCaption !== text) {
-        span.innerHTML = markup(text);
-        lastCaption = text;
+      if (lastCaption !== `${text}|${info.caption_key}`) {
+        span.innerHTML = markup(text, info.caption_key);
+        lastCaption = `${text}|${info.caption_key}`;
       }
       const box = info.caption;
       const canvas = info.canvas ?? info.screen;
@@ -190,28 +205,21 @@
       capEl.style.display = "none";
     }
 
-    // The change just tapped: a gentle double pulse around it, only when
-    // the app has it selected.
-    const tap = (input.presses ?? []).filter((p) => p.target.startsWith("row:") && p.t <= t).at(-1);
-    const pulse = $("pulse");
-    pulse.style.display = "none";
-    if (tap && info.selected != null && info.selected_rect && !ending) {
-      const local = t - tap.t - 0.25;
-      const row = Number(tap.target.slice(4));
-      if (local >= 0 && local < 1.2 && info.selected === row) {
-        const [x0, y0] = map(info.selected_rect[0], info.selected_rect[1]);
-        const [x1, y1] = map(info.selected_rect[2], info.selected_rect[3]);
-        const pad = 7;
-        const ph = (local % 0.6) / 0.6;
-        Object.assign(pulse.style, {
-          display: "block", left: px(Math.min(x0, x1) - pad), top: px(Math.min(y0, y1) - pad),
-          width: px(Math.abs(x1 - x0) + 2 * pad), height: px(Math.abs(y1 - y0) + 2 * pad),
-          opacity: String(0.95 * (1 - ph)), transform: `scale(${1 + 0.14 * easeOut(ph)})`,
-        });
-        report.pulse = { row, rect: [x0, y0, x1, y1] };
-        report.animating = true;
-      }
-    }
+    // The spotlight: once the step's action is done (its click answered,
+    // its zoom finished), the app around what the step is about is softly
+    // dimmed; it lifts just before the next step.
+    report.spot = spotlight(t, info, input, ending);
+    if (report.spot?.fading) report.animating = true;
+
+    // Where the viewer is: 1 Drop, 2 Result, 3 Proof.
+    const scene = plan().steps.filter((s) => s.at <= t + 1e-6).at(-1)?.scene;
+    const order = { action: 0, reveal: 1, proof: 2, payoff: 3 };
+    const now = order[scene] ?? -1;
+    $("chips").style.visibility = now >= 0 && !ending ? "visible" : "hidden";
+    [...$("chips").children].forEach((chip, k) => {
+      chip.className = k === now ? "on" : k < now ? "done" : "";
+    });
+    report.chip = now >= 0 && now < 3 ? now + 1 : null;
 
     // Click ripples where the recorder really pressed.
     const ripples = $("ripples");
@@ -302,6 +310,72 @@
     const p0 = sceneAt("payoff");
     if ((r0 != null && t >= r0 && t < r0 + 1.7) || (p0 != null && t >= p0 && t < p0 + 1.1)) report.animating = true;
     return JSON.stringify(report);
+  }
+
+  // The spotlight's subject in the app's points, by kind (the step's
+  // "spot"), from what the app reports this frame.
+  function subject(kind, info, step) {
+    const t = info.targets ?? {};
+    switch (kind) {
+      case "selected": {
+        const row = Number(/Tap\((\d+)\)/.exec(step.desc)?.[1]);
+        return info.selected === row ? info.selected_rect : null;
+      }
+      case "focus":
+        return info.focus?.[0] ?? null;
+      case "canvas":
+        return info.canvas;
+      case "details": {
+        const row = t[`row:${info.selected}`];
+        const next = t[`row:${info.selected + 1}`];
+        const list = t.list;
+        if (!row || !list) return null;
+        return [list[0], row[1], list[2], Math.min(list[3], next ? next[1] - 2 : list[3])];
+      }
+      default:
+        return t[kind] ?? null;
+    }
+  }
+  const spotEl = $("spot");
+  function spotlight(t, info, input, ending) {
+    spotEl.style.display = "none";
+    const { steps: all, shots } = plan();
+    const k = all.findLastIndex((s) => s.at <= t + 1e-6);
+    const step = all[k];
+    if (!step?.spot || ending) return null;
+    const next = all[k + 1]?.at ?? Infinity;
+    // Done: its last real press answered (0.25 s on), its pinch finished,
+    // or 0.3 s in for a step with no gesture.
+    const gestures = JSON.parse(__app().__lightableDemoGestures || "[]").filter((g) => g.from >= step.at - 1e-6 && g.from < next);
+    const presses = (input.presses ?? []).filter((p) => p.t >= step.at - 1e-6 && p.t < next);
+    let done = step.at + 0.3;
+    for (const g of gestures) {
+      if (g.target === "pinch") done = Math.max(done, g.until + 0.2);
+      else if (!g.target.startsWith("drop")) {
+        const p = presses.at(-1);
+        if (!p) return null;
+        done = Math.max(done, p.t + 0.25);
+      }
+    }
+    // ...and only once the app's view is still (no zoom under way).
+    if (t < done || !info.still) return null;
+    const rect = subject(step.spot, info, step);
+    if (!rect) return null;
+    const kk = G.ww / (info.screen[2] - info.screen[0]);
+    const pad = 8;
+    const x0 = Math.max(0, rect[0] * kk - pad);
+    const y0 = Math.max(0, rect[1] * kk - pad);
+    const x1 = Math.min(G.ww, rect[2] * kk + pad);
+    const y1 = Math.min(G.ih, rect[3] * kk + pad);
+    if (x1 - x0 < 4 || y1 - y0 < 4) return null;
+    const fadeIn = clamp((t - done) / 0.35);
+    const fadeOut = clamp((next - 0.05 - t) / 0.25);
+    Object.assign(spotEl.style, {
+      display: "block", left: px(x0), top: px(y0), width: px(x1 - x0), height: px(y1 - y0),
+      opacity: String(Math.min(fadeIn, fadeOut)),
+    });
+    const b = spotEl.getBoundingClientRect();
+    return { kind: step.spot, rect: [b.left, b.top, b.right, b.bottom], app: rect, pad, fading: fadeIn < 1 || fadeOut < 1 };
   }
 
   window.__stage = {

@@ -67,6 +67,9 @@ const CLOCK = 30; // the app's frame clock
 // The use-case videos are recorded inside the brand stage (`--plain`: the
 // app alone, as before).
 const isStaged = (mode) => FEATURES.includes(mode) && !process.argv.includes("--plain");
+// The stage's app window width (CSS px, before the camera), as in
+// tools/stage/stage.js.
+const FRAME_APP_WIDTH = { landscape: 912, vertical: 524 };
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -95,7 +98,8 @@ function pageFiles(dir, video) {
       spawnSync("ffmpeg", ["-v", "error", "-y", "-ss", String(POSTER_AT[m]), "-i", src, "-frames:v", "1", "-q:v", "3",
         join(dir, `${m}-${format}.jpg`)]);
     }
-    copyFileSync(join(OUT, `feature-${m}.vtt`), join(dir, `${m}.vtt`));
+    // (No subtitle track: the captions are in the picture, so only one set
+    // ever shows.)
   }
 }
 if (command === "approve") {
@@ -626,7 +630,35 @@ async function openDemo(format, mode, dpr, cut = false) {
     const found = [];
     const fail = (kind, detail) => found.push(`${kind}: ${detail}`);
     if (report.caption && report.caption.text !== info.caption_text) fail("caption", `stage shows "${report.caption.text}", app "${info.caption_text}"`);
-    if (report.pulse && info.selected !== report.pulse.row) fail("highlight", `pulse on change ${report.pulse.row}, app selected ${info.selected}`);
+    // The spotlight is on what the app shows for its subject: the change
+    // the app has selected, the zoom's subject, the highlighted line...,
+    // mapped independently here.
+    if (report.spot) {
+      const kind = report.spot.kind;
+      const tg = info.targets ?? {};
+      const want = kind === "selected" ? info.selected_rect
+        : kind === "focus" ? info.focus?.[0]
+          : kind === "canvas" ? info.canvas
+            : kind === "details" ? report.spot.app && tg[`row:${info.selected}`] && report.spot.app
+              : tg[kind];
+      const same = (a, b) => a && b && a.every((v, i) => Math.abs(v - b[i]) < 0.5);
+      if (!same(want, report.spot.app)) fail("spotlight", `${kind}: on ${JSON.stringify(report.spot.app)}, the app has ${JSON.stringify(want)}`);
+      else {
+        const k = M.w / (info.screen[2] - info.screen[0]);
+        // (Clipped to the app's window, as the stage clips it.)
+        const [x0, y0, x1, y1] = [
+          Math.max(M.x, M.x + want[0] * k), Math.max(M.y, M.y + want[1] * k),
+          Math.min(M.x + M.w, M.x + want[2] * k), Math.min(M.y + M.h, M.y + want[3] * k),
+        ];
+        const [s0, t0, s1, t1] = report.spot.rect;
+        const slack = report.spot.pad * (M.w / FRAME_APP_WIDTH[format]) * 1.2 + 2;
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+        const inside = cx >= s0 && cx <= s1 && cy >= t0 && cy <= t1;
+        const tight = s0 >= x0 - slack && t0 >= y0 - slack && s1 <= x1 + slack && t1 <= y1 + slack;
+        if (!inside || !tight) fail("spotlight", `${kind}: drawn at ${report.spot.rect.map(Math.round)}, the subject is at ${[x0, y0, x1, y1].map(Math.round)}`);
+      }
+    }
     for (const rt of report.ripples) {
       if (!driver.presses.some((p) => Math.abs(p.t - rt) < 1e-6)) fail("ripple", `ripple at ${rt.toFixed(2)} s with no press`);
     }
@@ -782,6 +814,8 @@ function check(info, format, sample, target, expect = {}) {
   }
   if (sample !== "settled") {
     out.cutoff = { pass: null, detail: `${sample} (not checked)` };
+  } else if (expect.spot && !["selected", "focus", "canvas"].includes(expect.spot)) {
+    out.cutoff = { pass: null, detail: `the step is about the ${expect.spot}, not the drawing` };
   } else if (info.focus.length && info.canvas) {
     const cut = info.focus.filter((f) => !inside(f, info.canvas) || !inside(f, info.screen));
     const covered = info.caption ? info.focus.filter((f) => overlaps(f, info.caption.rect)) : [];
@@ -831,11 +865,17 @@ async function stills(format, mode) {
   mkdirSync(dir, { recursive: true });
   const page = await openDemo(format, mode, QUALITY.stills.dpr);
   const samples = [];
-  const stepAt = (t) => Math.max(0, page.shots.findLastIndex((s) => s.at <= t));
+  const stepAt = (t) => Math.max(0, page.shots.findLastIndex((s) => s.at <= t && s.view != null));
+  // Per step (a shot with its view; later shots in a step only change the
+  // caption): early on, and settled at its end.
   page.shots.forEach((s, i) => {
-    const next = i + 1 < page.shots.length ? page.shots[i + 1].at : page.length;
+    if (s.view == null) return;
+    const later = page.shots.slice(i + 1).find((n) => n.view != null);
+    const next = later ? later.at : page.length;
     if (next - s.at > 2.5) samples.push({ t: s.at + 1.0, step: i, act: actName(s.desc), sample: "early" });
-    samples.push({ t: Math.max(s.at, next - 2 / CLOCK), step: i, act: actName(s.desc), sample: "settled", view: s.view });
+    // (Half a second before the next step: settled, and on the stage
+    // with its spotlight still on.)
+    samples.push({ t: Math.max(s.at, next - (page.staged ? 0.5 : 2 / CLOCK)), step: i, act: actName(s.desc), sample: "settled", view: s.view });
   });
   // Each gesture: the pointer on its way, and on its target just before it
   // acts (checked); a pinch half-way.
@@ -864,7 +904,7 @@ async function stills(format, mode) {
     lastFrame = f;
     const name = `${String(results.length).padStart(2, "0")}-${s.act}-${s.sample}-${(f / CLOCK).toFixed(1)}s.png`;
     writeFileSync(join(dir, name), await page.png());
-    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, caption: info.caption_text ?? null, checks: check(info, format, s.sample, s.target, { ...expect, view: s.view }) });
+    results.push({ file: name, time: f / CLOCK, step: s.step, act: s.act, sample: s.sample, caption: info.caption_text ?? null, checks: check(info, format, s.sample, s.target, { ...expect, view: s.view, spot: page.shots[s.step]?.spot }) });
   }
   // The report the demo exported: saved for real.
   // (Chrome finishes writing it in the background.)
@@ -1293,7 +1333,7 @@ async function pagePreview(from) {
     const videos = await evaluate(`[...document.querySelectorAll("video")].filter((v) => getComputedStyle(v).display !== "none").map((v) => {
       const r = v.getBoundingClientRect();
       return { section: v.closest("section")?.id ?? "top", src: v.querySelector("source").getAttribute("src"),
-               poster: v.getAttribute("poster"), track: v.querySelector("track").getAttribute("src"),
+               poster: v.getAttribute("poster"), track: v.querySelector("track")?.getAttribute("src") ?? null,
                x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height,
                muted: v.muted, inline: v.hasAttribute("playsinline"), controls: v.controls };
     })`);
@@ -1301,7 +1341,8 @@ async function pagePreview(from) {
     const pageWidth = await evaluate("document.documentElement.scrollWidth");
     for (const v of videos) {
       const ok = async (path) => (await fetch(`${new URL(base).origin}/out/demo/page-preview/${path}`, { method: "HEAD" })).ok;
-      const files = (await ok(v.src)) && (await ok(v.poster)) && (await ok(v.track));
+      // A feature video has no subtitle track (captions in the picture).
+      const files = (await ok(v.src)) && (await ok(v.poster)) && (!v.track || (await ok(v.track)));
       const vertical = v.src.includes("vertical");
       // Large: on a phone the vertical video at the width of the screen
       // less the margins; on a wide screen the landscape video at least
@@ -1398,8 +1439,11 @@ await Promise.all(variants.map(({ mode, format }, k) => runVariant(async () => {
     const vtt = join(OUT, captionsFile(mode));
     report[k] = { label, seconds: (Date.now() - t0) / 1000, video: v.name, segments: v.segments, reused: v.reused, drawn: v.drawn, held: v.held, probed: v.probed, errors: v.errors,
       ...(v.sound ? { sounds: v.sound.events.length, dishonest: v.honesty.map((h) => `${h.t.toFixed(2)} s ${h.detail}`) } : {}) };
-    items[k] = { label: v.sound ? `${label} (music + UI sounds)` : label, format, mode, video: v.file, vtt: existsSync(vtt) ? vtt : null };
-    if (v.sound) extra.push({ label: `${label} (UI sounds, no music)`, format, mode, video: v.sound.nomusic, vtt: existsSync(vtt) ? vtt : null });
+    // A subtitle track only for the narration version (no captions in its
+    // picture); the others have theirs burned in: one set ever shows.
+    const track = mode === "narration" && existsSync(vtt) ? vtt : null;
+    items[k] = { label: v.sound ? `${label} (music + UI sounds)` : label, format, mode, video: v.file, vtt: track };
+    if (v.sound) extra.push({ label: `${label} (UI sounds, no music)`, format, mode, video: v.sound.nomusic, vtt: null });
   }
 })));
 const origin = new URL(base).origin;

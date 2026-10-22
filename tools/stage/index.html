@@ -18,13 +18,15 @@
         <div id="titlebar">
           <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           <div id="address"><span class="lock"></span>lightable.dev</div>
+          <div id="chips"><span>1 Drop</span><span>2 Result</span><span>3 Proof</span></div>
         </div>
-        <iframe id="app" title="Lightable"></iframe>
+        <!-- The spotlight dims the app around what the step is about; the
+             window's title bar and the captions stay as they are. -->
+        <div id="appwrap"><iframe id="app" title="Lightable"></iframe><div id="spot"></div></div>
       </div>
     </div>
     <div id="footer"><img src="../../docs/brand/lockup.svg" alt=""></div>
     <div id="overlay">
-      <div id="pulse"></div>
       <div id="landing"></div>
       <div id="cards"></div>
       <div id="ripples"></div>
