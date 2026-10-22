@@ -1274,6 +1274,18 @@ reading big files off the main thread, keyboard pan and zoom).
 7. **Storyboards** are the stills: the sting and each step's settled frame,
    labelled with its scene and caption, published as their own review run.
 
+## Review server that follows the network
+
+1. The review server still listens only on this Mac's home-network
+   address (not all interfaces) and answers only private addresses, but
+   now follows that address when it changes (checked every 5 s): a new
+   network or DHCP lease no longer leaves it listening on a dead address.
+2. `review_server.py install` adds a per-user LaunchAgent (KeepAlive) so
+   it runs whenever the user is logged in and the Mac is awake;
+   `uninstall` removes it. No system setting is changed.
+3. `tools/demo.mjs` holds a `caffeinate -i -s` assertion for its own
+   lifetime and prints the checked review URL when it exits.
+
 ## Rules for M5 (decided before M5)
 
 1. **Saving an edited drawing keeps its DXF version and copies every

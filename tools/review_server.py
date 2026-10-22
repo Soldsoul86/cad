@@ -1,14 +1,19 @@
 """Serves the private demo review page (out/review/) to your phone on the
 home network. Never for publishing.
 
-    python3 tools/review_server.py start    # in the background; prints the URL
+    python3 tools/review_server.py install  # keep it running (login item); prints the URL
+    python3 tools/review_server.py uninstall
+    python3 tools/review_server.py start    # just this session, in the background
     python3 tools/review_server.py stop
-    python3 tools/review_server.py status
+    python3 tools/review_server.py status   # the current URL, checked
+    python3 tools/review_server.py url      # the current URL only
 
 It listens on this Mac's Wi-Fi/Ethernet address only (not on all
-interfaces), answers only clients with private network addresses (home
-network, this Mac), serves only out/review/, and supports byte ranges, which
-iPhone Safari needs to play videos. Development only."""
+interfaces) and follows it when it changes (another network, a new DHCP
+lease), answers only clients with private network addresses (home network,
+this Mac), serves only out/review/, and supports byte ranges, which iPhone
+Safari needs to play videos. `install` adds a per-user LaunchAgent that
+starts it at login and restarts it if it stops. Development only."""
 
 import http.server
 import ipaddress
@@ -17,7 +22,9 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,16 +32,60 @@ SITE = ROOT / "out" / "review"
 PID = SITE / ".server.pid"
 LOG = SITE / ".server.log"
 PORT = 8766
+AGENT = Path.home() / "Library" / "LaunchAgents" / "dev.lightable.review.plist"
+LABEL = "dev.lightable.review"
 
 
-def lan_address():
-    """This Mac's address on the home network (Wi-Fi first)."""
+def current_address():
+    """This Mac's address on the home network (Wi-Fi first), or None."""
     for interface in ("en0", "en1", "en2"):
         out = subprocess.run(["ipconfig", "getifaddr", interface], capture_output=True, text=True)
         address = out.stdout.strip()
         if address and ipaddress.ip_address(address).is_private:
             return address
-    sys.exit("No private network address found (is Wi-Fi on?)")
+    return None
+
+
+def lan_address():
+    return current_address() or sys.exit("No private network address found (is Wi-Fi on?)")
+
+
+def log(line):
+    with open(LOG, "a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}\n")
+
+
+def answers(address):
+    """Whether the page loads from `address` (as a phone would ask)."""
+    try:
+        with urllib.request.urlopen(f"http://{address}:{PORT}/", timeout=3) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def follow():
+    """Serves on the current address, moving when it changes."""
+    PID.write_text(str(os.getpid()))
+    server, bound = None, None
+    while True:
+        address = current_address()
+        if address != bound:
+            if server:
+                server.shutdown()
+                server.server_close()
+                server = None
+                log(f"stopped listening on {bound}")
+            if address:
+                try:
+                    server = http.server.ThreadingHTTPServer((address, PORT), Handler)
+                    threading.Thread(target=server.serve_forever, daemon=True).start()
+                    log(f"listening on http://{address}:{PORT}/")
+                except OSError as e:
+                    log(f"could not listen on {address}: {e}")
+                    address = None
+            bound = address
+        time.sleep(5)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -118,21 +169,49 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else "status"
     SITE.mkdir(parents=True, exist_ok=True)
     if command == "serve":
-        address = sys.argv[2]
-        http.server.ThreadingHTTPServer((address, PORT), Handler).serve_forever()
+        follow()
+    elif command == "url":
+        address = current_address()
+        print(f"http://{address}:{PORT}/" if address else "no network address")
+    elif command == "install":
+        stop_old()
+        AGENT.parent.mkdir(parents=True, exist_ok=True)
+        AGENT.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>{sys.executable}</string><string>{Path(__file__).resolve()}</string><string>serve</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>WorkingDirectory</key><string>{ROOT}</string>
+  <key>StandardErrorPath</key><string>{LOG}</string>
+</dict>
+</plist>
+""")
+        domain = f"gui/{os.getuid()}"
+        subprocess.run(["launchctl", "bootout", domain, str(AGENT)], capture_output=True)
+        subprocess.run(["launchctl", "bootstrap", domain, str(AGENT)], check=True)
+        report(wait=True)
+    elif command == "uninstall":
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(AGENT)], capture_output=True)
+        AGENT.unlink(missing_ok=True)
+        PID.unlink(missing_ok=True)
+        print("Uninstalled.")
     elif command == "start":
         if running():
-            print(f"Already running: http://{lan_address()}:{PORT}/")
+            report()
             return
-        address = lan_address()
-        proc = subprocess.Popen([sys.executable, __file__, "serve", address], start_new_session=True,
+        proc = subprocess.Popen([sys.executable, __file__, "serve"], start_new_session=True,
                                 stdout=subprocess.DEVNULL, stderr=open(LOG, "a"))
-        PID.write_text(str(proc.pid))
         time.sleep(0.5)
         if proc.poll() is not None:
             sys.exit(f"The server did not start; see {LOG}")
-        print(f"Review page: http://{address}:{PORT}/")
+        report(wait=True)
     elif command == "stop":
+        if AGENT.exists():
+            sys.exit("Kept running by its login item: use `uninstall` to stop it.")
         pid = running()
         if pid:
             os.kill(pid, signal.SIGTERM)
@@ -141,8 +220,31 @@ def main():
             print("Not running.")
         PID.unlink(missing_ok=True)
     else:
-        pid = running()
-        print(f"Running (pid {pid}): http://{lan_address()}:{PORT}/" if pid else "Not running.")
+        report()
+
+
+def stop_old():
+    """Stops a server started by hand (`start`), before the login item."""
+    pid = running()
+    if pid:
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.5)
+
+
+def report(wait=False):
+    """The current URL, and whether it really loads from there."""
+    address = current_address()
+    if not address:
+        print("No private network address (is Wi-Fi on?)")
+        return
+    url = f"http://{address}:{PORT}/"
+    ok = answers(address)
+    for _ in range(20 if wait and not ok else 0):
+        time.sleep(0.5)
+        if ok := answers(address):
+            break
+    kept = " (kept running by its login item)" if AGENT.exists() else ""
+    print(f"Review page: {url} - {'loads' if ok else 'NOT answering'}{kept}")
 
 
 if __name__ == "__main__":

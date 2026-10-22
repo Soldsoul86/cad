@@ -207,13 +207,19 @@ identical to the Mac's; use them for review only.
 ## Private review page
 
 ```bash
-python3 tools/review_server.py start    # prints http://<this Mac>:8766/
-python3 tools/review_server.py stop
+python3 tools/review_server.py install    # keep it running; prints http://<this Mac>:8766/
+python3 tools/review_server.py status     # the current URL, checked
+python3 tools/review_server.py uninstall
 ```
 
 Serves `out/review/` (git-ignored) on this Mac's home-network address
 only, to private-network clients only, with byte ranges for iPhone video
-playback. The page shows the newest run first (contact sheets, check
+playback. It follows the address when it changes (checked every 5 s);
+`install` adds a login item (`~/Library/LaunchAgents/dev.lightable.review.plist`)
+that starts it at login and restarts it if it stops. Every
+`tools/demo.mjs` run ends by printing the current URL, checked (starting
+the server if it is down), and keeps the Mac from sleeping while it runs
+(`caffeinate`; a closed lid still sleeps it). The page shows the newest run first (contact sheets, check
 results, videos with subtitles, each with its time and note) and older
 runs folded below; it reloads itself when new output appears.
 

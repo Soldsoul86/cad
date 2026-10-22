@@ -1336,6 +1336,17 @@ async function pagePreview(from) {
 }
 
 const started = Date.now();
+// Long renders: the Mac does not go to sleep while this runs (caffeinate
+// ends with this process). A closed lid still sleeps it.
+spawn("caffeinate", ["-i", "-s", "-w", String(process.pid)], { stdio: "ignore", detached: true }).unref();
+// At the end of every run, also a failed one: the review page's current
+// address (it changes with the network), checked; started if it is down.
+process.on("exit", () => {
+  const server = join(ROOT, "tools", "review_server.py");
+  let line = spawnSync("python3", [server, "status"], { encoding: "utf8" }).stdout?.trim() ?? "";
+  if (!line.includes("- loads")) line = spawnSync("python3", [server, "start"], { encoding: "utf8" }).stdout?.trim() || line;
+  console.error(line || "Review page: could not check (python3 tools/review_server.py status)");
+});
 if (command === "page") {
   const from = opt("from", "cut");
   const p = await pagePreview(from);
