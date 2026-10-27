@@ -43,6 +43,11 @@ import {
 import { cpus, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
+// Node 22 or later: the browser is driven over the built-in WebSocket.
+if (typeof WebSocket === "undefined") {
+  console.error(`tools/demo.mjs needs Node 22 or later (this is ${process.version}).`);
+  process.exit(2);
+}
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 // The machine recordings are made on, named next to any time measured in
 // them (the app's timing line): "a MacBook Air (2-core Intel i3), while
